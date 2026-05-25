@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands
 from discord import ui
 import os
+import sys
 import io
 import sqlite3
 import asyncio
@@ -2883,35 +2884,32 @@ async def on_command_error(ctx, error):
 
 @bot.tree.command(name="shutdown", description="⚡ [ADMIN ONLY] สั่งปิดบอทพร้อมกับดับเครื่องคอมพิวเตอร์บริษัทระยะไกล")
 async def shutdown_all(interaction: discord.Interaction):
-    #  ระบบตรวจสอบสิทธิ์ขั้นสูงสุด ป้องกันผู้อื่นแอบใช้งาน
-    YOUR_DISCORD_ID = 1133740216822267954
+
+    ALLOWED_USERS = [
+        1133740216822267954, # ชะอม
+        856568101919653918   # ชาช่า
+    ]
     
-    if interaction.user.id != YOUR_DISCORD_ID:
+    if interaction.user.id not in ALLOWED_USERS:
         await interaction.response.send_message(
-            "❌ **[ACCESS DENIED]** ไม่มีระดับสิทธิ์ (Clearance Level) เพียงพอในการส่งสัญญาณสั่งดับเครื่องคอมพิวเตอร์ที่ใช้รันแบ็คลี่ครับ!", 
+            "❌ **[ACCESS DENIED]** ไม่มีระดับสิทธิ์ (Clearance Level) เพียงพอในการสั่งดับเครื่องคอมพิวเตอร์ครับ!", 
             ephemeral=True
         )
         return
 
-    # 📡 ส่งสัญญาณแจ้งเตือนระบบเตรียมปิดตัวลงเซิร์ฟเวอร์
     await interaction.response.send_message(
-        "🛸 **[DEDSEC REMOTE HACK]** กำลังทำการปิดระบบแบ็คลี่ และเครื่องคอมพิวเตอร์ที่ใช้รันแบ็คลี่ในอีก 5 วินาที..."
+        f"🛸 **[DEDSEC REMOTE HACK]** รับทราบครับคุณ **{interaction.user.display_name}**! กำลังทำการปิดระบบแบ็คลี่ และ Shut Down เครื่องคอมพิวเตอร์ที่ใช้รันแบ็คลี่ในอีก 5 วินาที...  💻💤"
     )
 
-    # หน่วงเวลา 5 วินาที เพื่อปล่อยให้ตัวบอทจัดการส่งข้อความและเคลียร์สถานะใน Discord ให้เสร็จสมบูรณ์
     await asyncio.sleep(5.0)
     
-    print("🛸 กำลังเคลียร์ไฟล์ระบบ ปิดการทำงานของบอท และ Shut Down เครื่อง...")
+    print(f"🛸 คำสั่งอนุมัติโดย {interaction.user.name} กำลังทำการปิดบอท และ Shut Down เครื่อง...")
 
-    # 🔌 1. สั่งให้บอท Bagley ปิดการเชื่อมต่อตัวเองอย่างสมบูรณ์เพื่อเซฟไฟล์ฐานข้อมูล (.db)
     await bot.close()
 
-    # 💻 2. ยิงคำสั่งดิ่งตรงไปที่ตัวเครื่องคอมพิวเตอร์เพื่อทำการดับเครื่องทันที
     if sys.platform == "win32":
-        # สำหรับ Windows: /s สั่งปิด, /f บังคับปิดโปรแกรมที่ค้างอยู่, /t 0 ดับทันทีไม่ต้องรอเคาท์ดาวน์
         os.system("shutdown /s /f /t 0")
     else:
-        # สำหรับ Linux / Mac OS
         os.system("sudo shutdown -h now")
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
