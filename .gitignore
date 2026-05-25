@@ -10,3 +10,9 @@ bagley_memory.db
 
 # ซ่อนไฟล์เก็บข้อมูล JSON ทั้งหมดของระบบบอท
 *.json
+
+# ไฟล์รันแบ็คลี่
+run_bagley.vbs
+
+# ตัวเริ่มแบบไม่แสดงหน้า Terminal
+start_hidden.bat.bat

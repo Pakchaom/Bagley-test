@@ -2934,7 +2934,7 @@ async def update_bot(ctx: commands.Context):
     
     await asyncio.sleep(3.0)
     
-    bot_dir = r"C:\Bagley-test"
+    bot_dir = os.path.dirname(os.path.abspath(__file__))
     bat_file = os.path.join(bot_dir, "start_hidden.bat")
 
     try:
