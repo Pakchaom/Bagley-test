@@ -1116,20 +1116,19 @@ async def on_message(message):
             return
 
     # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
+    is_sqlite_triggered = False
+
     if message.guild is not None:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if not any(keyword in lower_content for keyword in bot_keywords):
-            # ยอมให้ผ่านไปทำคำสั่งอื่นด้านล่าง (เช่น แปลภาษา) แต่ไม่ทำของ SQLite บล็อกนี้
-            pass
+        if any(keyword in lower_content for keyword in bot_keywords):
+            is_sqlite_triggered = True
     else:
-        # ถ้าอยู่ใน DM ให้ข้ามตัวดักแชทกลุ่มผ่านฉลุย
-        bot_keywords = []
+        is_sqlite_triggered = True
 
-    # ตรวจสอบฐานข้อมูล SQLite เฉพาะตอนที่ผ่านดักกลุ่มมาได้ (หรือเมื่อคุยใน DM)
-    if message.guild is None or any(keyword in lower_content for keyword in bot_keywords):
+    if is_sqlite_triggered:
         cursor.execute("SELECT keyword, response FROM teach_memory")
         all_teachings = cursor.fetchall()
-    
+        
         matched_response = None
         for keyword, response_text in all_teachings:
             if keyword in lower_content:
@@ -1137,26 +1136,31 @@ async def on_message(message):
                 break
 
         if matched_response:
-            bagley_prompt = (
-                f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs "
-                f"คุณต้องเรียกผู้ใช้ทุกคนว่า 'เมท (mate)' หรือ 'คุณ {message.author.display_name}' "
-                f"และชอบลงท้ายประโยคอย่างสุภาพแกมกวนด้วยคำว่า 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ "
-                f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์ของคุณเอง "
-                f"โดยยังคงรักษาใจความสำคัญของข้อมูลเดิมไว้ครบถ้วน และตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ"
-            )
-            
-            try:
-                response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=bagley_prompt
+            async with message.channel.typing():
+                bagley_prompt = (
+                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
+                    f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
+                    f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
+                    f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
+                    f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
                 )
-                bagley_styled_text = response.text
-            except Exception as e:
-                print(f"Teach Gemini Error: {e}")
-                bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้แล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠✨"
+                
+                try:
+                    response = await client.aio.models.generate_content(
+                        model="gemini-3.1-flash-lite-preview",
+                        contents=bagley_prompt
+                    )
+                    bagley_styled_text = response.text.strip()
+                    
+                    if not bagley_styled_text:
+                        bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
+                        
+                except Exception as e:
+                    print(f"🚨 Teach Gemini DM/Guild Error: {e}")
+                    bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
 
-            await message.reply(bagley_styled_text)
-            return
+                await message.reply(bagley_styled_text)
+                return
 
     # 🌐 [ระบบแปลภาษาคู่ขนาน] ──────────────────────────────────────────
     if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
