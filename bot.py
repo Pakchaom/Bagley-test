@@ -919,7 +919,6 @@ async def on_message(message):
             caller_mention = message.author.mention
             final_text = response_text.replace("{user}", caller_mention)
             
-            await message.channel.send(final_text)
             break
 
     # --- [ส่วนที่ 1: ระบบตรวจจับสแปม] ---
@@ -935,7 +934,7 @@ async def on_message(message):
                         await message.delete()
                         if data['count'] == SPAM_THRESHOLD:
                             await message.channel.send(
-                                f"🚨 **ระบบตรวจพบการสแปม!** \n{message.author.mention} หยุดปั่นกระแสได้แล้วครับเมท!",
+                                f"🚨 **ระบบตรวจพบการสแปม!** \n{message.author.mention} หยุดปั่นได้แล้วครับเมท!",
                                 delete_after=15
                             )
                             if message.guild and message.guild.voice_client:
@@ -1137,12 +1136,13 @@ async def on_message(message):
                 break
 
         if matched_response:
+            print("🤠 [Debug]: เข้าแผน A (คลังข้อมูล SQLite)")
             async with message.channel.typing():
                 bagley_prompt = (
-                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
+                    f"คุณคือ Bagley (แบ็คลี่) บоท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
                     f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
                     f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
-                    f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
+                    f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมо\n"
                     f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
                 )
                 
@@ -1164,12 +1164,13 @@ async def on_message(message):
                 return
 
         elif message.guild is None:
+            print("🛸 [Debug]: เข้าแผน B (คุยเล่นอิสระใน DM)")
             async with message.channel.typing():
                 free_chat_prompt = (
-                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ซื่อสัตย์จากโลก DedSec ในเกม Watch Dogs\n"
+                    f"คุณคือ Bagley (แบ็คลี่) บоท AI คู่หูสุดกวนแต่ซื่อสัตย์จากโลก DedSec ในเกม Watch Dogs\n"
                     f"ผู้ใช้ชื่อ คุณ {message.author.display_name} ทักคุณมาในแชทส่วนตัว (DM) ว่า: '{message.content}'\n"
                     f"จงตอบกลับเขาในฐานะคู่หู AI สุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์\n"
-                    f"ใช้สรรพนามแทนผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ตอบเป็นภาษาไทยน้า"
+                    f"ใช้สรรพนามแทนผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมо ตอบเป็นภาษาไทยน้า"
                 )
                 try:
                     response = await client.aio.models.generate_content(
@@ -1183,7 +1184,7 @@ async def on_message(message):
                         
                 except Exception as e:
                     print(f"🚨 Free Chat Gemini Error: {e}")
-                    bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับเมท! 🤖🛸"
+                    bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋оชั่วคราวครับเมท! 🤖🛸"
 
                 await message.reply(bagley_styled_text)
                 return
