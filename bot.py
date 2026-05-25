@@ -1354,6 +1354,10 @@ async def on_message(message):
 
     # 🔊 [ระบบสรุปสถิติห้องเสียง] ──────────────────────────────────────────
     if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
         if message.guild is None:
             await message.reply("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเข้าไปส่องห้องเสียงไม่ได้ครับพ้ม! 🛸❌")
             return
@@ -1387,6 +1391,10 @@ async def on_message(message):
 
     # 🔇 [ระบบปิดรายงานห้องเสียง] ──────────────────────────────────────────
     if "ปิดรายงานห้องเสียง" in lower_content or "ปิดทักห้องเสียง" in lower_content:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
         if message.guild is None:
             await message.reply("ใน DM ผมไม่ได้สแตนด์บายเปิดปากพูดอยู่แล้วครับเมท! 555 🛸")
             return
@@ -1402,6 +1410,10 @@ async def on_message(message):
 
     # 🔊 [ระบบเปิดรายงานห้องเสียง] ──────────────────────────────────────────
     if "เปิดรายงานห้องเสียง" in lower_content or "เปิดทักห้องเสียง" in lower_content:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
         if message.guild is None:
             return
             
@@ -1416,6 +1428,10 @@ async def on_message(message):
 
     # 📸 [ระบบสแกนรูปภาพด้วยสมองกล Gemini] ─────────────────────────────────────────
     if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
         has_image = False
         target_message = message
 
@@ -1434,11 +1450,6 @@ async def on_message(message):
         if has_image:
             is_dm = isinstance(message.channel, discord.DMChannel)
             user_msg_clean = message.content.strip()
-            
-            if not is_dm:
-                if not any(keyword in user_msg_clean.lower() for keyword in ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]):
-                    await bot.process_commands(message)
-                    return
 
             if is_dm and not user_msg_clean:
                 await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับเมท? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
@@ -1488,8 +1499,10 @@ async def on_message(message):
     found_trigger = next((word for word in trigger_words if word in lower_content), None)
 
     if found_trigger:
-        parts = message.content.split(found_trigger, 1)
-        reason = parts[1].strip() if len(parts) > 1 else ""
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if any(keyword in lower_content for keyword in bot_keywords):
+            parts = message.content.split(found_trigger, 1)
+            reason = parts[1].strip() if len(parts) > 1 else ""
 
         if reason:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -1512,17 +1525,21 @@ async def on_message(message):
         away_users = cursor.fetchall()
 
         if message.mentions:
-            target_user = message.mentions[0]
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if any(keyword in lower_content for keyword in bot_keywords):
+                target_user = message.mentions[0]
         
         elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
-            cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
-            active_away_users = cursor.fetchall()
-            
-            for (uid,) in active_away_users:
-                member = message.guild.get_member(int(uid))
-                if member and (member.display_name in message.content or member.name in message.content):
-                    target_user = member
-                    break
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if any(keyword in lower_content for keyword in bot_keywords):
+                cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
+                active_away_users = cursor.fetchall()
+                
+                for (uid,) in active_away_users:
+                    member = message.guild.get_member(int(uid))
+                    if member and (member.display_name in message.content or member.name in message.content):
+                        target_user = member
+                        break
 
         if target_user:
             cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
@@ -1550,9 +1567,12 @@ async def on_message(message):
                 await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
                 await bagley_speak(message.guild, reply)
 
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
         # A. หมวดคำสั่งจัดการสมาชิก (Kick/Move)
         if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
-            # 1. เช็คโควต้า
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
                 return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
@@ -1642,7 +1662,10 @@ async def on_message(message):
                 await message.reply("❓ เมทต้องบอกชื่อห้องที่ต้องการให้ผมเซ็ตด้วยนะครับ เช่น 'แบ็คลี่ เซ็ตห้องแจ้งเตือน ห้องแชททั่วไป'")
                 return
 
-        elif any(k in lower_content for k in ["ย้ายกลุ่ม", "แยกกลุ่ม", "ย้ายห้องกัน"]):
+        # 🔄 หมวดคำสั่งย่อยต่าง ๆ (จะทำงานเมื่อมีการเรียกชื่อบอทควบคู่ไปด้วยเท่านั้น!)
+        if any(k in lower_content for k in ["ย้ายกลุ่ม", "แยกกลุ่ม", "ย้ายห้องกัน"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # 1. เช็คโควต้า
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
@@ -1656,6 +1679,8 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["สร้างห้อง", "เปิดห้อง", "ตั้งปาร์ตี้"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # ดึงชื่อห้องจากข้อความ (ลบคำสั่งออก)
             party_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
             for k in ["สร้างห้อง", "เปิดห้อง", "ตั้งปาร์ตี้", "ชื่อ", "หน่อย", "ที"]:
@@ -1666,6 +1691,8 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["ปิดเสียง", "ปิดไมค์"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
                 return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
@@ -1678,22 +1705,38 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["เปิดเสียงให้ที", "เปิดเสียงให้หน่อย", "เปิดไมค์ให้หน่อย", "เปิดไมค์ให้ที"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             await ctx.invoke(bot.get_command('unmute_me'))
             return
 
         elif any(k in lower_content for k in ["เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # 1. เช็คโควต้า (ใช้ระบบ Shared Cooldown)
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
                 return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
 
+            # ✨ [จัดระเบียบใหม่] ดึงโค้ดตรวจสอบตรวจสอบการแท็กเปิดไมค์ที่เคยเขียนเยื้องหลุดตำแหน่ง กลับเข้ามาทำงานตรงนี้ให้ถูกคอร์ส
+            if message.mentions:
+                target = message.mentions[0]
+                await ctx.invoke(bot.get_command('unmute_member'), member=target)
+            else:
+                await message.channel.send("จะให้ผมเปิดไมค์ให้ใคร รบกวน @แท็กชื่อ เพื่อนด้วยครับเมท")
+            return
+
         elif "เซ็ตห้องแจ้งเตือนห้อง" in lower_content:
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # ตรวจสอบสิทธิ์แอดมินก่อน
             if not message.author.guild_permissions.administrator:
                 return await message.reply("ขออภัยครับเมท คำสั่งระดับสูงแบบนี้ต้องให้แอดมินสั่งเท่านั้นครับ")
 
             # ดึงชื่อห้องที่คนพิมพ์มา (ตัดคำว่า 'เซ็ตห้องแจ้งเตือนห้อง' ออกเพื่อหาชื่อห้อง)
             channel_name = lower_content.split("เซ็ตห้องแจ้งเตือนห้อง")[-1].strip()
+            # ไล่ตัดคีย์เวิร์ดชื่อบอทออกเพื่อป้องกันดึงชื่อห้องเพี้ยน
+            channel_name = channel_name.replace("แบ็คลี่", "").replace("bagley", "").strip()
             
             # ค้นหาห้องในเซิร์ฟเวอร์ที่ชื่อตรงกัน
             target_channel = discord.utils.get(message.guild.text_channels, name=channel_name)
@@ -1712,15 +1755,9 @@ async def on_message(message):
                 await message.reply(f"หาห้องที่ชื่อ '{channel_name}' ไม่พบครับเมท รบกวนเช็คชื่อห้องอีกทีนะครับ")
             return
 
-            # 2. ตรวจสอบว่าแท็กใครมา
-            if message.mentions:
-                target = message.mentions[0]
-                await ctx.invoke(bot.get_command('unmute_member'), member=target)
-            else:
-                await message.channel.send("จะให้ผมเปิดไมค์ให้ใคร รบกวน @แท็กชื่อ เพื่อนด้วยครับเมท")
-            return
-
         elif any(k in lower_content for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
                 return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
@@ -1733,10 +1770,14 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["เปิดหูฟังให้ฉัน", "กลับมาแล้ว", "เลิกทำงานแล้ว"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             await ctx.invoke(bot.get_command('undeaf_me'))
             return
 
         elif any(k in lower_content for k in ["เปิดหูฟังให้", "ปลดหูฟังให้"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
                 return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
@@ -1747,6 +1788,8 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # เช็คสิทธิ์การใช้งาน Cooldown
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
@@ -1767,6 +1810,8 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["ปิดระบบ", "ปิดเครื่อง", "เลิกงานแล้ว", "พักผ่อนได้", "shutdown"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # 🛡️ ตรวจสอบความปลอดภัย: ต้องเป็นเจ้าของบอทเท่านั้นที่สั่งผ่านหูทิพย์ได้
             if await bot.is_owner(message.author):
                 # เรียกใช้คำสั่ง shutdown
@@ -1777,6 +1822,8 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["รีเซ็ตคำสั่ง", "ตรวจสอบคำสั่ง", "เช็คคำสั่ง"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             # 🛡️ ตรวจสอบความปลอดภัย: ต้องเป็นเจ้าของบอทเท่านั้นที่สั่งผ่านหูทิพย์ได้
             if await bot.is_owner(message.author):
                 await ctx.invoke(bot.get_command('sync'))
@@ -1786,6 +1833,8 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             data_memory = load_user_data()
             
             # 1. กรณีลบให้เพื่อน (Tag)
@@ -1808,17 +1857,22 @@ async def on_message(message):
                     await message.reply("ล้างข้อมูลชื่อของคุณเรียบร้อย ต่อไปนี้ผมจะทักทายคุณแบบปกติครับ")
                 else:
                     await message.reply("ผมยังไม่ได้จำชื่อของเมทไว้เลยนะครับ")
-            
             return
 
         # B. หมวดคำสั่งทั่วไป (Join / Play / Register / YouTube)
         elif any(word in lower_content for word in ["เข้ามา", "join", "มานี่", "เข้ามาในห้อง", "เข้ามาห้อง"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('join'))
             return
+
         elif any(word in lower_content for word in ["ลงทะเบียน", "สมัคร", "register"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('register'))
             return
+
         elif any(word in lower_content for word in ["เปิดเพลง", "หาเพลง", "play", "เล่นเพลง"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
+            
             original_msg = message.content
             url_match = regex_lib.search(r'(https?://[^\s]+)', original_msg)
             if url_match:
@@ -1834,34 +1888,41 @@ async def on_message(message):
                 ctx = await bot.get_context(message)
                 play_command = bot.get_command('play')
                 if play_command:
-                # แก้จาก cmd เป็น play_command ให้ตรงกัน
                     await ctx.invoke(play_command, search=song_query)
             else:
-            # กรณีพิมพ์แค่คำสั่ง แต่ไม่มีชื่อเพลง/ลิ้งค์
                 msg = "จะให้ผมเปิดเพลงอะไรล่ะครับ บอกชื่อเพลงมาสิครับเมท"
                 ctx = await bot.get_context(message)
-            
-            # พูดออกเสียง
+                
+                # พูดออกเสียง
                 if not ctx.voice_client or not ctx.voice_client.is_playing():
                     await bagley_speak(ctx.guild, msg)
-            
-            # ตอบกลับในแชท
+                
+                # ตอบกลับในแชท
                 await message.reply(msg)
-            
             return
+
         elif any(word in lower_content for word in ["หยุดเพลง", "ปิดเพลง", "stop", "ลำคาญ", "หนวกหู"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('stop'))
             return
+
         elif any(word in lower_content for word in ["ออกไป", "ออกไปก่อน", "ขอคุยธุระ", "ออกจากห้อง"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('leave'))
             return
+
         elif any(word in lower_content for word in ["เพลงถัดไป", "ข้ามเพลง", "เพลงต่อไป", "ข้าม"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('skip'))
             return
+
         elif any(word in lower_content for word in ["เรียกประชุม", "ตามคน", "ตามเพื่อน", "จัดประชุม", "ชวนคน", "ชวนเพื่อน"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('gather'))
             return
+
         elif any(word in lower_content for word in ["ปิดล่าม", "เปิดล่าม", "หยุดพูด", "ไม่ต้องพูด", "พูดให้"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             mode_input = None
             if any(k in lower_content for k in ["เปิด", "พูดให้"]):
                 mode_input = "on"
@@ -1869,37 +1930,24 @@ async def on_message(message):
                 mode_input = "off"
             await ctx.invoke(bot.get_command('tts'), mode=mode_input)
             return
+
         elif any(word in lower_content for word in ["เช็คสถานะระบบ", "ตรวจสอบระบบ", "เช็คการทำงาน", "คุณโอเคมั้ย", "คุณโอเคไหม", "ตรวจสอบสถานะการทำงาน"]):
+            if not any(keyword in lower_content for keyword in bot_keywords): return
             await ctx.invoke(bot.get_command('diagnostic'))
             return
-            
-            # --- ส่วนเช็คคูลดาวน์ร่วมกัน ---
-            bucket = command._buckets.get_bucket(message)
-            retry_after = bucket.update_rate_limit()
-            
-            if retry_after:
-                await gather_error(ctx, commands.CommandOnCooldown(bucket, retry_after, commands.BucketType.guild))
-                return
-            # ----------------------------
-
-            await ctx.invoke(command)
 
         # C. ถ้าไม่ตรงกับคำสั่งไหนเลย => ส่งให้ AI Gemini ตอบ
         elif "แบ็คลี่" in lower_content or "bagley" in lower_content or bot.user.mentioned_in(message) or message.guild is None:
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
-            # ตัด Mention ID ออก
             user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
 
-            # ตรวจสอบว่ามีคำถาม หรือเป็น DM (is_dm)
             if user_question or (message.guild is None):
                 async with message.channel.typing():
                     try:
-                        # 1. บันทึกและโหลดประวัติ
                         user_id = str(message.author.id)
                         save_message(user_id, "user", user_question)
                         history = load_history(user_id)
                         
-                        # 2. ส่งให้โมเดลประมวลผล
                         response = await client.aio.models.generate_content(
                             model=MODEL_NAME, 
                             config={'system_instruction': SYSTEM_PROMPT},
@@ -1907,21 +1955,18 @@ async def on_message(message):
                         )
                         answer = response.text
                         
-                        # 3. ตอบกลับและบันทึก
                         await message.reply(answer)
                         save_message(user_id, "model", answer)
 
                         clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
                         
-                        # 4. ส่งเสียงพูด (ถ้าบอทอยู่ในห้องเสียง)
                         if message.guild and message.guild.voice_client:
-                            # เช็คว่าบอทไม่ได้เล่นเพลงอยู่ค่อยพูด
                             if not message.guild.voice_client.is_playing():
                                 await bagley_speak(message.guild, clean_answer)
 
                     except Exception as e:
                         await message.reply("วงจรประมวลผลผมสะดุดนิดหน่อยครับเมท!")
-                        print(f"AI Error: {e}") # ดู Error ใน Terminal ว่ามันฟ้องอะไร
+                        print(f"AI Error: {e}")
             else:
                 await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
             return
