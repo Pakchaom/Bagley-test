@@ -2,6 +2,7 @@
 import discord
 from discord.ext import commands
 from discord import ui
+import subprocess
 import os
 import sys
 import io
@@ -44,6 +45,15 @@ created_party_channels = []
 is_playing_music = False
 
 is_tts_enabled = False
+
+# ID Discord ของ Owner
+OWNER_DISCORD_ID = 1133740216822267954  
+
+# รายชื่อผู้มีสิทธิ์สั่ง Shut Down คอมพิวเตอร์ได้
+ALLOWED_SHUTDOWN_USERS = [
+    1133740216822267954,  # ชะอม
+    856568101919653918    # ชาช่า
+]
 
 # เก็บข้อความล่าสุดของแต่ละคนเพื่อตรวจจับสแปม
 spam_check = {} 
@@ -2882,23 +2892,17 @@ async def on_command_error(ctx, error):
     else:
         print(f'Ignoring exception in command {ctx.command}:', error)
 
-@bot.tree.command(name="shutdown", description="⚡ [ADMIN ONLY] สั่งปิดบอทพร้อมกับดับเครื่องคอมพิวเตอร์บริษัทระยะไกล")
+@bot.tree.command(name="shutdown", description="⚡ สั่งปิดบอทพร้อมกับดับเครื่องคอมพิวเตอร์บริษัทระยะไกล")
 async def shutdown_all(interaction: discord.Interaction):
-
-    ALLOWED_USERS = [
-        1133740216822267954, # ชะอม
-        856568101919653918   # ชาช่า
-    ]
-    
-    if interaction.user.id not in ALLOWED_USERS:
+    if interaction.user.id not in ALLOWED_SHUTDOWN_USERS:
         await interaction.response.send_message(
-            "❌ **[ACCESS DENIED]** ไม่มีระดับสิทธิ์ (Clearance Level) เพียงพอในการสั่งดับเครื่องคอมพิวเตอร์ครับ!", 
+            "❌ **[ACCESS DENIED]** ไม่มีระดับสิทธิ์เพียงพอในการสั่งดับเครื่องคอมพิวเตอร์ครับ!", 
             ephemeral=True
         )
         return
 
     await interaction.response.send_message(
-        f"🛸 **[DEDSEC REMOTE HACK]** รับทราบครับคุณ **{interaction.user.display_name}**! กำลังทำการปิดระบบแบ็คลี่ และ Shut Down เครื่องคอมพิวเตอร์ที่ใช้รันแบ็คลี่ในอีก 5 วินาที...  💻💤"
+        f"🛸 **[DEDSEC REMOTE HACK]** รับทราบครับคุณ **{interaction.user.display_name}**! กำลังปิดระบบแบ็คลี่ และ Shut Down คอมพิวเตอร์ใน 5 วินาที... 💻💤"
     )
 
     await asyncio.sleep(5.0)
@@ -2911,6 +2915,33 @@ async def shutdown_all(interaction: discord.Interaction):
         os.system("shutdown /s /f /t 0")
     else:
         os.system("sudo shutdown -h now")
+
+@bot.tree.command(name="update_bot", description="🚀 [OWNER ONLY] สั่งดึงโค้ดใหม่จาก GitHub และรีสตาร์ทบอททันที")
+async def update_and_restart(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_DISCORD_ID:
+        await interaction.response.send_message(
+            "❌ **[ACCESS DENIED]** เมทไม่มีสิทธิ์เข้าถึงคำสั่งอัปเดตระบบแกนกลางนี้ครับ!", 
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message("📡 **[SYSTEM UPDATE]** กำลังดึงโค้ดล่าสุดจาก GitHub และทำการรีสตาร์ทบอทใน 3 วินาทีครับพ้ม...")
+
+    try:
+        process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process.communicate()
+        
+    except Exception as e:
+        await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการดึงโค้ด: `{e}`", ephemeral=True)
+        return
+
+    await asyncio.sleep(3.0)
+
+    await bot.close()
+
+    subprocess.Popen([sys.executable] + sys.argv)
+    
+    os._exit(0)
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
 async def profile_scan(ctx, member: discord.Member):
