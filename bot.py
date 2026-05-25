@@ -2985,7 +2985,50 @@ async def update_bot(ctx: commands.Context):
             text=True
         )
         print(f"🤠 [Git Pull Success]:\n{git_output}")
-        await ctx.send(f"✅ **[GIT PULL SUCCESS]** ดึงโค้ดล่าสุดสำเร็จแล้วครับเมท!\n
+        
+        await ctx.send(f"✅ **[GIT PULL SUCCESS]** ดึงโค้ดล่าสุดสำเร็จแล้วครับเมท!")
+        
+    except subprocess.CalledProcessError as e:
+        error_git = f"❌ **[GIT PULL FAILED]** บอทสั่งดึงโค้ดไม่สำเร็จเนื่องจาก:\n```\n{e.output}\n```"
+        print(error_git)
+        await ctx.send(error_git)
+        return
+        
+    except Exception as e:
+        error_system = f"❌ **[SYSTEM ERROR]** ระบบไม่มีโปรแกรม Git หรือหา Path ไม่เจอ: {e}"
+        print(error_system)
+        await ctx.send(error_system)
+        return
+
+    await ctx.send("🔄 โค้ดพร้อมแล้ว! กำลังสั่งเปิดบอทเวอร์ชันใหม่ใน 3 วินาทีครับพ้ม...")
+    await asyncio.sleep(3.0)
+    
+    bot_dir = os.path.dirname(os.path.abspath(__file__))
+    bat_file = os.path.join(bot_dir, "start_hidden.bat")
+
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(
+                [bat_file], 
+                cwd=bot_dir, 
+                shell=True, 
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
+        
+    except Exception as e:
+        error_bat = f"❌ **[BAT FILE ERROR]** เกิดข้อผิดพลาดตอนเรียกไฟล์ .bat: {e}"
+        print(error_bat)
+        await ctx.send(error_bat)
+        return
+
+    try:
+        global conn
+        conn.close()
+    except Exception as db_err:
+        print(f"DEBUG DB Close Error: {db_err}")
+
+    await bot.close()
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
 async def profile_scan(ctx, member: discord.Member):
