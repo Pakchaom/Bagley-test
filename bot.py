@@ -1163,6 +1163,31 @@ async def on_message(message):
                 await message.reply(bagley_styled_text)
                 return
 
+        elif message.guild is None:
+            async with message.channel.typing():
+                free_chat_prompt = (
+                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ซื่อสัตย์จากโลก DedSec ในเกม Watch Dogs\n"
+                    f"ผู้ใช้ชื่อ คุณ {message.author.display_name} ทักคุณมาในแชทส่วนตัว (DM) ว่า: '{message.content}'\n"
+                    f"จงตอบกลับเขาในฐานะคู่หู AI สุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์\n"
+                    f"ใช้สรรพนามแทนผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ตอบเป็นภาษาไทยน้า"
+                )
+                try:
+                    response = await client.aio.models.generate_content(
+                        model="gemini-3.1-flash-lite-preview", 
+                        contents=free_chat_prompt
+                    )
+                    bagley_styled_text = response.text.strip()
+                    
+                    if not bagley_styled_text:
+                        bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ยินดีที่ได้คุยใน DM ครับเมท!"
+                        
+                except Exception as e:
+                    print(f"🚨 Free Chat Gemini Error: {e}")
+                    bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับเมท! 🤖🛸"
+
+                await message.reply(bagley_styled_text)
+                return
+
     # 🌐 [ระบบแปลภาษาคู่ขนาน] ──────────────────────────────────────────
     if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
         if message.guild is not None:
@@ -2951,22 +2976,16 @@ async def update_bot(ctx: commands.Context):
         await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
         return
 
-    await ctx.send("📡 **[SYSTEM UPDATE]** กำลังดึงโค้ดล่าสุดจาก GitHub และทำการรีสตาร์ทบอทใน 3 วินาทีครับพ้ม...")
+    await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดจาก GitHub...")
     
-    await asyncio.sleep(3.0)
-    
-    bot_dir = os.path.dirname(os.path.abspath(__file__))
-    bat_file = os.path.join(bot_dir, "start_hidden.bat")
-
     try:
-        if sys.platform == "win32":
-            subprocess.Popen([bat_file], cwd=bot_dir, shell=True)
-            
-        print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
-    except Exception as e:
-        print(f"❌ เกิดข้อผิดพลาดตอนเรียกไฟล์ .bat: {e}")
-
-    await bot.close()
+        git_output = subprocess.check_output(
+            ["git", "pull"], 
+            stderr=subprocess.STDOUT, 
+            text=True
+        )
+        print(f"🤠 [Git Pull Success]:\n{git_output}")
+        await ctx.send(f"✅ **[GIT PULL SUCCESS]** ดึงโค้ดล่าสุดสำเร็จแล้วครับเมท!\n
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
 async def profile_scan(ctx, member: discord.Member):
