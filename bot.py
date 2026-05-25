@@ -55,6 +55,14 @@ ALLOWED_SHUTDOWN_USERS = [
     856568101919653918    # ชาช่า
 ]
 
+# รายชื่อผู้มีสิทธิ์สั่ง Teach แบ็คลี่ได้
+ALLOWED_TEACH_USERS = [
+    1133740216822267954,  # ชะอม
+    856568101919653918    # ชาช่า
+    732953446172327956    # คุณบอล
+    1073827310026903612    # ลุงกร
+]
+
 # เก็บข้อความล่าสุดของแต่ละคนเพื่อตรวจจับสแปม
 spam_check = {} 
 SPAM_THRESHOLD = 3  # พิมพ์ซ้ำครั้งที่ 3 เป็นต้นไปจะถูกลบ
@@ -3285,19 +3293,76 @@ async def clear_user_reminders(ctx: commands.Context, member: discord.Member):
         await ctx.send(f"ไม่พบรายการแจ้งเตือนหรือนาฬิกาปลุกของ คุณ {member.display_name} ในระบบครับเมท")
 
 @bot.hybrid_command(name="teach", description="สอนให้แบ็คลี่จำคีย์เวิร์ดคำถามและคำตอบ")
-@commands.is_owner()
 async def teach(ctx: commands.Context, keyword: str, response: str):
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        return
+
     await ctx.defer(ephemeral=False)
+    
     global conn
     c = conn.cursor()
-    
     c.execute(
         "INSERT OR REPLACE INTO teach_memory (keyword, response) VALUES (?, ?)",
         (keyword.lower().strip(), response.strip())
     )
     conn.commit()
     
-    await ctx.send(f"รับทราบครับเมท! แบ็คลี่จดบันทึกคีย์เวิร์ด **'{keyword}'** เข้าคลังสมองกล SQLite เรียบร้อยแล้วครับพ้ม! 🧠✨")
+    await ctx.send(f"รับทราบครับเมท! แบ็คลี่จดจำคีย์เวิร์ด **'{keyword}'** เข้าคลังสมองกล SQLite เรียบร้อยแล้วครับพ้ม! 🧠✨")
+
+@bot.hybrid_command(name="unteach", description="สั่งให้แบ็คลี่ลืมคีย์เวิร์ดคำถามที่ไม่ต้องการ")
+async def unteach(ctx: commands.Context, keyword: str):
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        return
+
+    await ctx.defer(ephemeral=False)
+    
+    global conn
+    c = conn.cursor()
+    
+    clean_keyword = keyword.lower().strip()
+    c.execute("SELECT response FROM teach_memory WHERE keyword = ?", (clean_keyword,))
+    result = c.fetchone()
+    
+    if result is None:
+        await ctx.send(f"🤖 แบ็คลี่ลองค้นดูแล้ว... ไม่พบคีย์เวิร์ด **'{keyword}'** ในระบบเลยครับเมท ลองเช็กตัวสะกดดูอีกทีน้า!")
+        return
+
+    c.execute("DELETE FROM teach_memory WHERE keyword = ?", (clean_keyword,))
+    conn.commit()
+    
+    await ctx.send(f"รับทราบครับเมท! แบ็คลี่ทำการลบและลืมคีย์เวิร์ด **'{keyword}'** ออกจากคลังสมองกลเรียบร้อยแล้วครับพ้ม! 🧼🧠❌")
+
+@bot.hybrid_command(name="list_teach", description="เรียกดูรายการคีย์เวิร์ดทั้งหมดที่เคยสอนแบ็คลี่ไว้")
+async def list_teach(ctx: commands.Context):
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        return
+
+    await ctx.defer(ephemeral=False)
+    
+    global conn
+    c = conn.cursor()
+    
+    c.execute("SELECT keyword FROM teach_memory ORDER BY keyword ASC")
+    rows = c.fetchall()
+    
+    if not rows:
+        await ctx.send("🤖 แบ็คลี่ลองค้นคลังสมองดูแล้ว... ตอนนี้ยังไม่มีคีย์เวิร์ดที่เคยสอนไว้เลยครับเมท ว่างเปล่าสุด ๆ!")
+        return
+
+    keyword_list = []
+    for index, row in enumerate(rows, start=1):
+        keyword_list.append(f"{index}. **{row[0]}**")
+    
+    all_keywords_text = "\n".join(keyword_list)
+    
+    await ctx.send(
+        f"🧠 **[BAGLEY MEMORY BANK]** \n"
+        f"นี่คือรายการคีย์เวิร์ดทั้งหมดที่เมทเคยสอนผมไว้ครับพ้ม! 👇\n\n"
+        f"{all_keywords_text}"
+    )
 
 @bot.tree.command(name="report_voice", description="เปิดหรือปิดระบบพูดรายงานทักทายตอนคนเข้า-ออกห้องเสียง")
 @app_commands.choices(status=[
