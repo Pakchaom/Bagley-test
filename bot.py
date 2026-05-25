@@ -858,10 +858,11 @@ SYSTEM_PROMPT = """
 MODEL_NAME = "gemini-3.1-flash-lite-preview"
 
 intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.messages = True
-intents.voice_states = True
+intents.message_content = True 
+intents.members = True          
+intents.voice_states = True    
+intents.guild_messages = True   
+intents.dm_messages = True     
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
