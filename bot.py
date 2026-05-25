@@ -2924,32 +2924,28 @@ async def shutdown_all(interaction: discord.Interaction):
     else:
         os.system("sudo shutdown -h now")
 
-@bot.tree.command(name="update_bot", description="🚀 [OWNER ONLY] สั่งดึงโค้ดใหม่จาก GitHub และรีสตาร์ทบอททันที")
-async def update_and_restart(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_DISCORD_ID:
-        await interaction.response.send_message(
-            "❌ **[ACCESS DENIED]** เมทไม่มีสิทธิ์เข้าถึงคำสั่งอัปเดตระบบแกนกลางนี้ครับ!", 
-            ephemeral=True
-        )
+@bot.hybrid_command(name="update_bot", description="ดึงโค้ดล่าสุดจาก GitHub และรีสตาร์ทบอท")
+async def update_bot(ctx: commands.Context):
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
         return
 
-    await interaction.response.send_message("📡 **[SYSTEM UPDATE]** กำลังดึงโค้ดล่าสุดจาก GitHub และทำการรีสตาร์ทบอทใน 3 วินาทีครับพ้ม...")
+    await ctx.send("📡 **[SYSTEM UPDATE]** กำลังดึงโค้ดล่าสุดจาก GitHub และทำการรีสตาร์ทบอทใน 3 วินาทีครับพ้ม...")
+    
+    await asyncio.sleep(3.0)
+    
+    bot_dir = r"C:\Bagley-test"
+    bat_file = os.path.join(bot_dir, "start_hidden.bat")
 
     try:
-        process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        process.communicate()
-        
+        if sys.platform == "win32":
+            subprocess.Popen([bat_file], cwd=bot_dir, shell=True)
+            
+        print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
     except Exception as e:
-        await interaction.followup.send(f"❌ เกิดข้อผิดพลาดในการดึงโค้ด: `{e}`", ephemeral=True)
-        return
-
-    await asyncio.sleep(3.0)
+        print(f"❌ เกิดข้อผิดพลาดตอนเรียกไฟล์ .bat: {e}")
 
     await bot.close()
-
-    subprocess.Popen([sys.executable] + sys.argv)
-    
-    os._exit(0)
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
 async def profile_scan(ctx, member: discord.Member):
