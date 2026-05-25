@@ -961,6 +961,11 @@ async def on_message(message):
 
     # ⏰ [ระบบแจ้งเตือนความจำ] ──────────────────────────────────────────
     if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
+        if message.guild is not None:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
+        
         target_user_id = None
         target_display_name = ""
         is_remind_self = False
@@ -1034,6 +1039,11 @@ async def on_message(message):
 
     # 🎂 [ระบบจดจำข้อมูลส่วนตัว/วันเกิด] ──────────────────────────────────────────
     if "จำไว้ว่า" in lower_content:
+        if message.guild is not None:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
+            
         print("DEBUG: ตรวจพบคำสั่งจำไว้ว่า!")
         
         target_user = None
@@ -1106,39 +1116,55 @@ async def on_message(message):
             return
 
     # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
-    cursor.execute("SELECT keyword, response FROM teach_memory")
-    all_teachings = cursor.fetchall()
+    if message.guild is not None:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            # ยอมให้ผ่านไปทำคำสั่งอื่นด้านล่าง (เช่น แปลภาษา) แต่ไม่ทำของ SQLite บล็อกนี้
+            pass
+    else:
+        # ถ้าอยู่ใน DM ให้ข้ามตัวดักแชทกลุ่มผ่านฉลุย
+        bot_keywords = []
+
+    # ตรวจสอบฐานข้อมูล SQLite เฉพาะตอนที่ผ่านดักกลุ่มมาได้ (หรือเมื่อคุยใน DM)
+    if message.guild is None or any(keyword in lower_content for keyword in bot_keywords):
+        cursor.execute("SELECT keyword, response FROM teach_memory")
+        all_teachings = cursor.fetchall()
     
-    matched_response = None
-    for keyword, response_text in all_teachings:
-        if keyword in lower_content:
-            matched_response = response_text
-            break
+        matched_response = None
+        for keyword, response_text in all_teachings:
+            if keyword in lower_content:
+                matched_response = response_text
+                break
 
-    if matched_response:
-        bagley_prompt = (
-            f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs "
-            f"คุณต้องเรียกผู้ใช้ทุกคนว่า 'เมท (mate)' หรือ 'คุณ {message.author.display_name}' "
-            f"และชอบลงท้ายประโยคอย่างสุภาพแกมกวนด้วยคำว่า 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ "
-            f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์ของคุณเอง "
-            f"โดยยังคงรักษาใจความสำคัญของข้อมูลเดิมไว้ครบถ้วน และตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ"
-        )
-        
-        try:
-            response = await client.aio.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
-                contents=bagley_prompt
+        if matched_response:
+            bagley_prompt = (
+                f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs "
+                f"คุณต้องเรียกผู้ใช้ทุกคนว่า 'เมท (mate)' หรือ 'คุณ {message.author.display_name}' "
+                f"และชอบลงท้ายประโยคอย่างสุภาพแกมกวนด้วยคำว่า 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ "
+                f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์ของคุณเอง "
+                f"โดยยังคงรักษาใจความสำคัญของข้อมูลเดิมไว้ครบถ้วน และตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ"
             )
-            bagley_styled_text = response.text
-        except Exception as e:
-            print(f"Teach Gemini Error: {e}")
-            bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้แล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠✨"
+            
+            try:
+                response = await client.aio.models.generate_content(
+                    model="gemini-3.1-flash-lite-preview",
+                    contents=bagley_prompt
+                )
+                bagley_styled_text = response.text
+            except Exception as e:
+                print(f"Teach Gemini Error: {e}")
+                bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้แล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠✨"
 
-        await message.reply(bagley_styled_text)
-        return
+            await message.reply(bagley_styled_text)
+            return
 
     # 🌐 [ระบบแปลภาษาคู่ขนาน] ──────────────────────────────────────────
     if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
+        if message.guild is not None:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
+        
         if message.reference:
             referenced_msg = await message.channel.fetch_message(message.reference.message_id)
             text_to_translate = referenced_msg.content
@@ -1164,6 +1190,12 @@ async def on_message(message):
 
         if message.guild is None:
             await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับพ้ม! 🛸❌")
+            return
+        
+        user_msg_clean = message.content.lower()
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        
+        if not any(keyword in user_msg_clean for keyword in bot_keywords):
             return
 
         guild = message.guild
@@ -1206,78 +1238,89 @@ async def on_message(message):
         
         return
 
-    # 📊 [ระบบตาทิพย์ เรียกดูรายชื่อพรรคพวกทั้งหมด] ───────────────────────────────
+    #  ดูรายชื่อทั้งหมด ───────────────────────────────
     if "รายชื่อคนในดิส" in lower_content:
+        if message.guild is not None:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
+            
         print("DEBUG: ตรวจพบคำสั่งเรียกดูรายชื่อคนในดิส!")
-        
-        MY_MASTER_ID = 1133740216822267954
-        is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
 
-        user_data = load_user_data()
-        if not user_data:
-            await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
-            return
+        try:
+            MY_MASTER_ID = 1133740216822267954
+            is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
 
-        if message.guild is None:
-            if is_master_command and message.author.id == MY_MASTER_ID:
-                pass 
-            else:
-                await message.reply("ขออภัยครับ! คำสั่งเรียกดูรายชื่อปกติจำกัดให้ใช้ภายในเซิร์ฟเวอร์เท่านั้นน้า 🛸❌")
+            user_data = load_user_data()
+            if not user_data:
+                await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
                 return
 
-        if is_master_command:
-            if message.author.id != MY_MASTER_ID:
-                await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับพ้ม! 🤫❌")
-                return
-            
-            response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
-            for user_id_str, data in user_data.items():
-                if user_id_str == "reminders":
-                    continue
+            if message.guild is None:
+                if is_master_command and message.author.id == MY_MASTER_ID:
+                    pass 
+                else:
+                    await message.reply("ขออภัยครับ! คำสั่งเรียกดูรายชื่อปกติจำกัดให้ใช้ภายในเซิร์ฟเวอร์เท่านั้นน้า 🛸❌")
+                    return
+
+            if is_master_command:
+                if message.author.id != MY_MASTER_ID:
+                    await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับพ้ม! 🤫❌")
+                    return
+                
+                response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
+                for user_id_str, data in user_data.items():
+                    if user_id_str == "reminders":
+                        continue
+                        
+                    if isinstance(data, dict):
+                        nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
+                        birthday = data.get("birthday", "ยังไม่ได้ระบุ")
+                    else:
+                        nickname = data
+                        birthday = "ยังไม่ได้ระบุ"
                     
-                if isinstance(data, dict):
-                    nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
-                    birthday = data.get("birthday", "ยังไม่ได้ระบุ")
-                else:
-                    nickname = data
-                    birthday = "ยังไม่ได้ระบุ"
+                    response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
                 
-                response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
-            
-            await message.reply(response_msg)
-            return
-
-        else:
-            guild = message.guild
-            response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
-            has_anyone_here = False
-            
-            for user_id_str, data in user_data.items():
-                if user_id_str == "reminders":
-                    continue
-
-                member = guild.get_member(int(user_id_str))
-                if not member:
-                    continue
-                
-                has_anyone_here = True
-                if isinstance(data, dict):
-                    nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
-                    birthday = data.get("birthday", "ยังไม่ได้ระบุ")
-                else:
-                    nickname = data
-                    birthday = "ยังไม่ได้ระบุ"
-                
-                if birthday != "ยังไม่ได้ระบุ":
-                    response_msg += f"• <@{user_id_str}>: {nickname} (วันเกิด: {birthday})\n"
-                else:
-                    response_msg += f"• <@{user_id_str}>: {nickname}\n"
-            
-            if has_anyone_here:
                 await message.reply(response_msg)
+                return
+
             else:
-                await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
-            
+                guild = message.guild
+                response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
+                has_anyone_here = False
+                
+                for user_id_str, data in user_data.items():
+                    if user_id_str == "reminders":
+                        continue
+
+                    member = guild.get_member(int(user_id_str))
+                    if not member:
+                        continue
+                    
+                    has_anyone_here = True
+                    if isinstance(data, dict):
+                        nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
+                        birthday = data.get("birthday", "ยังไม่ได้ระบุ")
+                    else:
+                        nickname = data
+                        birthday = "ยังไม่ได้ระบุ"
+                    
+                    if birthday != "ยังไม่ได้ระบุ":
+                        response_msg += f"• <@{user_id_str}>: {nickname} (วันเกิด: {birthday})\n"
+                    else:
+                        response_msg += f"• <@{user_id_str}>: {nickname}\n"
+                
+                if has_anyone_here:
+                    await message.reply(response_msg)
+                else:
+                    await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+                
+                return
+                
+        except Exception as e:
+            print(f"🚨 ERROR ในระบบรายชื่อตาทิพย์: {e}")
+            await message.reply("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท ลองใหม่อีกครั้งน้า")
             return
 
     # 🔊 [ระบบสรุปสถิติห้องเสียง] ──────────────────────────────────────────
