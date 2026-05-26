@@ -104,27 +104,16 @@ async def main():
         print("❌ Error: DISCORD_TOKEN not found in .env file")
         print("📝 Please copy .env.example to .env and fill in your credentials")
         sys.exit(1)
-    
+
     print("🚀 Starting Bagley Bot...")
     print(f"⚙️  Owner ID: {OWNER_DISCORD_ID}")
-    
+
     # Load cogs
     await load_cogs()
-    
+
     # Run bot
     try:
-        await bot.start
-        bot.run(DISCORD_TOKEN)
+        await bot.start(DISCORD_TOKEN)
     except Exception as e:
         print(f"❌ Failed to start bot: {e}")
         sys.exit(1)
-
-
-if _try: #TODO: indent wrong need to recheck further
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Bot shutdown by user")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        sys.exit(1__ == "__main__":
-    main()
