@@ -16,9 +16,8 @@ import json
 import time
 import collections
 
-# --- Google Gen AI ---
-from google import genai
-from PIL import Image
+# --- Gen AI (เชื่อมต่อ Llama ผ่าน OpenRouter) ---
+from openai import OpenAI
 
 # --- Voice & Media ---
 from gtts import gTTS
@@ -79,10 +78,7 @@ SPAM_THRESHOLD = 3  # พิมพ์ซ้ำครั้งที่ 3 เป�
 # --- โหลดค่า Config ---
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 YT_API_KEY = os.getenv('YT_API_KEY')
-
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"), http_options={'api_version': 'v1alpha'})
 
 def save_settings(data):
     with open('server_settings.json', 'w', encoding='utf-8') as f:
@@ -275,18 +271,6 @@ async def bagley_hijack_alert(voice_channel, message_text):
         # ถ้าเกิด Error และบอทไม่ได้จำห้องเก่าไว้ ค่อยตัดการเชื่อมต่อเพื่อความปลอดภัย
         if vc and not old_channel: 
             await vc.disconnect()
-    
-async def ask_bagley_ai(question):
-    try:
-        response = await client.aio.models.generate_content(
-            model=MODEL_NAME, # ใช้ gemini-2.5-flash
-            config={'system_instruction': SYSTEM_PROMPT},
-            contents=question
-        )
-        return response.text
-    except Exception as e:
-        print(f"AI Error: {e}")
-        return "ขออภัยครับเมท สมองส่วนกลางของผมเกิดอาการรวนนิดหน่อย พยายามใหม่อีกทีนะครับ"
 
 # --- ระบบเสียงกลางของ Bagley ---
 async def bagley_speak(guild, text):
@@ -864,7 +848,12 @@ SYSTEM_PROMPT = """
 วางตัวเป็นคู่หูร่วมทีมที่กำลังช่วยกันแฮ็กและพัฒนาเซิร์ฟเวอร์ให้ยอดเยี่ยมที่สุด
 """
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "meta-llama/llama-3.1-8b-instruct"
+
+ai_client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+)
 
 intents = discord.Intents.default()
 intents.message_content = True 
@@ -1045,8 +1034,95 @@ async def on_message(message):
         else:
             await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับพ้ม")
             return
+        
+    #  ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่ ────────────────────────────────────────
+    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
+    found_trigger = next((word for word in trigger_words if word in lower_content), None)
 
-    # 🎂 [ระบบจดจำข้อมูลส่วนตัว/วันเกิด] ──────────────────────────────────────────
+    if found_trigger:
+        print(f"📝 [DEBUG ฝากบอก]: เจอคำดักจับ -> '{found_trigger}'")
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        
+        if any(keyword in lower_content for keyword in bot_keywords) or message.guild is None:
+            print(f"🤖 [DEBUG ฝากบอก]: อนุมัติการทำงาน (เรียกชื่อบอท หรือ คุยใน DM) กำลังตัดข้อความ...")
+            parts = message.content.split(found_trigger, 1)
+            reason = parts[1].strip() if len(parts) > 1 else ""
+
+            if reason:
+                try:
+                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                    cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
+                                   (str(message.author.id), reason, 1, now))
+                    conn.commit()
+                    print(f"💾 [DEBUG ฝากบอก]: บันทึกสำเร็จ! ID: {message.author.id} ข้อความ: '{reason}'")
+
+                    await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
+                    return
+                except Exception as db_err:
+                    print(f"❌ [DEBUG ฝากบอก ERROR]: บันทึกฐานข้อมูลพัง -> {db_err}")
+                    return
+            else:
+                print(f"⚠️ [DEBUG ฝากบอก]: ผู้ใช้ลืมพิมพ์ข้อความหลังคำฝาก")
+                await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
+                return
+        else:
+            print(f"⏭️ [DEBUG ฝากบอก]: มีคำฝากบอกในเซิร์ฟเวอร์ แต่ไม่มีการเรียกชื่อบอท ข้ามบล็อกนี้ไป")
+
+    if message.guild is not None:
+        target_user = None
+        cursor.execute("DELETE FROM user_status WHERE timestamp < DATETIME('now', '-30 minutes')")
+        conn.commit()
+
+        if message.mentions:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if any(keyword in lower_content for keyword in bot_keywords):
+                target_user = next((u for u in message.mentions if u.id != bot.user.id), None)
+        
+        elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if any(keyword in lower_content for keyword in bot_keywords):
+                cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
+                active_away_users = cursor.fetchall()
+                
+                for (uid,) in active_away_users:
+                    member = message.guild.get_member(int(uid))
+                    if member and (member.display_name in message.content or member.name in message.content):
+                        target_user = member
+                        break
+
+        if target_user:
+            cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
+            row = cursor.fetchone()
+            
+            if row:
+                status_msg, is_away, timestamp_str = row
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+                
+                if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
+                    name = target_user.display_name
+                    jokes = [
+                        f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
+                        f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
+                        f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
+                    ]
+                    selected_joke = random.choice(jokes)
+                    
+                    await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
+                    await bagley_speak(message.guild, selected_joke)
+                    return
+
+            if "หายไปไหน" in message.content or "ไปไหน" in message.content:
+                reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
+                await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
+                await bagley_speak(message.guild, reply)
+                return
+
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            if message.guild is not None:
+                return
+
+    #  ระบบจดจำข้อมูลส่วนตัว/วันเกิด ──────────────────────────────────────────
     if "จำไว้ว่า" in lower_content:
         if message.guild is not None:
             bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
@@ -1088,13 +1164,13 @@ async def on_message(message):
             )
             
             try:
-                response = await client.aio.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=ai_prompt
+                response = ai_client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[{"role": "user", "content": ai_prompt}]
                 )
-                info_type = response.text.lower().strip()
+                info_type = response.choices[0].message.content.lower().strip()
             except Exception as e:
-                print(f"DEBUG AI Error: {e}")
+                print(f"DEBUG Llama AI Error: {e}")
                 info_type = "nickname"
 
             raw_info = message.content
@@ -1156,17 +1232,17 @@ async def on_message(message):
                 )
                 
                 try:
-                    response = await client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=bagley_prompt
+                    response = ai_client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=[{"role": "user", "content": bagley_prompt}]
                     )
-                    bagley_styled_text = response.text.strip()
+                    bagley_styled_text = response.choices[0].message.content.strip()
                     
                     if not bagley_styled_text:
                         bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
                         
                 except Exception as e:
-                    print(f"🚨 Teach Gemini DM/Guild Error: {e}")
+                    print(f"🚨 Teach Llama DM/Guild Error: {e}")
                     bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
 
                 await message.reply(bagley_styled_text)
@@ -1181,17 +1257,17 @@ async def on_message(message):
                     f"ใช้สรรพนามแทนผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ตอบเป็นภาษาไทยน้า"
                 )
                 try:
-                    response = await client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=free_chat_prompt
+                    response = ai_client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=[{"role": "user", "content": free_chat_prompt}]
                     )
-                    bagley_styled_text = response.text.strip()
+                    bagley_styled_text = response.choices[0].message.content.strip()
                     
                     if not bagley_styled_text:
                         bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ยินดีที่ได้คุยใน DM ครับเมท!"
                         
                 except Exception as e:
-                    print(f"🚨 Free Chat Gemini Error: {e}")
+                    print(f"🚨 Free Chat Llama Error: {e}")
                     bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋оชั่วคราวครับเมท! 🤖🛸"
 
                 await message.reply(bagley_styled_text)
@@ -1214,12 +1290,18 @@ async def on_message(message):
                 target_lang = "Thai"
 
             prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
-            response = await client.aio.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
-            answer = response.text
             
+            try:
+                response = ai_client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                answer = response.choices[0].message.content
+
+            except Exception as translate_err:
+                print(f"🚨 Translate Llama Error: {translate_err}")
+                answer = "ขออภัยครับเมท ท่อส่งสัญญาณแปลภาษาเกิดอาการติดขัดชั่วคราวครับ"
+                
             await message.reply(f"🌐 **Translation Result ({target_lang}):**\n{answer}")
             return
 
@@ -1478,19 +1560,17 @@ async def on_message(message):
                 user_question = user_msg_clean if user_msg_clean else "ช่วยอธิบายรูปภาพนี้ให้ฟังหน่อยครับ"
                 
                 prompt = f"""
-คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ 
-ให้ตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
+คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ จาก DedSec
+จงดูและวิเคราะห์รูปภาพจากลิงก์นี้: {image_url}
+และตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
 ลงท้ายประโยคด้วย 'ครับ' ห้ามพูดคำว่า 'ค่ะ' หรือ 'นะคะ' เด็ดขาด!
-คำถามจากเมท: {user_question}
+คำถามจากเมทคือ: {user_question}
 """
-                response_img = requests.get(image_url)
-                img = Image.open(io.BytesIO(response_img.content))
-                
-                response = await client.aio.models.generate_content(
-                    model="gemini-2.5-flash", 
-                    contents=[prompt, img]
+                response = ai_client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[{"role": "user", "content": prompt}]
                 )
-                ai_text = response.text
+                ai_text = response.choices[0].message.content.strip()
                 await message.channel.send(ai_text)
                 
                 if message.guild:
@@ -1502,89 +1582,6 @@ async def on_message(message):
 
             except Exception as e:
                 await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
-                return
-
-    #  ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่ ────────────────────────────────────────
-    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
-    found_trigger = next((word for word in trigger_words if word in lower_content), None)
-
-    if found_trigger:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
-            parts = message.content.split(found_trigger, 1)
-            reason = parts[1].strip() if len(parts) > 1 else ""
-
-            if reason:
-                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-                cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
-                               (str(message.author.id), reason, 1, now))
-                conn.commit()
-
-                await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
-                return 
-            else:
-                await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
-                return
-
-    if message.guild is not None:
-        target_user = None
-        cursor.execute("DELETE FROM user_status WHERE timestamp < DATETIME('now', '-30 minutes')")
-        conn.commit()
-
-        # 1. เช็คสเต็ปการแท็กหาเพื่อน
-        if message.mentions:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if any(keyword in lower_content for keyword in bot_keywords):
-                # เลือกแท็กที่เป็นเพื่อน ไม่ใช่ตัวบอท
-                target_user = next((u for u in message.mentions if u.id != bot.user.id), None)
-        
-        # 2. เช็คสเต็ปกรณีพิมพ์ชื่อเพื่อนถามหา ("ไปไหน", "หายไปไหน")
-        elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if any(keyword in lower_content for keyword in bot_keywords):
-                cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
-                active_away_users = cursor.fetchall()
-                
-                for (uid,) in active_away_users:
-                    member = message.guild.get_member(int(uid))
-                    if member and (member.display_name in message.content or member.name in message.content):
-                        target_user = member
-                        break
-
-        # 3. ประมวลผลเมื่อระบุตัวตนเพื่อนที่ตามหาได้แล้ว
-        if target_user:
-            cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
-            row = cursor.fetchone()
-            
-            if row:
-                status_msg, is_away, timestamp_str = row
-                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
-                
-                # เช็คว่าข้อความยังไม่หมดอายุ (ภายใน 30 นาที)
-                if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
-                    name = target_user.display_name
-                    jokes = [
-                        f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
-                        f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
-                        f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
-                    ]
-                    selected_joke = random.choice(jokes)
-                    
-                    await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
-                    await bagley_speak(message.guild, selected_joke)
-                    return
-
-            # ถ้าสืบค้นในตารางแล้วไม่เจอข้อความฝากบอก แต่ผู้ใช้พิมพ์ถามว่าหายไปไหน
-            if "หายไปไหน" in message.content:
-                reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
-                await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
-                await bagley_speak(message.guild, reply)
-                return
-
-        # เช็คชื่อบอทก่อนปล่อยไหลไปคำสั่งถัดไป หรือส่งเข้า AI Gemini
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if not any(keyword in lower_content for keyword in bot_keywords):
-            if message.guild is not None:
                 return
 
         # =================================================================
@@ -1892,27 +1889,44 @@ async def on_message(message):
                 async with message.channel.typing():
                     try:
                         user_id = str(message.author.id)
+                        
+                        # 💾 บันทึกคำถามของ User ลง SQLite เหมือนเดิม
                         save_message(user_id, "user", user_question)
+                        
+                        # 📥 โหลดความจำประวัติการคุย (ประวัติเก่าของ Gemini สามารถนำมาประยุกต์ใส่ Llama ได้ครับ)
                         history = load_history(user_id)
                         
-                        response = await client.aio.models.generate_content(
-                            model=MODEL_NAME, 
-                            config={'system_instruction': SYSTEM_PROMPT},
-                            contents=history 
+                        # ✨ แปลงรูปแบบประวัติคุยเก่า (Gemini Format) ให้เป็นรูปแบบสากล (OpenAI/Llama Format)
+                        llama_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                        for chat in history:
+                            # เช็คข้อมูลใน history ของเมท: ถ้าเป็นของโมเดลใช้ assistant หรือ model ตามประวัติเดิม
+                            role = "user" if chat.role == "user" else "assistant"
+                            # ดึงข้อความออกมาจากออบเจกต์ประวัติ
+                            text_content = chat.parts[0].text if hasattr(chat.parts[0], 'text') else str(chat.parts[0])
+                            llama_messages.append({"role": role, "content": text_content})
+
+                        # 🚀 [ส่งคำถามไปให้สมองกล Llama 3.1 ประมวลผลผ่าน OpenRouter]
+                        response = ai_client.chat.completions.create(
+                            model="meta-llama/llama-3.1-8b-instruct",
+                            messages=llama_messages
                         )
-                        answer = response.text
+                        answer = response.choices[0].message.content
                         
+                        # 💬 ตอบกลับใน Discord
                         await message.reply(answer)
+                        
+                        # 💾 บันทึกคำตอบบอทลงฐานข้อมูลความจำ
                         save_message(user_id, "model", answer)
 
+                        # 🗣️ ระบบพูดเสียง TTS (อิงตามตรรกะเดิมของเมท)
                         clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
                         if message.guild and message.guild.voice_client:
                             if not message.guild.voice_client.is_playing():
                                 await bagley_speak(message.guild, clean_answer)
 
                     except Exception as e:
-                        await message.reply("วงจรประมวลผลผมสะดุดนิดหน่อยครับเมท!")
-                        print(f"AI Error: {e}")
+                        await message.reply("วงจรประมวลผล Llama ผมสะดุดนิดหน่อยครับเมท!")
+                        print(f"Llama AI Error: {e}")
             else:
                 await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
             return
@@ -3049,7 +3063,6 @@ async def profile_scan(ctx, member: discord.Member):
             elif isinstance(act, discord.CustomActivity):
                 activities.append(f"💬 สถานะ: {act.name}")
 
-    # อัปเกรดโจทย์ (Prompt) ให้ AI วิเคราะห์ลึกระดับแฮ็กเกอร์
     prompt = f"""
     คุณคือ Bagley ปัญญาประดิษฐ์จาก Watch Dogs: Legion 
     ใช้ระบบ 'Hacker Vision' วิเคราะห์เป้าหมายด้วยข้อมูลดิบนี้:
@@ -3071,20 +3084,17 @@ async def profile_scan(ctx, member: discord.Member):
     """
 
     try:
-        # ✅ ใช้ client สั่งเจนเนื้อหา
-        response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash", 
-            contents=prompt
+        response = ai_client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}]
         )
-        ai_text = response.text
+        ai_text = response.choices[0].message.content.strip()
         
-        # ส่วนการแยกข้อความ
         analysis_report = ai_text.split("Embed:")[1].split("Voice:")[0].strip()
         voice_report = ai_text.split("Voice:")[1].strip()
         
     except Exception as e:
-        print(f"AI Error: {e}")
-        # Fallback ถ้า AI มีปัญหาแล้วให้มันตอบกลับแบบนี้
+        print(f"Llama Profile Scan Error: {e}")
         analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับ"
         voice_report = f"สแกนข้อมูลของคุณ {member.display_name} เรียบร้อยครับเมท"
 
@@ -3101,13 +3111,8 @@ async def profile_scan(ctx, member: discord.Member):
     # --- 4. ระบบรายงานด้วยเสียง (TTS) ---
     # เงื่อนไข: บอทอยู่ในห้องเสียงเดียวกับคนสั่ง และ ไม่ได้เปิดเพลงอยู่
     if ctx.voice_client and ctx.voice_client.channel and not ctx.voice_client.is_playing():
-        # ตรวจสอบว่าคนสั่งอยู่ในห้องเดียวกับบอทไหม
-        if ctx.author.voice and ctx.author.voice.channel == ctx.voice_client.channel:
-            
-            # ✅ รวมบทพูดเริ่มต้นกับบทวิเคราะห์เข้าด้วยกันตรงนี้ครับเมท
+        if ctx.author.voice and ctx.author.voice.channel == ctx.voice_client.channel:   
             full_report = f"{voice_report} {analysis_report}"
-            
-            # ส่งบทพูดที่รวมแล้วให้ Bagley พูดออกมา
             await bagley_speak(ctx.guild, full_report)
             
 @bot.hybrid_command(name="set_alert", description="ตั้งค่าห้องรายงาน และให้แบ็คลี่รายงานตัว")
