@@ -1045,6 +1045,93 @@ async def on_message(message):
         else:
             await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับพ้ม")
             return
+        
+    #  ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่ ────────────────────────────────────────
+    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
+    found_trigger = next((word for word in trigger_words if word in lower_content), None)
+
+    if found_trigger:
+        print(f"📝 [DEBUG ฝากบอก]: เจอคำดักจับ -> '{found_trigger}'")
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        
+        if any(keyword in lower_content for keyword in bot_keywords) or message.guild is None:
+            print(f"🤖 [DEBUG ฝากบอก]: อนุมัติการทำงาน (เรียกชื่อบอท หรือ คุยใน DM) กำลังตัดข้อความ...")
+            parts = message.content.split(found_trigger, 1)
+            reason = parts[1].strip() if len(parts) > 1 else ""
+
+            if reason:
+                try:
+                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                    cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
+                                   (str(message.author.id), reason, 1, now))
+                    conn.commit()
+                    print(f"💾 [DEBUG ฝากบอก]: บันทึกสำเร็จ! ID: {message.author.id} ข้อความ: '{reason}'")
+
+                    await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
+                    return  # 🌟 ตัดจบการทำงานทันที ไม่ให้ไหลไปหา AI Gemini
+                except Exception as db_err:
+                    print(f"❌ [DEBUG ฝากบอก ERROR]: บันทึกฐานข้อมูลพัง -> {db_err}")
+                    return
+            else:
+                print(f"⚠️ [DEBUG ฝากบอก]: ผู้ใช้ลืมพิมพ์ข้อความหลังคำฝาก")
+                await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
+                return
+        else:
+            print(f"⏭️ [DEBUG ฝากบอก]: มีคำฝากบอกในเซิร์ฟเวอร์ แต่ไม่มีการเรียกชื่อบอท ข้ามบล็อกนี้ไป")
+
+    if message.guild is not None:
+        target_user = None
+        cursor.execute("DELETE FROM user_status WHERE timestamp < DATETIME('now', '-30 minutes')")
+        conn.commit()
+
+        if message.mentions:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if any(keyword in lower_content for keyword in bot_keywords):
+                target_user = next((u for u in message.mentions if u.id != bot.user.id), None)
+        
+        elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if any(keyword in lower_content for keyword in bot_keywords):
+                cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
+                active_away_users = cursor.fetchall()
+                
+                for (uid,) in active_away_users:
+                    member = message.guild.get_member(int(uid))
+                    if member and (member.display_name in message.content or member.name in message.content):
+                        target_user = member
+                        break
+
+        if target_user:
+            cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
+            row = cursor.fetchone()
+            
+            if row:
+                status_msg, is_away, timestamp_str = row
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+                
+                if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
+                    name = target_user.display_name
+                    jokes = [
+                        f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
+                        f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
+                        f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
+                    ]
+                    selected_joke = random.choice(jokes)
+                    
+                    await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
+                    await bagley_speak(message.guild, selected_joke)
+                    return
+
+            if "หายไปไหน" in message.content or "ไปไหน" in message.content:
+                reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
+                await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
+                await bagley_speak(message.guild, reply)
+                return
+
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            if message.guild is not None:
+                return
 
     # 🎂 [ระบบจดจำข้อมูลส่วนตัว/วันเกิด] ──────────────────────────────────────────
     if "จำไว้ว่า" in lower_content:
@@ -1502,93 +1589,6 @@ async def on_message(message):
 
             except Exception as e:
                 await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
-                return
-
-    #  ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่ ────────────────────────────────────────
-    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
-    found_trigger = next((word for word in trigger_words if word in lower_content), None)
-
-    if found_trigger:
-        print(f"📝 [DEBUG ฝากบอก]: เจอคำดักจับ -> '{found_trigger}'")
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        
-        if any(keyword in lower_content for keyword in bot_keywords) or message.guild is None:
-            print(f"🤖 [DEBUG ฝากบอก]: อนุมัติการทำงาน (เรียกชื่อบอท หรือ คุยใน DM) กำลังตัดข้อความ...")
-            parts = message.content.split(found_trigger, 1)
-            reason = parts[1].strip() if len(parts) > 1 else ""
-
-            if reason:
-                try:
-                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-                    cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
-                                   (str(message.author.id), reason, 1, now))
-                    conn.commit()
-                    print(f"💾 [DEBUG ฝากบอก]: บันทึกสำเร็จ! ID: {message.author.id} ข้อความ: '{reason}'")
-
-                    await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
-                    return  # 🌟 ตัดจบการทำงานทันที ไม่ให้ไหลไปหา AI Gemini
-                except Exception as db_err:
-                    print(f"❌ [DEBUG ฝากบอก ERROR]: บันทึกฐานข้อมูลพัง -> {db_err}")
-                    return
-            else:
-                print(f"⚠️ [DEBUG ฝากบอก]: ผู้ใช้ลืมพิมพ์ข้อความหลังคำฝาก")
-                await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
-                return
-        else:
-            print(f"⏭️ [DEBUG ฝากบอก]: มีคำฝากบอกในเซิร์ฟเวอร์ แต่ไม่มีการเรียกชื่อบอท ข้ามบล็อกนี้ไป")
-
-    if message.guild is not None:
-        target_user = None
-        cursor.execute("DELETE FROM user_status WHERE timestamp < DATETIME('now', '-30 minutes')")
-        conn.commit()
-
-        if message.mentions:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if any(keyword in lower_content for keyword in bot_keywords):
-                target_user = next((u for u in message.mentions if u.id != bot.user.id), None)
-        
-        elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if any(keyword in lower_content for keyword in bot_keywords):
-                cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
-                active_away_users = cursor.fetchall()
-                
-                for (uid,) in active_away_users:
-                    member = message.guild.get_member(int(uid))
-                    if member and (member.display_name in message.content or member.name in message.content):
-                        target_user = member
-                        break
-
-        if target_user:
-            cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
-            row = cursor.fetchone()
-            
-            if row:
-                status_msg, is_away, timestamp_str = row
-                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
-                
-                if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
-                    name = target_user.display_name
-                    jokes = [
-                        f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
-                        f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
-                        f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
-                    ]
-                    selected_joke = random.choice(jokes)
-                    
-                    await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
-                    await bagley_speak(message.guild, selected_joke)
-                    return
-
-            if "หายไปไหน" in message.content or "ไปไหน" in message.content:
-                reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
-                await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
-                await bagley_speak(message.guild, reply)
-                return
-
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if not any(keyword in lower_content for keyword in bot_keywords):
-            if message.guild is not None:
                 return
 
         # =================================================================
