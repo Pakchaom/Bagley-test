@@ -21,3 +21,9 @@ start_hidden.bat.bat
 pychance/
 *pychance*
 .pychance
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
