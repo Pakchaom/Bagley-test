@@ -3016,24 +3016,25 @@ async def update_bot(ctx: commands.Context):
             subprocess.Popen(
                 [bat_file], 
                 cwd=bot_dir, 
-                shell=True, 
-                creationflags=subprocess.CREATE_NEW_CONSOLE
+                shell=True,
+                creationflags=subprocess.DETACHED_PROCESS
             )
+        
         print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
+        await ctx.send("✅ **[RESTARTING]** อัปเดตเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!")
+        
+        try:
+            global conn
+            if conn: conn.close()
+        except: pass
+
+        await bot.close()
+        os._exit(0)
         
     except Exception as e:
         error_bat = f"❌ **[BAT FILE ERROR]** เกิดข้อผิดพลาดตอนเรียกไฟล์ .bat: {e}"
         print(error_bat)
         await ctx.send(error_bat)
-        return
-
-    try:
-        global conn
-        conn.close()
-    except Exception as db_err:
-        print(f"DEBUG DB Close Error: {db_err}")
-
-    await bot.close()
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
 async def profile_scan(ctx, member: discord.Member):
