@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Union, Optional
 import json
 import time
+import collections
 
 # --- Google Gen AI ---
 from google import genai
@@ -62,6 +63,14 @@ ALLOWED_TEACH_USERS = [
     732953446172327956,    # คุณบอล
     1073827310026903612    # ลุงกร
 ]
+
+LOG_BUFFER = collections.deque(maxlen=10)
+ORIGINAL_PRINT = print
+
+def print(*args, **kwargs):
+    message = " ".join(str(arg) for arg in args)
+    LOG_BUFFER.append(message)
+    ORIGINAL_PRINT(message, **kwargs)
 
 # เก็บข้อความล่าสุดของแต่ละคนเพื่อตรวจจับสแปม
 spam_check = {} 
@@ -270,7 +279,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
 async def ask_bagley_ai(question):
     try:
         response = await client.aio.models.generate_content(
-            model=MODEL_NAME, # ใช้ gemini-3.1-flash-lite-preview
+            model=MODEL_NAME, # ใช้ gemini-2.5-flash
             config={'system_instruction': SYSTEM_PROMPT},
             contents=question
         )
@@ -855,7 +864,7 @@ SYSTEM_PROMPT = """
 วางตัวเป็นคู่หูร่วมทีมที่กำลังช่วยกันแฮ็กและพัฒนาเซิร์ฟเวอร์ให้ยอดเยี่ยมที่สุด
 """
 
-MODEL_NAME = "gemini-3.1-flash-lite-preview"
+MODEL_NAME = "gemini-2.5-flash"
 
 intents = discord.Intents.default()
 intents.message_content = True 
@@ -1079,7 +1088,7 @@ async def on_message(message):
             
             try:
                 response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
+                    model="gemini-2.5-flash",
                     contents=ai_prompt
                 )
                 info_type = response.text.lower().strip()
@@ -1147,7 +1156,7 @@ async def on_message(message):
                 
                 try:
                     response = await client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite-preview",
+                        model="gemini-2.5-flash",
                         contents=bagley_prompt
                     )
                     bagley_styled_text = response.text.strip()
@@ -1172,7 +1181,7 @@ async def on_message(message):
                 )
                 try:
                     response = await client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite-preview", 
+                        model="gemini-2.5-flash",
                         contents=free_chat_prompt
                     )
                     bagley_styled_text = response.text.strip()
@@ -1205,7 +1214,7 @@ async def on_message(message):
 
             prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
             response = await client.aio.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
+                model="gemini-2.5-flash",
                 contents=prompt
             )
             answer = response.text
@@ -1477,7 +1486,7 @@ async def on_message(message):
                 img = Image.open(io.BytesIO(response_img.content))
                 
                 response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview", 
+                    model="gemini-2.5-flash", 
                     contents=[prompt, img]
                 )
                 ai_text = response.text
@@ -3127,7 +3136,7 @@ async def profile_scan(ctx, member: discord.Member):
     try:
         # ✅ ใช้ client สั่งเจนเนื้อหา
         response = await client.aio.models.generate_content(
-            model="gemini-3.1-flash-lite-preview", 
+            model="gemini-2.5-flash", 
             contents=prompt
         )
         ai_text = response.text
@@ -3465,7 +3474,6 @@ async def unteach(ctx: commands.Context, keyword: str):
 
 @bot.hybrid_command(name="list_teach", description="เรียกดูรายการคีย์เวิร์ดทั้งหมดที่เคยสอนแบ็คลี่ไว้")
 async def list_teach(ctx: commands.Context):
-    # 🛑 ด่านตรวจสิทธิ์ทีมพัฒนา
     if ctx.author.id not in ALLOWED_TEACH_USERS:
         await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
         return
@@ -3474,7 +3482,6 @@ async def list_teach(ctx: commands.Context):
     global conn
     c = conn.cursor()
     
-    # ดึงคีย์เวิร์ดทั้งหมดมาเรียงตามตัวอักษร
     c.execute("SELECT keyword FROM teach_memory ORDER BY keyword ASC")
     rows = c.fetchall()
     
@@ -3482,7 +3489,6 @@ async def list_teach(ctx: commands.Context):
         await ctx.send("🤖 ตอนนี้คลังสมองของแบ็คลี่ยังว่างเปล่า ไม่มีคีย์เวิร์ดที่เคยสอนไว้เลยครับเมท!")
         return
 
-    # ร้อยเรียงรายการคำพูด
     keyword_list = []
     for index, row in enumerate(rows, start=1):
         keyword_list.append(f"{index}. **{row[0]}**")
@@ -3503,7 +3509,6 @@ async def list_teach(ctx: commands.Context):
 async def report_voice_toggle(interaction: discord.Interaction, status: app_commands.Choice[str]):
     guild = interaction.guild
     
-    # 🔒 ดักจับถ้าแอบมาใช้คำสั่งสแลชใน DM
     if guild is None:
         await interaction.response.send_message("คำสั่งนี้จำเป็นต้องสั่งใช้งานภายในเซิร์ฟเวอร์หลักเท่านั้นน้าเมท! 🛸❌", ephemeral=True)
         return
@@ -3520,17 +3525,43 @@ async def report_voice_toggle(interaction: discord.Interaction, status: app_comm
         response_text = "รับทราบครับพ้ม! 🔇 ผมจะปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงในเซิร์ฟนี้ให้ชั่วคราวน้า (แต่ระบบสถิติยังนับเวลาปกติครับ)"
         speech_text = "ปิดระบบรายงานห้องเสียงชั่วคราวเรียบร้อยครับ"
 
-    # 1. ส่งข้อความตอบรับในแชทให้ทุกคนเห็นก่อน
     await interaction.response.send_message(response_text)
 
-    # 2. 📡 [ด่านตรวจสอบเสียง] สั่งให้แบ็คลี่ส่งเสียงพูดรายงาน (ถ้าบอทเชื่อมต่ออยู่ และ ไม่ได้เปิดเพลงอยู่)
     if voice_client and voice_client.channel:
-        # 🛡️ เซฟตี้มหาอุด: ถ้ากำลังเปิดเพลง/เล่นเสียงอยู่ จะข้ามการพูดตอบรับไปทันที ไม่แทรกเพลงเด็ดขาด!
         if voice_client.is_playing():
             print(f"DEBUG: บอทกำลังเล่นเสียง/เปิดเพลงอยู่ จะไม่มีการพูดเสียงแทรกในกิลด์ {guild_id}")
             return
             
-        # ถ้าห้องเสียงว่างและไม่ได้เปิดเพลง -> สาดเสียงพูดเท่ๆ ทันทีครับเมท
         await bagley_speak_wait(guild, speech_text)
+
+def is_developer():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        return interaction.user.id in ALLOWED_TEACH_USERS
+    return app_commands.check(predicate)
+
+@bot.tree.command(name="view_logs", description="[Developer Only] ดู Log การทำงานล่าสุด 10 บรรทัดของบอท Bagley")
+@is_developer() # 🔒 บล็อกล็อกสิทธิ์เฉพาะรายชื่อผู้พัฒนาเท่านั้น
+async def view_logs(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    if not LOG_BUFFER:
+        await interaction.followup.send("📋 ตอนนี้คลัง Log ยังว่างเปล่า ไม่มีประวัติผิดปกติครับเมท!", ephemeral=True)
+        return
+
+    log_text = "\n".join(LOG_BUFFER)
+    
+    embed = discord.Embed(
+        title="🤖 Bagley System Live Logs",
+        description=f"```text\n{log_text}\n```",
+        color=0x00ffcc
+    )
+    embed.set_footer(text="แสดงเฉพาะข้อมูลล่าสุด 10 บรรทัดใน RAM")
+    
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+@view_logs.error
+async def view_logs_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CheckFailure):
+        await interaction.response.send_message("🛑 ขออภัยด้วยครับเมท! คำสั่งนี้จำกัดสิทธิ์เฉพาะผู้พัฒนาบอทที่ระบุไว้เท่านั้นน้าครับพ้ม!", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
