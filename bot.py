@@ -1132,6 +1132,74 @@ async def on_message(message):
         if not any(keyword in lower_content for keyword in bot_keywords):
             if message.guild is not None:
                 return
+            
+    #  ระบบสแกนรูปภาพด้วยสมองกล Gemini ─────────────────────────────────────────
+    if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if message.guild and not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
+        has_image = False
+        target_message = message
+
+        if message.attachments:
+            if any(message.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
+                has_image = True
+        elif message.reference:
+            try:
+                replied_msg = await message.channel.fetch_message(message.reference.message_id)
+                if replied_msg.attachments and any(replied_msg.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
+                    has_image = True
+                    target_message = replied_msg
+            except:
+                pass
+
+        if has_image:
+            is_dm = isinstance(message.channel, discord.DMChannel)
+            user_msg_clean = message.content.strip()
+
+            if is_dm and not user_msg_clean:
+                await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับเมท? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
+                return
+
+            await message.channel.send("กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท... ")
+            
+            if message.guild:
+                try:
+                    await bagley_speak(message.guild, "กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท")
+                except Exception as tts_start_err:
+                    print(f"TTS Start Error: {tts_start_err}")
+
+            try:
+                image_url = target_message.attachments[0].url
+                user_question = user_msg_clean if user_msg_clean else "ช่วยอธิบายรูปภาพนี้ให้ฟังหน่อยครับ"
+                
+                prompt = f"""
+คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ 
+ให้ตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
+ลงท้ายประโยคด้วย 'ครับ' ห้ามพูดคำว่า 'ค่ะ' หรือ 'นะคะ' เด็ดขาด!
+คำถามจากเมท: {user_question}
+"""
+                response_img = requests.get(image_url)
+                img = Image.open(io.BytesIO(response_img.content))
+                
+                response = await client.aio.models.generate_content(
+                    model="gemini-3.1-flash-lite", 
+                    contents=[prompt, img]
+                )
+                ai_text = response.text
+                await message.channel.send(ai_text)
+                
+                if message.guild:
+                    try:
+                        await bagley_speak(message.guild, ai_text)
+                    except Exception as tts_err:
+                        print(f"TTS Error: {tts_err}")
+                return
+
+            except Exception as e:
+                await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
+                return
 
     # 🎂 [ระบบจดจำข้อมูลส่วนตัว/วันเกิด] ──────────────────────────────────────────
     if "จำไว้ว่า" in lower_content:
@@ -1522,79 +1590,6 @@ async def on_message(message):
         if voice_client and voice_client.channel and not voice_client.is_playing():
             await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
         return
-
-    #  ระบบสแกนรูปภาพด้วยสมองกล Gemini ─────────────────────────────────────────
-    msg_content_lower = message.content.lower()
-    is_dm = isinstance(message.channel, discord.DMChannel)
-    image_keywords = ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย", "อันนี้คืออะไร", "นี่คืออะไร"]
-    
-    if any(keyword in msg_content_lower for keyword in image_keywords) or message.attachments or message.reference:
-        
-        if not is_dm:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if not any(keyword in msg_content_lower for keyword in bot_keywords):
-                return
-        
-        has_image = False
-        target_message = message
-
-        if message.attachments:
-            if any(message.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
-                has_image = True
-        elif message.reference:
-            try:
-                replied_msg = await message.channel.fetch_message(message.reference.message_id)
-                if replied_msg.attachments and any(replied_msg.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
-                    has_image = True
-                    target_message = replied_msg
-            except:
-                pass
-
-        if has_image:
-            user_msg_clean = message.content.strip()
-
-            if is_dm and not user_msg_clean:
-                await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับเมท? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
-                return
-
-            await message.channel.send("กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท... ")
-            
-            if message.guild:
-                try:
-                    await bagley_speak(message.guild, "กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท")
-                except Exception as tts_start_err:
-                    print(f"TTS Start Error: {tts_start_err}")
-
-            try:
-                image_url = target_message.attachments[0].url
-                user_question = user_msg_clean if user_msg_clean else "ช่วยอธิบายรูปภาพนี้ให้ฟังหน่อยครับ"
-                
-                prompt = f"""
-คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ 
-ให้ตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
-ลงท้ายประโยคด้วย 'ครับ' ห้ามพูดคำว่า 'ค่ะ' หรือ 'นะคะ' เด็ดขาด!
-คำถามจากเมท: {user_question}
-"""
-                response_img = requests.get(image_url)
-                img = Image.open(io.BytesIO(response_img.content))
-                
-                response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite", 
-                    contents=[prompt, img]
-                )
-                ai_text = response.text
-                await message.channel.send(ai_text)
-                
-                if message.guild:
-                    try:
-                        await bagley_speak(message.guild, ai_text)
-                    except Exception as tts_err:
-                        print(f"TTS Error: {tts_err}")
-                return
-
-            except Exception as e:
-                await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
-                return
 
         #  หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
         if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
