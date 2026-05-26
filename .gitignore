@@ -16,9 +16,3 @@ run_bagley.vbs
 
 # ตัวเริ่มแบบไม่แสดงหน้า Terminal
 start_hidden.bat.bat
-
-# Python cache files
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
