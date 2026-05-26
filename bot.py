@@ -279,7 +279,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
 async def ask_bagley_ai(question):
     try:
         response = await client.aio.models.generate_content(
-            model=MODEL_NAME, # ใช้ gemini-2.5-flash
+            model=MODEL_NAME, # ใช้ gemini-3.1-flash-lite
             config={'system_instruction': SYSTEM_PROMPT},
             contents=question
         )
@@ -864,7 +864,7 @@ SYSTEM_PROMPT = """
 วางตัวเป็นคู่หูร่วมทีมที่กำลังช่วยกันแฮ็กและพัฒนาเซิร์ฟเวอร์ให้ยอดเยี่ยมที่สุด
 """
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.1-flash-lite"
 
 intents = discord.Intents.default()
 intents.message_content = True 
@@ -1176,7 +1176,7 @@ async def on_message(message):
             
             try:
                 response = await client.aio.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.1-flash-lite",
                     contents=ai_prompt
                 )
                 info_type = response.text.lower().strip()
@@ -1244,7 +1244,7 @@ async def on_message(message):
                 
                 try:
                     response = await client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.1-flash-lite",
                         contents=bagley_prompt
                     )
                     bagley_styled_text = response.text.strip()
@@ -1269,7 +1269,7 @@ async def on_message(message):
                 )
                 try:
                     response = await client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.1-flash-lite",
                         contents=free_chat_prompt
                     )
                     bagley_styled_text = response.text.strip()
@@ -1302,7 +1302,7 @@ async def on_message(message):
 
             prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
             response = await client.aio.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
                 contents=prompt
             )
             answer = response.text
@@ -1574,7 +1574,7 @@ async def on_message(message):
                 img = Image.open(io.BytesIO(response_img.content))
                 
                 response = await client.aio.models.generate_content(
-                    model="gemini-2.5-flash", 
+                    model="gemini-3.1-flash-lite", 
                     contents=[prompt, img]
                 )
                 ai_text = response.text
@@ -3078,7 +3078,7 @@ async def profile_scan(ctx, member: discord.Member):
     try:
         # ✅ ใช้ client สั่งเจนเนื้อหา
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash", 
+            model="gemini-3.1-flash-lite", 
             contents=prompt
         )
         ai_text = response.text
