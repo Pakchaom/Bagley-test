@@ -80,6 +80,7 @@ def save_settings(data):
         json.dump(data, f, indent=4)
 
 def load_settings():
+    # This is for testing
     try:
         with open('server_settings.json', 'r', encoding='utf-8') as f:
             return json.load(f)
