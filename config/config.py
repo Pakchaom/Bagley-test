@@ -45,7 +45,12 @@ REMINDERS_FILE = 'data/check_friend_reminders.json'
 
 # Voice Settings
 TTS_VOICE = "th-TH-NiwatNeural"  # Thai voice
-FFMPEG_PATH = r'C:\ffmpeg\bin\ffmpeg.exe'  # Windows path, adjust for your OS
+
+# FFmpeg Path - Works with Docker and local development
+# In Docker: FFmpeg is installed as system package, available in PATH
+# Locally: Can override with FFMPEG_PATH environment variable
+# Default: Use 'ffmpeg' which works on Linux (Docker) and systems with FFmpeg in PATH
+FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
 
 # Audio Settings
 VOICE_CHANNEL_TIMEOUT = 300  # seconds
