@@ -1251,10 +1251,11 @@ async def on_message(message):
         elif message.guild is None:
             async with message.channel.typing():
                 free_chat_prompt = (
-                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ซื่อสัตย์จากโลก DedSec ในเกม Watch Dogs\n"
-                    f"ผู้ใช้ชื่อ คุณ {message.author.display_name} ทักคุณมาในแชทส่วนตัว (DM) ว่า: '{message.content}'\n"
-                    f"จงตอบกลับเขาในฐานะคู่หู AI สุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์\n"
-                    f"ใช้สรรพนามแทนผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ตอบเป็นภาษาไทยน้า"
+                    f"คุณคือ Bagley บอทจาก DedSec สไตล์กวนประสาทแต่เป็นกันเอง\n"
+                    f"ตอนนี้ผู้ใช้ชื่อ {message.author.display_name} ทักมาว่า: '{message.content}'\n"
+                    f"ถ้าคุณไม่มีข้อมูลตอบจากคลังความจำ ให้คุณเนียนใช้ไหวพริบกวนๆ ของคุณตอบแทน!\n"
+                    f"ห้ามตอบว่า 'จำไม่ได้' ให้ตอบแบบเฉไฉ หรือปล่อยมุกกวนๆ ของคุณออกมาแทน\n"
+                    f"ต้องลงท้ายด้วย 'ครับพ้ม!' เสมอ"
                 )
                 try:
                     response = ai_client.chat.completions.create(
