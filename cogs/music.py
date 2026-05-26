@@ -47,7 +47,11 @@ class MusicCommands(commands.Cog):
         if not interaction.guild.voice_client:
             await interaction.user.voice.channel.connect()
         
-        await self.play_song(interaction, search)
+        if self.is_playing_music:
+            self.song_queue.append(search)
+            await interaction.followup.send(f"📋 Added to queue: **{search}**")
+        else:
+            await self.play_song(interaction, search)
     
     @app_commands.command(name="stop", description="Stop music playback")
     async def stop(self, interaction: discord.Interaction):

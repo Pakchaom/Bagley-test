@@ -126,7 +126,7 @@ class ReminderCommands(commands.Cog):
                 try:
                     user = await self.bot.fetch_user(user_id)
                     if user:
-                        content = r['content']
+                        content = r.get('content') or r.get('text', 'No message')
                         
                         # Check if user is in voice
                         member = None

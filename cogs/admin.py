@@ -40,6 +40,11 @@ class AdminCommands(commands.Cog):
         
         try:
             import sqlite3
+            import os
+            
+            # Ensure data directory exists
+            os.makedirs('data', exist_ok=True)
+            
             conn = sqlite3.connect('data/bagley_memory.db', check_same_thread=False)
             cursor = conn.cursor()
             cursor.execute("INSERT OR REPLACE INTO teach_memory (keyword, response) VALUES (?, ?)",

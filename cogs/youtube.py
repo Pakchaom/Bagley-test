@@ -4,6 +4,7 @@ Track and alert on new uploads
 """
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import requests
 import sqlite3
 from config.config import YT_API_KEY
@@ -150,8 +151,6 @@ class YouTubeMonitoring(commands.Cog):
         except Exception as e:
             print(f"Send alert error: {e}")
 
-
-from discord import app_commands
 
 async def setup(bot):
     await bot.add_cog(YouTubeMonitoring(bot))

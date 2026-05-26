@@ -114,8 +114,8 @@ class VoiceCommands(commands.Cog):
         await self.bot.wait_until_ready()
         
         for guild in self.bot.guilds:
-            for voice_client in guild.voice_channels:
-                for member in voice_client.members:
+            if guild.voice_client and guild.voice_client.channel:
+                for member in guild.voice_client.channel.members:
                     if member.bot:
                         continue
                     

@@ -78,6 +78,7 @@ class AICommands(commands.Cog):
             prompt = f"Translate the following text to {target_lang}: '{text}'"
             response = await self.client.aio.models.generate_content(
                 model=self.MODEL_NAME,
+                config={'system_instruction': self.SYSTEM_PROMPT},
                 contents=prompt
             )
             
