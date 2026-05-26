@@ -1523,14 +1523,16 @@ async def on_message(message):
             await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
         return
 
-    # 📸 [ระบบสแกนรูปภาพด้วยสมองกล Gemini] ─────────────────────────────────────────
-    if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
-        is_dm = isinstance(message.channel, discord.DMChannel)
-
-        # เช็คชื่อบอทแค่ถ้าอยู่ในกลุ่มเท่านั้น
+    #  ระบบสแกนรูปภาพด้วยสมองกล Gemini ─────────────────────────────────────────
+    msg_content_lower = message.content.lower()
+    is_dm = isinstance(message.channel, discord.DMChannel)
+    image_keywords = ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย", "อันนี้คืออะไร", "นี่คืออะไร"]
+    
+    if any(keyword in msg_content_lower for keyword in image_keywords) or message.attachments or message.reference:
+        
         if not is_dm:
             bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if not any(keyword in lower_content for keyword in bot_keywords):
+            if not any(keyword in msg_content_lower for keyword in bot_keywords):
                 return
         
         has_image = False
@@ -1549,7 +1551,6 @@ async def on_message(message):
                 pass
 
         if has_image:
-            is_dm = isinstance(message.channel, discord.DMChannel)
             user_msg_clean = message.content.strip()
 
             if is_dm and not user_msg_clean:
@@ -1595,9 +1596,7 @@ async def on_message(message):
                 await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
                 return
 
-        # =================================================================
-        # A. หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
-        # =================================================================
+        #  หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
         if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
