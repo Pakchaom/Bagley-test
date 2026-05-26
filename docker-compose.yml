@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  bagley-bot:
+    build: .
+    container_name: bagley-bot
+    restart: unless-stopped
+    
+    # Environment variables from .env file
+    env_file:
+      - .env
+    
+    # Mount volumes for data persistence
+    volumes:
+      # Data files
+      - ./data:/app/data
+      # Config (optional - for runtime updates)
+      - ./config:/app/config
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+    
+    # Logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
