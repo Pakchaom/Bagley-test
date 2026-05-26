@@ -120,7 +120,7 @@ async def main():
         sys.exit(1)
 
 
-if _try:
+if _try: #TODO: indent wrong need to recheck further
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n👋 Bot shutdown by user")
