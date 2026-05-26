@@ -1525,9 +1525,13 @@ async def on_message(message):
 
     # 📸 [ระบบสแกนรูปภาพด้วยสมองกล Gemini] ─────────────────────────────────────────
     if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if message.guild and not any(keyword in lower_content for keyword in bot_keywords):
-            return
+        is_dm = isinstance(message.channel, discord.DMChannel)
+
+        # เช็คชื่อบอทแค่ถ้าอยู่ในกลุ่มเท่านั้น
+        if not is_dm:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
         
         has_image = False
         target_message = message
