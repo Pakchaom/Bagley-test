@@ -1543,24 +1543,49 @@ async def on_message(message):
 
         elif any(k in lower_content for k in ["ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]):
             data_memory = load_user_data()
+            
             if message.mentions:
                 target = message.mentions[0]
                 target_id = str(target.id)
-                if target_id in data_memory:
+                
+                has_profile = target_id in data_memory
+                has_birthday = False
+                
+                if "reminders" in data_memory and target_id in data_memory["reminders"]:
+                    del data_memory["reminders"][target_id]
+                    has_birthday = True
+                
+                if has_profile:
                     del data_memory[target_id]
+                
+                if has_profile or has_birthday:
                     save_user_data(data_memory)
-                    await message.reply(f"ลบข้อมูลของ {target.display_name} เรียบร้อยครับเมท")
+                    await message.reply(f"ลบข้อมูลชื่อเล่นและวันเกิดของ {target.display_name} เรียบร้อยครับเมท คลังสมองโล่งโจ้งเลยพ้ม! ❌")
+                    return # 👈 ใส่ล็อกไว้ในบล็อกย่อย เพื่อตัดจบกระบวนการ ไม่ให้ไหลลงไปด้านล่าง
                 else:
-                    await message.reply(f"ผมยังไม่มีข้อมูลของ {target.display_name} เลยครับ")
+                    await message.reply(f"ผมยังไม่มีข้อมูลทั้งชื่อเล่นและวันเกิดของ {target.display_name} ในระบบเลยครับเมท")
+                    return # 👈 ใส่ล็อกไว้เช่นกัน
+                    
             else:
                 user_id = str(message.author.id)
-                if user_id in data_memory:
+                has_profile = user_id in data_memory
+                has_birthday = False
+                
+                # 🎂 ลบข้อมูลวันเกิดตัวเองออกจากคลังแจ้งเตือน
+                if "reminders" in data_memory and user_id in data_memory["reminders"]:
+                    del data_memory["reminders"][user_id]
+                    has_birthday = True
+                    
+                if has_profile:
                     del data_memory[user_id]
+                    
+                if has_profile or has_birthday:
                     save_user_data(data_memory)
-                    await message.reply("ล้างข้อมูลชื่อของคุณเรียบร้อย ต่อไปนี้ผมจะทักทายคุณแบบปกติครับ")
+                    await message.reply("ล้างข้อมูลชื่อและวันเกิดของคุณเรียบร้อย ต่อไปนี้ผมจะทักทายคุณแบบคนแปลกหน้าปกติครับเมท 🤠✨")
+                    return
                 else:
-                    await message.reply("ผมยังไม่ได้จำชื่อของเมทไว้เลยนะครับ")
-            return
+                    await message.reply("ผมยังไม่ได้จำทั้งชื่อเล่นหรือวันเกิดของเมทไว้เลยนะครับ จะให้ลบตรงไหนดีล่ะเนี่ย")
+                    return
 
         # =================================================================
         # C. หมวดคำสั่งสื่อบันเทิง (Music / YouTube / Guild Join-Leave)
