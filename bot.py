@@ -1560,27 +1560,31 @@ async def on_message(message):
         voice_client = message.guild.voice_client
         if voice_client and voice_client.channel and not voice_client.is_playing():
             await bagley_speak_wait(message.guild, "ปิดระบบรายงานห้องเสียงชั่วคราวเรียบร้อยครับ")
-        return
-
-    # 🔊 [ระบบเปิดรายงานห้องเสียง] ──────────────────────────────────────────
-    if "เปิดรายงานห้องเสียง" in lower_content or "เปิดทักห้องเสียง" in lower_content:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if not any(keyword in lower_content for keyword in bot_keywords):
-            return
-        
-        if message.guild is None:
-            return
-            
-        guild_id = message.guild.id
-        voice_report_status[guild_id] = True
-        await message.reply("เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงเจื้อยแจ้วทักทายเหมือนเดิมแล้วครับพ้ม!")
-        
-        voice_client = message.guild.voice_client
-        if voice_client and voice_client.channel and not voice_client.is_playing():
-            await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
             return
 
-        #  หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
+    # =================================================================
+        # 🔊 [ระบบเปิดรายงานห้องเสียง]
+        # =================================================================
+        if "เปิดรายงานห้องเสียง" in lower_content or "เปิดทักห้องเสียง" in lower_content:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                pass # ถ้าไม่ได้เจาะจงเรียกชื่อบอท ให้ข้ามไปเช็คคำสั่งอื่น
+            else:
+                if message.guild is None:
+                    return
+                    
+                guild_id = message.guild.id
+                voice_report_status[guild_id] = True
+                await message.reply("เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงเจื้อยแจ้วทักทายเหมือนเดิมแล้วครับพ้ม!")
+                
+                voice_client = message.guild.voice_client
+                if voice_client and voice_client.channel and not voice_client.is_playing():
+                    await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
+                return # ทำงานเสร็จแล้วจบการทำงานทันที
+
+        # =================================================================
+        # A. หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
+        # =================================================================
         if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
@@ -1873,7 +1877,7 @@ async def on_message(message):
             return
 
         # =================================================================
-        # D. ด่านสุดท้าย: ถ้าไม่ตรงกับคำสั่งไหนเลย => ส่งให้ AI Gemini พูดคุยอิสระ
+        # D. ด่านสุดท้าย: ส่งให้ AI Gemini พูดคุยอิสระ (เวอร์ชันป้องการบอทค้าง!)
         # =================================================================
         elif "แบ็คลี่" in lower_content or "bagley" in lower_content or bot.user.mentioned_in(message) or message.guild is None:
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
@@ -1882,24 +1886,41 @@ async def on_message(message):
             if user_question or (message.guild is None):
                 async with message.channel.typing():
                     try:
-                        user_id = str(message.author.id)
-                        save_message(user_id, "user", user_question)
-                        history = load_history(user_id)
+                        # 🎭 มัดรวมประวัติแชท 10 ข้อความล่าสุดให้อยู่ในรูปแบบ "สคริปต์บทละคร"
+                        messages = []
+                        async for msg in message.channel.history(limit=10):
+                            messages.append(msg)
+                        messages.reverse()
+                        
+                        chat_log = ""
+                        for msg in messages:
+                            if msg.content.strip():
+                                speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
+                                chat_log += f"[{speaker}]: {msg.clean_content}\n"
+
+                        # 🛠️ หลอมรวม Prompt และประวัติแชทเป็นก้อนเดียว ป้องกัน SDK เอ๋อในแชทกลุ่ม
+                        full_prompt = f"""
+{SYSTEM_PROMPT}
+
+นี่คือประวัติการสนทนาล่าสุดในห้องแชท:
+{chat_log}
+
+ให้คุณตอบกลับข้อความล่าสุดอย่างเป็นธรรมชาติ สั้น กระชับ และคงคาแรคเตอร์ไว้
+"""
                         
                         response = await client.aio.models.generate_content(
                             model=MODEL_NAME, 
-                            config={'system_instruction': SYSTEM_PROMPT},
-                            contents=history 
+                            contents=full_prompt
                         )
                         answer = response.text
                         
-                        await message.reply(answer)
-                        save_message(user_id, "model", answer)
+                        if answer:
+                            await message.reply(answer)
 
-                        clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
-                        if message.guild and message.guild.voice_client:
-                            if not message.guild.voice_client.is_playing():
-                                await bagley_speak(message.guild, clean_answer)
+                            clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
+                            if message.guild and message.guild.voice_client:
+                                if not message.guild.voice_client.is_playing():
+                                    await bagley_speak(message.guild, clean_answer)
 
                     except Exception as e:
                         await message.reply("วงจรประมวลผลผมสะดุดนิดหน่อยครับเมท!")
@@ -1913,10 +1934,8 @@ async def on_message(message):
         if message.guild and message.author.voice:
             vc = message.guild.voice_client
             
-            # 🔥 เงื่อนไขใหม่: บอทต้องต่อสายอยู่ในห้องเสียง และคนพิมพ์ต้องอยู่ในห้องเสียงเดียวกันกับบอทเท่านั้น
             if vc and vc.channel == message.author.voice.channel:
                 
-                # เล่นเสียงเฉพาะตอนที่ห้องว่างจริงๆ (ไม่มีเพลงและไม่มีเสียงอื่นเล่นอยู่)
                 if not vc.is_playing():
                     text = message.clean_content.strip()
                     if text:
