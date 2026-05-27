@@ -1163,19 +1163,28 @@ async def on_message(message):
         if message.guild is None or is_bot_called:
             try:
                 MY_MASTER_ID = 1133740216822267954
-                # ใน DM ถือเป็นคำสั่ง Master โดยอัตโนมัติ / หรือในกลุ่มถ้าพิมพ์คำว่า ทั้งหมด/ทุกเซิร์ฟ
-                is_master_command = message.guild is None or "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
                 user_data = load_user_data()
 
                 if not user_data:
                     await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
                     return
 
-                if is_master_command:
+                # 🔒 [ปรับปรุงใหม่]: เช็คว่าเป็นการตั้งใจเรียกดูข้อมูลมาสเตอร์ทั้งหมดจริง ๆ หรือไม่
+                is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
+
+                # --- เคสที่ 1: คุยใน DM (message.guild เป็น None) ---
+                if message.guild is None:
+                    # ถ้าคุยใน DM แต่ไม่ได้พิมพ์คำว่า "ทั้งหมด" หรือ "ทุกเซิร์ฟ" -> ปฏิเสธทันที!
+                    if not is_master_command:
+                        await message.reply("ขออภัยครับเมท! หากคุยใน DM ไม่สามารถเช็คแค่รายชื่อคนในดิสได้จะต้องเปิดใช้แค่ 'รายชื่อคนในดิสทั้งหมด' เพื่อเรียกคลังข้อมูลระบบตาทิพย์น้าครับพ้ม! 🛸❌")
+                        return
+                    
+                    # ถ้าพิมพ์คำว่าทั้งหมดมาแล้ว แต่ ID ไม่ใช่ Master ผู้สร้าง -> ปฏิเสธสิทธิ์
                     if message.author.id != MY_MASTER_ID:
                         await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับพ้ม! 🤫❌")
                         return
                     
+                    # ผ่านฉลุยแสดงข้อความทั้งหมดใน DM
                     response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
                     for user_id_str, data in user_data.items():
                         if user_id_str == "reminders": continue
@@ -1185,7 +1194,21 @@ async def on_message(message):
                     
                     await message.reply(response_msg)
                     return
+
+                # --- เคสที่ 2: คุยในเซิร์ฟเวอร์กลุ่มปกติ ---
                 else:
+                    # ถ้าอยู่ในกลุ่มดันพิมพ์คำว่า "ทั้งหมด" มาด้วย และคนพิมพ์คือมาสเตอร์
+                    if is_master_command and message.author.id == MY_MASTER_ID:
+                        response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
+                        for user_id_str, data in user_data.items():
+                            if user_id_str == "reminders": continue
+                            nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
+                            birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
+                            response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
+                        await message.reply(response_msg)
+                        return
+                    
+                    # กรณีเรียกดูรายชื่อเฉพาะคนในเซิร์ฟเวอร์นั้น ๆ (ไม่ว่าจะเป็นมาสเตอร์หรือสมาชิกทั่วไป)
                     guild = message.guild
                     response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
                     has_anyone_here = False
