@@ -904,11 +904,9 @@ async def on_message(message):
     user_id = str(message.author.id)
     lower_content = message.content.lower()
     now = datetime.now()
-
     cursor.execute("SELECT keyword, response FROM teach_memory")
     all_memories = cursor.fetchall()
 
-    matched_memory = False
     for keyword, response_text in all_memories:
         if message.guild:
             pattern = rf"แบ็คลี่\s*{regex_lib.escape(keyword)}\b"
@@ -919,12 +917,7 @@ async def on_message(message):
             caller_mention = message.author.mention
             final_text = response_text.replace("{user}", caller_mention)
             
-            await message.reply(final_text)
-            matched_memory = True
             break
-
-    if matched_memory:
-        return
 
     # --- [ส่วนที่ 1: ระบบตรวจจับสแปม] ---
     # (ทำงานกับทุกข้อความ ไม่ว่าจะเรียกชื่อบอทหรือไม่)
@@ -1276,7 +1269,7 @@ async def on_message(message):
             await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับพ้ม!")
             return
 
-    #  ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite ────────────────────────────────────
+    # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
     is_sqlite_triggered = False
 
     if message.guild is not None:
@@ -1296,6 +1289,7 @@ async def on_message(message):
                 matched_response = response_text
                 break
 
+        # 🔹 [กรณีที่ 1] เจอคำสอนจำในคลัง SQLite (ตอบสไตล์ Bagley)
         if matched_response:
             async with message.channel.typing():
                 bagley_prompt = (
@@ -1322,6 +1316,7 @@ async def on_message(message):
                 await message.reply(bagley_styled_text)
                 return
 
+        # 🔹 [กรณีที่ 2] ไม่เจอคำสอนจำ => ปล่อยไหลมาเข้าสู่โหมดคุยเล่นอิสระ (Free Chat)
         else:
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
             user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
@@ -1342,6 +1337,7 @@ async def on_message(message):
                                 speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
                                 chat_log += f"[{speaker}]: {msg.clean_content}\n"
 
+                        # 🛠️ หลอมรวม Prompt สั่งการระบบพร้อมโครงสร้างบทสนทนา
                         free_chat_prompt = f"""
 คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์ จากโลก DedSec ในเกม Watch Dogs
 คุณกำลังสนทนากับผู้ใช้ โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ [ชื่อผู้ใช้]' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ห้ามพูดคำว่า 'ค่ะ/นะคะ'
@@ -1366,6 +1362,7 @@ async def on_message(message):
 
                     await message.reply(bagley_styled_text)
                     
+                    # 🔊 ถ้าน้องสถิตอยู่ในห้องเสียงอยู่แล้ว ให้แปลงคำตอบนี้ส่งไปพูดในโหมด Voice ด้วย
                     if message.guild and message.guild.voice_client:
                         if not message.guild.voice_client.is_playing():
                             clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
@@ -1373,6 +1370,7 @@ async def on_message(message):
                 return
                 
             else:
+                # กรณีในกลุ่มที่พิมพ์แค่คำว่า "แบ็คลี่" ลอยๆ ไม่มีประโยคอื่นต่อท้าย
                 if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) and message.guild:
                     await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
                 return
@@ -1596,31 +1594,27 @@ async def on_message(message):
         voice_client = message.guild.voice_client
         if voice_client and voice_client.channel and not voice_client.is_playing():
             await bagley_speak_wait(message.guild, "ปิดระบบรายงานห้องเสียงชั่วคราวเรียบร้อยครับ")
+        return
+
+    # 🔊 [ระบบเปิดรายงานห้องเสียง] ──────────────────────────────────────────
+    if "เปิดรายงานห้องเสียง" in lower_content or "เปิดทักห้องเสียง" in lower_content:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
+        if message.guild is None:
+            return
+            
+        guild_id = message.guild.id
+        voice_report_status[guild_id] = True
+        await message.reply("เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงเจื้อยแจ้วทักทายเหมือนเดิมแล้วครับพ้ม!")
+        
+        voice_client = message.guild.voice_client
+        if voice_client and voice_client.channel and not voice_client.is_playing():
+            await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
             return
 
-    # =================================================================
-        # 🔊 [ระบบเปิดรายงานห้องเสียง]
-        # =================================================================
-        if "เปิดรายงานห้องเสียง" in lower_content or "เปิดทักห้องเสียง" in lower_content:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if not any(keyword in lower_content for keyword in bot_keywords):
-                pass # ถ้าไม่ได้เจาะจงเรียกชื่อบอท ให้ข้ามไปเช็คคำสั่งอื่น
-            else:
-                if message.guild is None:
-                    return
-                    
-                guild_id = message.guild.id
-                voice_report_status[guild_id] = True
-                await message.reply("เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงเจื้อยแจ้วทักทายเหมือนเดิมแล้วครับพ้ม!")
-                
-                voice_client = message.guild.voice_client
-                if voice_client and voice_client.channel and not voice_client.is_playing():
-                    await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
-                return # ทำงานเสร็จแล้วจบการทำงานทันที
-
-        # =================================================================
-        # A. หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
-        # =================================================================
+        #  หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
         if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
             can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
             if not can_act:
@@ -1913,7 +1907,7 @@ async def on_message(message):
             return
 
         # =================================================================
-        # D. ด่านสุดท้าย: ส่งให้ AI Gemini พูดคุยอิสระ (เวอร์ชันป้องการบอทค้าง!)
+        # D. ด่านสุดท้าย: ถ้าไม่ตรงกับคำสั่งไหนเลย => ส่งให้ AI Gemini พูดคุยอิสระ
         # =================================================================
         elif "แบ็คลี่" in lower_content or "bagley" in lower_content or bot.user.mentioned_in(message) or message.guild is None:
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
@@ -1922,41 +1916,24 @@ async def on_message(message):
             if user_question or (message.guild is None):
                 async with message.channel.typing():
                     try:
-                        # 🎭 มัดรวมประวัติแชท 10 ข้อความล่าสุดให้อยู่ในรูปแบบ "สคริปต์บทละคร"
-                        messages = []
-                        async for msg in message.channel.history(limit=10):
-                            messages.append(msg)
-                        messages.reverse()
-                        
-                        chat_log = ""
-                        for msg in messages:
-                            if msg.content.strip():
-                                speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
-                                chat_log += f"[{speaker}]: {msg.clean_content}\n"
-
-                        # 🛠️ หลอมรวม Prompt และประวัติแชทเป็นก้อนเดียว ป้องกัน SDK เอ๋อในแชทกลุ่ม
-                        full_prompt = f"""
-{SYSTEM_PROMPT}
-
-นี่คือประวัติการสนทนาล่าสุดในห้องแชท:
-{chat_log}
-
-ให้คุณตอบกลับข้อความล่าสุดอย่างเป็นธรรมชาติ สั้น กระชับ และคงคาแรคเตอร์ไว้
-"""
+                        user_id = str(message.author.id)
+                        save_message(user_id, "user", user_question)
+                        history = load_history(user_id)
                         
                         response = await client.aio.models.generate_content(
                             model=MODEL_NAME, 
-                            contents=full_prompt
+                            config={'system_instruction': SYSTEM_PROMPT},
+                            contents=history 
                         )
                         answer = response.text
                         
-                        if answer:
-                            await message.reply(answer)
+                        await message.reply(answer)
+                        save_message(user_id, "model", answer)
 
-                            clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
-                            if message.guild and message.guild.voice_client:
-                                if not message.guild.voice_client.is_playing():
-                                    await bagley_speak(message.guild, clean_answer)
+                        clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
+                        if message.guild and message.guild.voice_client:
+                            if not message.guild.voice_client.is_playing():
+                                await bagley_speak(message.guild, clean_answer)
 
                     except Exception as e:
                         await message.reply("วงจรประมวลผลผมสะดุดนิดหน่อยครับเมท!")
@@ -1976,11 +1953,9 @@ async def on_message(message):
                     text = message.clean_content.strip()
                     if text:
                         try:
-                            # สร้างเสียงด้วย Edge TTS
                             communicate = edge_tts.Communicate(text, "th-TH-PremwadeeNeural")
                             await communicate.save("user_say.mp3")
                             
-                            # สั่งเล่นเสียง
                             vc.play(discord.FFmpegPCMAudio("user_say.mp3", executable="C:/ffmpeg/bin/ffmpeg.exe"))
                         except: 
                             pass
