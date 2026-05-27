@@ -1,0 +1,16 @@
+services:
+  bagley-bot:
+    build: .
+    container_name: bagley-discord-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - bagley-network
+
+networks:
+  bagley-network:
+    driver: bridge

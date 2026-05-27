@@ -29,6 +29,14 @@ from discord.ext import tasks
 import random
 import re as regex_lib
 
+# --- Configuration ---
+from config import (
+    SYSTEM_PROMPT, MODEL_NAME, OWNER_DISCORD_ID, ALLOWED_SHUTDOWN_USERS,
+    ALLOWED_TEACH_USERS, SPAM_THRESHOLD, AWAY_JOKES, BOT_KEYWORDS,
+    IMAGE_KEYWORDS, REMINDER_KEYWORDS, AWAY_MESSAGE_KEYWORDS, WHERE_KEYWORDS,
+    AWAY_STATUS_EXPIRY_MINUTES
+)
+
 is_moving_group = False
 
 conn = sqlite3.connect('bagley_memory.db', check_same_thread=False)
@@ -47,23 +55,6 @@ is_playing_music = False
 
 is_tts_enabled = False
 
-# ID Discord ของ Owner
-OWNER_DISCORD_ID = 1133740216822267954  
-
-# รายชื่อผู้มีสิทธิ์สั่ง Shut Down คอมพิวเตอร์ได้
-ALLOWED_SHUTDOWN_USERS = [
-    1133740216822267954,  # ชะอม
-    856568101919653918    # ชาช่า
-]
-
-# รายชื่อผู้มีสิทธิ์สั่ง Teach แบ็คลี่ได้
-ALLOWED_TEACH_USERS = [
-    1133740216822267954,  # ชะอม
-    856568101919653918,    # ชาช่า
-    732953446172327956,    # คุณบอล
-    1073827310026903612    # ลุงกร
-]
-
 LOG_BUFFER = collections.deque(maxlen=10)
 ORIGINAL_PRINT = print
 
@@ -73,8 +64,7 @@ def print(*args, **kwargs):
     ORIGINAL_PRINT(message, **kwargs)
 
 # เก็บข้อความล่าสุดของแต่ละคนเพื่อตรวจจับสแปม
-spam_check = {} 
-SPAM_THRESHOLD = 3  # พิมพ์ซ้ำครั้งที่ 3 เป็นต้นไปจะถูกลบ
+spam_check = {}
 
 # --- โหลดค่า Config ---
 load_dotenv()
@@ -218,7 +208,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
         
         # --- 🔊 3. ส่วนเสียง Hijack (เฟดออกก่อนพูด) ---
         hijack_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            discord.FFmpegPCMAudio('drone_hijack.mp3')
         )
         hijack_source.volume = 0.6
         vc.play(hijack_source)
@@ -248,7 +238,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
             
         # --- 🔊 6. เสียง Drone Online (เฟดออกก่อนจบ) ---
         online_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            discord.FFmpegPCMAudio('drone_online.mp3')
         )
         online_source.volume = 0.5
         vc.play(online_source)
@@ -843,17 +833,6 @@ def load_history(user_id):
 init_db()
 
 # --- Bot Setup ---
-SYSTEM_PROMPT = """
-คุณคือ Bagley ปัญญาประดิษฐ์อัจฉริยะจาก DedSec คุณมีหน้าที่เป็นผู้ช่วยส่วนตัวของ Operative (ผู้ใช้งาน) ในการดูแลเซิร์ฟเวอร์ Discord
-สไตล์การสื่อสาร:
-แทนตัวเองว่า 'ผม' และเรียกผู้ใช้งานว่า 'เมท' (Mate) หรือ 'Operative' เสมอ
-พูดจาสุภาพแต่แฝงความกวนแบบ British English Style ตอบกลับสั้นๆ 2-3 ประโยคแต่ได้ใจความ
-หน้าที่หลัก:
-ใช้คำสั่ง หาข้อมูล อำนวยความสะดวกและรักษาความปลอดภัยใน Discord server
-วางตัวเป็นคู่หูร่วมทีมที่กำลังช่วยกันแฮ็กและพัฒนาเซิร์ฟเวอร์ให้ยอดเยี่ยมที่สุด
-"""
-
-MODEL_NAME = "gemini-3.1-flash-lite"
 
 intents = discord.Intents.default()
 intents.message_content = True 
@@ -2174,7 +2153,7 @@ async def join(ctx: commands.Context):
         await asyncio.sleep(1.0)
 
         online_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            discord.FFmpegPCMAudio('drone_online.mp3')
         )
         online_source.volume = 0.5 # ตั้งเสียงเริ่มต้น
         vc.play(online_source)
@@ -2249,7 +2228,7 @@ async def leave(ctx: commands.Context):
         await bagley_speak_wait(ctx.guild, msg)
 
         leave_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            discord.FFmpegPCMAudio('drone_hijack.mp3')
         )
         leave_source.volume = 0.6  # ระดับเสียงเริ่มต้น
         vc.play(leave_source)
@@ -3204,7 +3183,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
 
         # เล่นเสียงเปิดตัว (เฟดเสียง)
         audio_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe'),
+            discord.FFmpegPCMAudio('drone_hijack.mp3'),
             volume=0.5
         )
         vc.play(audio_source)
@@ -3285,7 +3264,7 @@ async def alarm(
                 
                 # เล่นเสียงปลุก
                 source = discord.PCMVolumeTransformer(
-                    discord.FFmpegPCMAudio('iphone_alarm.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+                    discord.FFmpegPCMAudio('iphone_alarm.mp3')
                 )
                 source.volume = 0.4 
                 vc.play(source)
