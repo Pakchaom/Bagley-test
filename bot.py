@@ -1912,19 +1912,23 @@ async def on_message(message):
     if is_tts_enabled and not is_playing_music and not message.content.startswith('!'):
         if message.guild and message.author.voice:
             vc = message.guild.voice_client
-            # เล่นเสียงเฉพาะตอนที่ห้องว่างจริงๆ (ไม่มีเพลงและไม่มีเสียงอื่นเล่นอยู่)
-            if vc and not vc.is_playing():
-                text = message.clean_content.strip()
-                if text:
-                    try:
-                        # สร้างเสียงด้วย Edge TTS
-                        communicate = edge_tts.Communicate(text, "th-TH-PremwadeeNeural")
-                        await communicate.save("user_say.mp3")
-                        
-                        # สั่งเล่นเสียง
-                        vc.play(discord.FFmpegPCMAudio("user_say.mp3", executable="C:/ffmpeg/bin/ffmpeg.exe"))
-                    except: 
-                        pass
+            
+            # 🔥 เงื่อนไขใหม่: บอทต้องต่อสายอยู่ในห้องเสียง และคนพิมพ์ต้องอยู่ในห้องเสียงเดียวกันกับบอทเท่านั้น
+            if vc and vc.channel == message.author.voice.channel:
+                
+                # เล่นเสียงเฉพาะตอนที่ห้องว่างจริงๆ (ไม่มีเพลงและไม่มีเสียงอื่นเล่นอยู่)
+                if not vc.is_playing():
+                    text = message.clean_content.strip()
+                    if text:
+                        try:
+                            # สร้างเสียงด้วย Edge TTS
+                            communicate = edge_tts.Communicate(text, "th-TH-PremwadeeNeural")
+                            await communicate.save("user_say.mp3")
+                            
+                            # สั่งเล่นเสียง
+                            vc.play(discord.FFmpegPCMAudio("user_say.mp3", executable="C:/ffmpeg/bin/ffmpeg.exe"))
+                        except: 
+                            pass
 
     await bot.process_commands(message)
 
