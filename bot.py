@@ -962,10 +962,10 @@ async def on_message(message):
     # ⏰ [ส่วนที่ 2: ระบบแจ้งเตือนความจำ]
     # ==========================================
     if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
-        # สร้างเงื่อนไข: ถ้าอยู่ในเซิร์ฟเวอร์ ต้องมีชื่อบอท ถึงจะทำ / ถ้าไม่มีชื่อบอท ให้ข้ามเงื่อนไขนี้ไปเลย (ไม่ใช้ pass ค้าง)
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
         is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
         
+        # คุยใน DM ทำได้เลยทันที / ถ้าในเซิร์ฟเวอร์ต้องเรียกชื่อบอท
         if message.guild is None or is_bot_called:
             target_user_id = None
             target_display_name = ""
@@ -1021,13 +1021,13 @@ async def on_message(message):
                             save_reminders(reminders)
                             await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับพ้ม! 🫡⏰")
                         return
+                    else:
+                        await message.reply("ขออภัยครับเมท ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
+                        return
                 except Exception as e:
                     print(f"DEBUG Error Reminder System: {e}")
                     await message.reply("เกิดข้อผิดพลาดด้านเทคนิคในการบันทึกระบบแจ้งเตือนครับเมท")
                     return
-                
-                await message.reply("ขออภัยครับเมท ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
-                return
             else:
                 await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับพ้ม")
                 return
@@ -1040,7 +1040,10 @@ async def on_message(message):
 
     if found_trigger:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords) or message.guild is None:
+        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        
+        # คุยใน DM สั่งฝากข้อความได้เลยทันทีไม่ต้องพิมพ์ชื่อบอท
+        if message.guild is None or is_bot_called:
             parts = message.content.split(found_trigger, 1)
             reason = parts[1].strip() if len(parts) > 1 else ""
 
@@ -1059,7 +1062,7 @@ async def on_message(message):
                 await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
                 return
 
-    # ตรวจสอบคนหาย (ย้ายมาครอบเป็นระบบปิดเพื่อความปลอดภัย)
+    # ตรวจสอบคนหาย (ระบบตามหาเพื่อน - ใช้ได้เฉพาะในกลุ่ม)
     if message.guild is not None and ("หายไปไหน" in message.content or "ไปไหน" in message.content or message.mentions):
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
         if any(keyword in lower_content for keyword in bot_keywords):
@@ -1108,7 +1111,9 @@ async def on_message(message):
     # ==========================================
     if "คนนี้คือใคร" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
+        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        
+        if message.guild is None or is_bot_called:
             if message.guild is None:
                 await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับพ้ม! 🛸❌")
                 return
@@ -1149,17 +1154,17 @@ async def on_message(message):
             return
 
     # ==========================================
-    # 📊 [ส่วนที่ 5: ดูรายชื่อทั้งหมด / รายชื่อคนในดิส]
+    # 📊 [ส่วนที่ 5: ดูรายชื่อทั้งหมด / รายชื่อคนในดิส - รองรับ DM แบบมาสเตอร์]
     # ==========================================
     if "รายชื่อคนในดิส" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
-            if message.guild is None:
-                return
-                
+        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        
+        if message.guild is None or is_bot_called:
             try:
                 MY_MASTER_ID = 1133740216822267954
-                is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
+                # ใน DM ถือเป็นคำสั่ง Master โดยอัตโนมัติ / หรือในกลุ่มถ้าพิมพ์คำว่า ทั้งหมด/ทุกเซิร์ฟ
+                is_master_command = message.guild is None or "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
                 user_data = load_user_data()
 
                 if not user_data:
@@ -1214,7 +1219,9 @@ async def on_message(message):
     # ==========================================
     if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
+        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        
+        if message.guild is None or is_bot_called:
             if message.guild is None:
                 await message.reply("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า 🛸❌")
                 return
@@ -1243,21 +1250,24 @@ async def on_message(message):
             return
 
     # ==========================================
-    # 🔇 [ส่วนที่ 7: ระบบเปิด/ปิดรายงานห้องเสียง]
+    # 🔇 [ส่วนที่ 7: ระบบเปิด/ปิดรายงานห้องเสียง - ปรับปรุงความแม่นยำ]
     # ==========================================
     if "รายงานห้องเสียง" in lower_content or "ทักห้องเสียง" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
+        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        
+        if message.guild is None or is_bot_called:
             if message.guild is None: 
+                await message.reply("คำสั่งตั้งค่าระบบเสียงต้องทำในเซิร์ฟเวอร์กลุ่มเท่านั้นครับพ้ม!")
                 return
 
-            # 🛑 เช็คคำว่า "ปิด" เป็นหลัก
+            # สแกนหาคำสั่ง "ปิด"
             if "ปิด" in lower_content:
                 voice_report_status[message.guild.id] = False
                 await message.reply("รับทราบครับพ้ม! 🔇 ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงชั่วคราวแล้วครับ")
                 return
 
-            # 🟢 เช็คคำว่า "เปิด" เป็นหลัก
+            # สแกนหาคำสั่ง "เปิด"
             elif "เปิด" in lower_content:
                 voice_report_status[message.guild.id] = True
                 await message.reply("เปิดระบบคืนชีพ! 🔊 เปิดระบบรายงานห้องเสียงตามปกติแล้วครับพ้ม!")
