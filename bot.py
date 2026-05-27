@@ -953,16 +953,6 @@ async def on_message(message):
         else:
             spam_check[user_id] = {'content': current_content, 'count': 1, 'last_time': now}
 
-    # --- [ส่วนที่ 2: ระบบตอบโต้ AI และคำสั่งพิเศษ] ---
-    # เงื่อนไข: ถ้าเป็น DM หรือมีการเรียกชื่อบอท
-    if message.guild:
-        is_valid_call = any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message)
-    else:
-        is_valid_call = True
-
-    if is_valid_call:
-        ctx = await bot.get_context(message)
-
         # ⏰ [ระบบแจ้งเตือนความจำ] ──────────────────────────────────────────
         if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
             if message.guild is not None:
@@ -1832,7 +1822,6 @@ async def on_message(message):
             return
             
         else:
-            #  ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite + เรียบเรียงด้วย Gemini ────────────────
             is_sqlite_triggered = False
 
             if message.guild is not None:
@@ -1847,7 +1836,6 @@ async def on_message(message):
             if is_sqlite_triggered:
                 cursor.execute("SELECT keyword, response FROM teach_memory")
                 all_teachings = cursor.fetchall()
-                
                 for keyword, response_text in all_teachings:
                     if keyword in lower_content:
                         matched_response = response_text
@@ -1874,20 +1862,27 @@ async def on_message(message):
                         bagley_styled_text = response.text.strip()
                         if not bagley_styled_text:
                             bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
-                            
                     except Exception as e:
                         print(f"🚨 Teach Gemini DM/Guild Error: {e}")
                         bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
 
                     await message.reply(bagley_styled_text)
-                    return # 👈 ทำงานเสร็จ ตัดจบตรงนี้ ไม่ให้ไหลไปหา Free Chat ด้านล่าง!
+                    return # ทำงานเสร็จ ตัดจบ ไม่ไหลลงไปข้างล่าง
 
-            #  ระบบคุยเล่นอิสระ Free Chat (Gemini) - ดึงออกมาอยู่นอกบล็อก SQLite ──────────────
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
             user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
 
-            # เงื่อนไขการตอบ: ตอบทันทีถ้าเป็น DM (guild เป็น None) หรือ ถ้าอยู่ในกลุ่มและมีการเรียกชื่อบอท/แท็กบอท
-            if message.guild is None or (user_question and (any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message))):
+            is_bot_called = False
+            if message.guild is not None:
+                if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message):
+                    is_bot_called = True
+
+            if message.guild is None or is_bot_called:
+                
+                if message.guild is not None and not user_question:
+                    await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
+                    return
+
                 if message.guild is not None:
                     await message.reply("กำลังโหลด...", delete_after=2.0)
 
@@ -1918,7 +1913,6 @@ async def on_message(message):
                             contents=free_chat_prompt
                         )
                         bagley_styled_text = response.text.strip()
-                        
                         if not bagley_styled_text:
                             bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับเมท!"
 
@@ -1932,11 +1926,6 @@ async def on_message(message):
                         if not message.guild.voice_client.is_playing():
                             clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
                             await bagley_speak(message.guild, clean_voice_text)
-                return
-                
-            else:
-                if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) and message.guild:
-                    await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
                 return
 
     # --- [ส่วนที่ 3: ระบบอ่านแชทคนในห้องเสียง (ล่าม)] ---
