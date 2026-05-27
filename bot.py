@@ -1578,7 +1578,7 @@ async def on_message(message):
         voice_client = message.guild.voice_client
         if voice_client and voice_client.channel and not voice_client.is_playing():
             await bagley_speak_wait(message.guild, "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท")
-        return
+            return
 
         #  หมวดคำสั่งจัดการสมาชิก (Kick/Move) และ ตั้งค่าระบบ
         if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
