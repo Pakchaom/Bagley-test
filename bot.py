@@ -1247,22 +1247,24 @@ async def on_message(message):
             return
 
     # ==========================================
-    # 🔇 [ส่วนที่ 7: ระบบเปิด/ปิดรายงานห้องเสียง]
+    # 🔇 [ส่วนที่ 7: ระบบเปิด/ปิดรายงานห้องเสียง - เวอร์ชันแยกแยะเด็ดขาด]
     # ==========================================
-    if "ปิดรายงานห้องเสียง" in lower_content or "ปิดทักห้องเสียง" in lower_content:
+    if any(word in lower_content for word in ["ปิดรายงานห้องเสียง", "ปิดทักห้องเสียง"]):
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
         if any(keyword in lower_content for keyword in bot_keywords):
-            if message.guild is None: return
+            if message.guild is None: 
+                return
             voice_report_status[message.guild.id] = False
             await message.reply("รับทราบครับพ้ม! 🔇 ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงชั่วคราวแล้วครับ")
             return
 
-    elif "เปิดรายงานห้องเสียง" in lower_content or "เปิดทักห้องเสียง" in lower_content:
+    elif any(word in lower_content for word in ["เปิดรายงานห้องเสียง", "เปิดทักห้องเสียง"]):
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
         if any(keyword in lower_content for keyword in bot_keywords):
-            if message.guild is None: return
+            if message.guild is None: 
+                return
             voice_report_status[message.guild.id] = True
-            await message.reply("เปิดระบบคืนชีพ! 🔊 เปิดระบบรายงานห้องเสียงตามปกติแล้วครับพ้ม")
+            await message.reply("เปิดระบบคืนชีพ! 🔊 เปิดระบบรายงานห้องเสียงตามปกติแล้วครับพ้ม!")
             return
 
     # ==========================================
@@ -2223,33 +2225,41 @@ async def leave(ctx: commands.Context):
         else:
             await ctx.send(msg)
             
-        await bagley_speak_wait(ctx.guild, msg)
-
-        leave_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
-        )
-        leave_source.volume = 0.6  # ระดับเสียงเริ่มต้น
-        vc.play(leave_source)
-
-        # 4. จังหวะการ Fade Out:
-        # เสียงยาว 4 วิ ให้ดังปกติ 2.5 วิ แล้วค่อยๆ จางหายไป 1.5 วิ
-        await asyncio.sleep(2.5) 
-
-        steps = 15
-        fade_duration = 1.5
-        for _ in range(steps):
-            if leave_source:
-                # ค่อยๆ ลดระดับเสียงลงจนเหลือ 0
-                leave_source.volume = max(0, leave_source.volume - (0.6 / steps))
-                await asyncio.sleep(fade_duration / steps)
+        try:
+            await bagley_speak_wait(ctx.guild, msg)
+        except Exception as tts_err:
+            print(f"DEBUG: ล่าม TTS พูดก่อนออกจากห้องขัดข้อง: {tts_err}")
 
         if vc.is_playing():
             vc.stop()
+
+        try:
+            leave_source = discord.PCMVolumeTransformer(
+                discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            )
+            leave_source.volume = 0.6
+            vc.play(leave_source)
+
+            await asyncio.sleep(2.5) 
+
+            steps = 15
+            fade_duration = 1.5
+            for _ in range(steps):
+                if ctx.voice_client and leave_source:
+                    leave_source.volume = max(0, leave_source.volume - (0.6 / steps))
+                    await asyncio.sleep(fade_duration / steps)
+                else:
+                    break
+        except Exception as sound_err:
+            print(f"🚨 เอฟเฟกต์เสียงขาดตอน หรือไม่พบไฟล์ drone_hijack.mp3: {sound_err}")
+
+        if ctx.voice_client:
+            if ctx.voice_client.is_playing():
+                ctx.voice_client.stop()
+            await asyncio.sleep(0.5)
+            await ctx.voice_client.disconnect()
+            print("DEBUG: เจ้า Bagley ย้ายร่างออกจากห้องเสียงสำเร็จเรียบร้อย!")
             
-        # 4. แถมอีก 0.5 วินาที ก่อนจากกัน
-        await asyncio.sleep(0.5)
-        
-        await vc.disconnect()
     else:
         no_vc_msg = "ผมยังไม่ได้เข้าห้องไหนเลยนะ ใจเย็นครับเมท!"
         if ctx.interaction:
