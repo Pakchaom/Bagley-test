@@ -8,6 +8,7 @@ import sys
 import io
 import sqlite3
 import asyncio
+import shutil
 from dotenv import load_dotenv
 from discord import app_commands
 from datetime import datetime, timedelta
@@ -71,6 +72,48 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 YT_API_KEY = os.getenv('YT_API_KEY')
+
+# Resolve ffmpeg executable: prefer env var `FFMPEG_EXECUTABLE`, then system `ffmpeg`
+FFMPEG_EXECUTABLE = os.getenv('FFMPEG_EXECUTABLE') or shutil.which('ffmpeg') or 'ffmpeg'
+
+# Helper: safe voice connect with retries and disconnect of stale clients
+async def safe_connect(channel, max_retries: int = 5):
+    import gc
+    for attempt in range(1, max_retries + 1):
+        try:
+            guild = channel.guild
+            # If there's an existing voice client, disconnect it first to avoid session conflicts
+            vc = getattr(guild, 'voice_client', None)
+            if vc and vc.is_connected():
+                try:
+                    await vc.disconnect(force=True)
+                except Exception:
+                    pass
+                # Add delay after disconnect to ensure session is fully cleaned up
+                await asyncio.sleep(1.5)
+                # Force garbage collection to clean up stale objects
+                gc.collect()
+            
+            return await channel.connect()
+        except discord.errors.ConnectionClosed as e:
+            code = getattr(e, 'code', None)
+            print(f"Voice WebSocket closed (code: {code}). attempt {attempt}/{max_retries}")
+            
+            # 4006 = Invalid session (stale session ID); needs aggressive retry
+            if code == 4006:
+                print(f"  → Session invalidated. Retrying with longer delay...")
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(3 ** attempt)  # Longer backoff for 4006
+            else:
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(2 ** attempt)
+        except Exception as e:
+            print(f"Voice connect error: {e}. attempt {attempt}/{max_retries}")
+            if attempt == max_retries:
+                raise
+            await asyncio.sleep(1)
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"), http_options={'api_version': 'v1alpha'})
 
@@ -157,7 +200,7 @@ async def bagley_speak_wait(guild, text, filename=None):
             
         try:
             # 1. สร้างชื่อไฟล์แบบไม่ซ้ำ
-            unique_name = f"speak_{int(time.time() * 1000)}.mp3"
+            unique_name = f"data/speak_{int(time.time() * 1000)}.mp3"
             
             # 2. ใช้ edge_tts เรียกเสียงคุณนิวัฒน์
             voice = "th-TH-NiwatNeural"
@@ -167,9 +210,7 @@ async def bagley_speak_wait(guild, text, filename=None):
             # รอให้ไฟล์เซฟเสร็จ
             await asyncio.sleep(0.5)
 
-            executable_path = r'C:\ffmpeg\bin\ffmpeg.exe'
-            
-            source = discord.FFmpegPCMAudio(unique_name, executable=executable_path)
+            source = discord.FFmpegPCMAudio(unique_name, executable=FFMPEG_EXECUTABLE)
             
             vc.play(source)
             
@@ -208,7 +249,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
         
         # --- 🔊 3. ส่วนเสียง Hijack (เฟดออกก่อนพูด) ---
         hijack_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3')
+            discord.FFmpegPCMAudio('data/drone_hijack.mp3', executable=FFMPEG_EXECUTABLE)
         )
         hijack_source.volume = 0.6
         vc.play(hijack_source)
@@ -238,7 +279,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
             
         # --- 🔊 6. เสียง Drone Online (เฟดออกก่อนจบ) ---
         online_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_online.mp3')
+            discord.FFmpegPCMAudio('drone_online.mp3', executable=FFMPEG_EXECUTABLE)
         )
         online_source.volume = 0.5
         vc.play(online_source)
@@ -286,9 +327,9 @@ async def bagley_speak(guild, text):
             
             voice = "th-TH-NiwatNeural"
             communicate = edge_tts.Communicate(text, voice)
-            await communicate.save("bagley_system_voice.mp3")
+            await communicate.save("data/bagley_system_voice.mp3")
             
-            source = discord.FFmpegPCMAudio("bagley_system_voice.mp3", executable="C:/ffmpeg/bin/ffmpeg.exe")
+            source = discord.FFmpegPCMAudio("data/bagley_system_voice.mp3", executable=FFMPEG_EXECUTABLE)
             vc.play(source)
         except Exception as e:
             print(f"Bagley Voice Error: {e}")
@@ -324,7 +365,7 @@ async def play_song(ctx, search):
     FFMPEG_OPTIONS = {
         'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
         'options': '-vn',
-        'executable': 'C:/ffmpeg/bin/ffmpeg.exe'
+        'executable': FFMPEG_EXECUTABLE
     }
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -810,12 +851,38 @@ def init_db():
     global conn
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS chat_history (user_id INTEGER, role TEXT, text TEXT)')
-    c.execute('''CREATE TABLE IF NOT EXISTS youtube_channels (channel_id TEXT PRIMARY KEY, channel_name TEXT, last_video_id TEXT, guild_id TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS youtube_channels (yt_id TEXT PRIMARY KEY, name TEXT, last_video_id TEXT, guild_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS youtube_settings (guild_id TEXT PRIMARY KEY, target_channel_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS registration_settings(guild_id INTEGER PRIMARY KEY, questions TEXT, target_role_id INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS user_status(user_id TEXT PRIMARY KEY, status_message TEXT, is_away INTEGER, timestamp DATETIME)''')
     c.execute('''CREATE TABLE IF NOT EXISTS teach_memory (keyword TEXT PRIMARY KEY, response TEXT)''')
     conn.commit()
+    _migrate_youtube_channels()
+
+def _migrate_youtube_channels():
+    """Migrate old youtube_channels table schema to new one if needed"""
+    global conn
+    c = conn.cursor()
+    try:
+        # Check if old schema exists
+        c.execute("PRAGMA table_info(youtube_channels)")
+        columns = [col[1] for col in c.fetchall()]
+        
+        # If using old column names, migrate to new schema
+        if 'channel_id' in columns and 'channel_name' in columns:
+            print("🔄 Migrating youtube_channels table schema...")
+            # Create new table with correct schema
+            c.execute('''CREATE TABLE youtube_channels_new (yt_id TEXT PRIMARY KEY, name TEXT, last_video_id TEXT, guild_id TEXT)''')
+            # Copy data from old table
+            c.execute('''INSERT INTO youtube_channels_new SELECT channel_id, channel_name, last_video_id, guild_id FROM youtube_channels''')
+            # Drop old table
+            c.execute('''DROP TABLE youtube_channels''')
+            # Rename new table
+            c.execute('''ALTER TABLE youtube_channels_new RENAME TO youtube_channels''')
+            conn.commit()
+            print("✅ Migration complete!")
+    except Exception as e:
+        print(f"Migration info: {e}")
 
 def save_message(user_id, role, text):
     global conn
@@ -1898,10 +1965,10 @@ async def on_message(message):
                     try:
                         # สร้างเสียงด้วย Edge TTS
                         communicate = edge_tts.Communicate(text, "th-TH-PremwadeeNeural")
-                        await communicate.save("user_say.mp3")
+                        await communicate.save("data/user_say.mp3")
                         
                         # สั่งเล่นเสียง
-                        vc.play(discord.FFmpegPCMAudio("user_say.mp3", executable="C:/ffmpeg/bin/ffmpeg.exe"))
+                        vc.play(discord.FFmpegPCMAudio("data/user_say.mp3", executable=FFMPEG_EXECUTABLE))
                     except: 
                         pass
 
@@ -2147,13 +2214,13 @@ async def join(ctx: commands.Context):
             vc = ctx.voice_client
         else:
             # ถ้ายังไม่อยู่เลย ให้เชื่อมต่อใหม่และเก็บค่าไว้ใน vc
-            vc = await channel.connect()
+            vc = await safe_connect(channel)
         
         # ✨ เพิ่ม Delay เพื่อให้ระบบเสียงนิ่งก่อนพูด
         await asyncio.sleep(1.0)
 
         online_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_online.mp3')
+            discord.FFmpegPCMAudio('data/drone_online.mp3', executable=FFMPEG_EXECUTABLE)
         )
         online_source.volume = 0.5 # ตั้งเสียงเริ่มต้น
         vc.play(online_source)
@@ -2228,7 +2295,7 @@ async def leave(ctx: commands.Context):
         await bagley_speak_wait(ctx.guild, msg)
 
         leave_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3')
+            discord.FFmpegPCMAudio('data/drone_hijack.mp3', executable=FFMPEG_EXECUTABLE)
         )
         leave_source.volume = 0.6  # ระดับเสียงเริ่มต้น
         vc.play(leave_source)
@@ -2269,7 +2336,7 @@ async def play(ctx: commands.Context, *, search: str):
 
     if not ctx.voice_client:
         if ctx.author.voice:
-            await ctx.author.voice.channel.connect()
+            await safe_connect(ctx.author.voice.channel)
         else:
             msg = "กรุณาเข้าห้องเสียงก่อนสั่งผมครับ!"
             if ctx.interaction: 
@@ -3176,14 +3243,14 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
             await ctx.voice_client.move_to(target_channel)
             vc = ctx.voice_client
         else:
-            vc = await target_channel.connect()
+            vc = await safe_connect(target_channel)
 
         # แจ้งในช่องแชททันทีหลังจากก้าวเท้าเข้าห้องเสียง
         await ctx.send(f"รับทราบครับเมท! ผมจะไปอยู่เป็นเพื่อนคุณ {member.display_name} เดี๋ยวนี้แหละ")
 
         # เล่นเสียงเปิดตัว (เฟดเสียง)
         audio_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3'),
+            discord.FFmpegPCMAudio('data/drone_hijack.mp3', executable=FFMPEG_EXECUTABLE),
             volume=0.5
         )
         vc.play(audio_source)
@@ -3254,7 +3321,7 @@ async def alarm(
                     await ctx.voice_client.move_to(member.voice.channel)
                     vc = ctx.voice_client
                 else:
-                    vc = await member.voice.channel.connect()
+                    vc = await safe_connect(member.voice.channel)
             else:
                 vc = ctx.voice_client
 
@@ -3264,7 +3331,7 @@ async def alarm(
                 
                 # เล่นเสียงปลุก
                 source = discord.PCMVolumeTransformer(
-                    discord.FFmpegPCMAudio('iphone_alarm.mp3')
+                    discord.FFmpegPCMAudio('data/iphone_alarm.mp3', executable=FFMPEG_EXECUTABLE)
                 )
                 source.volume = 0.4 
                 vc.play(source)
