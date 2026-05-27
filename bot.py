@@ -275,18 +275,6 @@ async def bagley_hijack_alert(voice_channel, message_text):
         # ถ้าเกิด Error และบอทไม่ได้จำห้องเก่าไว้ ค่อยตัดการเชื่อมต่อเพื่อความปลอดภัย
         if vc and not old_channel: 
             await vc.disconnect()
-    
-async def ask_bagley_ai(question):
-    try:
-        response = await client.aio.models.generate_content(
-            model=MODEL_NAME, # ใช้ gemini-3.1-flash-lite
-            config={'system_instruction': SYSTEM_PROMPT},
-            contents=question
-        )
-        return response.text
-    except Exception as e:
-        print(f"AI Error: {e}")
-        return "ขออภัยครับเมท สมองส่วนกลางของผมเกิดอาการรวนนิดหน่อย พยายามใหม่อีกทีนะครับ"
 
 # --- ระบบเสียงกลางของ Bagley ---
 async def bagley_speak(guild, text):
