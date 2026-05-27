@@ -904,9 +904,11 @@ async def on_message(message):
     user_id = str(message.author.id)
     lower_content = message.content.lower()
     now = datetime.now()
+
     cursor.execute("SELECT keyword, response FROM teach_memory")
     all_memories = cursor.fetchall()
 
+    matched_memory = False
     for keyword, response_text in all_memories:
         if message.guild:
             pattern = rf"แบ็คลี่\s*{regex_lib.escape(keyword)}\b"
@@ -917,7 +919,12 @@ async def on_message(message):
             caller_mention = message.author.mention
             final_text = response_text.replace("{user}", caller_mention)
             
+            await message.reply(final_text)
+            matched_memory = True
             break
+
+    if matched_memory:
+        return
 
     # --- [ส่วนที่ 1: ระบบตรวจจับสแปม] ---
     # (ทำงานกับทุกข้อความ ไม่ว่าจะเรียกชื่อบอทหรือไม่)
