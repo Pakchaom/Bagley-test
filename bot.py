@@ -913,6 +913,7 @@ async def on_message(message):
     user_id = str(message.author.id)
     lower_content = message.content.lower()
     now = datetime.now()
+    
     cursor.execute("SELECT keyword, response FROM teach_memory")
     all_memories = cursor.fetchall()
 
@@ -925,7 +926,6 @@ async def on_message(message):
         if regex_lib.search(pattern, lower_content):
             caller_mention = message.author.mention
             final_text = response_text.replace("{user}", caller_mention)
-            
             break
 
     # --- [ส่วนที่ 1: ระบบตรวจจับสแปม] ---
@@ -962,350 +962,347 @@ async def on_message(message):
 
     if is_valid_call:
         ctx = await bot.get_context(message)
-    
-        if message.guild is not None:
-            await message.reply("กำลังโหลด...", delete_after=2.0)
 
-    # ⏰ [ระบบแจ้งเตือนความจำ] ──────────────────────────────────────────
-    if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
+        # ⏰ [ระบบแจ้งเตือนความจำ] ──────────────────────────────────────────
+        if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
+            if message.guild is not None:
+                bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+                if not any(keyword in lower_content for keyword in bot_keywords):
+                    return
+            
+            target_user_id = None
+            target_display_name = ""
+            is_remind_self = False
+
+            if "เตือนฉัน" in lower_content or "เตือนผม" in lower_content:
+                is_remind_self = True
+                target_user_id = message.author.id
+                target_display_name = "ตัวเมทเอง"
+            
+            else:
+                has_id = regex_lib.search(r'(\d{17,19})', message.content)
+                if message.mentions:
+                    target_user = message.mentions[0]
+                    target_user_id = target_user.id
+                    target_display_name = f"คุณ {target_user.display_name}"
+                elif has_id:
+                    target_user_id = int(has_id.group(1))
+                    try:
+                        fetched_user = await bot.fetch_user(target_user_id)
+                        if fetched_user:
+                            target_display_name = f"คุณ {fetched_user.display_name}"
+                    except:
+                        target_display_name = f"พรรคพวก ID: {target_user_id}"
+
+            if target_user_id:
+                try:
+                    time_match = regex_lib.search(r'(\d{1,2}[:.]\d{2})', message.content)
+                    if time_match:
+                        target_time = time_match.group(1).replace('.', ':').zfill(5)
+                        note_text = message.content.split("ว่า")[-1].strip() if "ว่า" in message.content else "ถึงเวลาแล้วครับ!"
+                        
+                        if is_remind_self:
+                            user_data = load_user_data()
+                            if "reminders" not in user_data:
+                                user_data["reminders"] = []
+                                
+                            user_data["reminders"].append({
+                                "user_id": str(target_user_id),
+                                "time": target_time,
+                                "text": note_text,
+                                "channel_id": str(message.channel.id)
+                            })
+                            save_user_data(user_data)
+                            
+                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} เรื่อง '{note_text}' ให้ตัวเมทเองเรียบร้อยแล้วครับพ้ม! ⏰")
+                        else:
+                            reminders = load_reminders()
+                            reminders.append({
+                                "target_id": str(target_user_id),
+                                "from": message.author.display_name,
+                                "time": target_time,
+                                "text": note_text
+                            })
+                            save_reminders(reminders)
+                            
+                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับพ้ม! 🫡⏰")
+                        
+                        return
+                        
+                except Exception as e:
+                    print(f"DEBUG Error Reminder System: {e}")
+                    await message.reply("เกิดข้อผิดพลาดด้านเทคนิคในการบันทึกระบบแจ้งเตือนครับเมท")
+                    return
+                
+                await message.reply("ขออภัยครับเมท ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
+                return
+            
+            else:
+                await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับพ้ม")
+                return
+            
+        #  ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่ ────────────────────────────────────────
+        trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
+        found_trigger = next((word for word in trigger_words if word in lower_content), None)
+
+        if found_trigger:
+            print(f"📝 [DEBUG ฝากบอก]: เจอคำดักจับ -> '{found_trigger}'")
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            
+            if any(keyword in lower_content for keyword in bot_keywords) or message.guild is None:
+                print(f"🤖 [DEBUG ฝากบอก]: อนุมัติการทำงาน (เรียกชื่อบอท หรือ คุยใน DM) กำลังตัดข้อความ...")
+                parts = message.content.split(found_trigger, 1)
+                reason = parts[1].strip() if len(parts) > 1 else ""
+
+                if reason:
+                    try:
+                        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                        cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
+                                    (str(message.author.id), reason, 1, now))
+                        conn.commit()
+                        print(f"💾 [DEBUG ฝากบอก]: บันทึกสำเร็จ! ID: {message.author.id} ข้อความ: '{reason}'")
+
+                        await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
+                        return  # 🌟 ตัดจบการทำงานทันที ไม่ให้ไหลไปหา AI Gemini
+                    except Exception as db_err:
+                        print(f"❌ [DEBUG ฝากบอก ERROR]: บันทึกฐานข้อมูลพัง -> {db_err}")
+                        return
+                else:
+                    print(f"⚠️ [DEBUG ฝากบอก]: ผู้ใช้ลืมพิมพ์ข้อความหลังคำฝาก")
+                    await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
+                    return
+            else:
+                print(f"⏭️ [DEBUG ฝากบอก]: มีคำฝากบอกในเซิร์ฟเวอร์ แต่ไม่มีการเรียกชื่อบอท ข้ามบล็อกนี้ไป")
+
         if message.guild is not None:
+            target_user = None
+            cursor.execute("DELETE FROM user_status WHERE timestamp < DATETIME('now', '-30 minutes')")
+            conn.commit()
+
+            if message.mentions:
+                bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+                if any(keyword in lower_content for keyword in bot_keywords):
+                    target_user = next((u for u in message.mentions if u.id != bot.user.id), None)
+            
+            elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
+                bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+                if any(keyword in lower_content for keyword in bot_keywords):
+                    cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
+                    active_away_users = cursor.fetchall()
+                    
+                    for (uid,) in active_away_users:
+                        member = message.guild.get_member(int(uid))
+                        if member and (member.display_name in message.content or member.name in message.content):
+                            target_user = member
+                            break
+
+            if target_user:
+                cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
+                row = cursor.fetchone()
+                
+                if row:
+                    status_msg, is_away, timestamp_str = row
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+                    
+                    if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
+                        name = target_user.display_name
+                        jokes = [
+                            f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
+                            f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
+                            f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
+                        ]
+                        selected_joke = random.choice(jokes)
+                        
+                        await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
+                        await bagley_speak(message.guild, selected_joke)
+                        return
+
+                if "หายไปไหน" in message.content or "ไปไหน" in message.content:
+                    reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
+                    await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
+                    await bagley_speak(message.guild, reply)
+                    return
+
             bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
             if not any(keyword in lower_content for keyword in bot_keywords):
+                if message.guild is not None:
+                    return
+
+        # 🔍 [ระบบเช็คประวัติ คนนี้คือใคร] ──────────────────────────────────────────
+        if "คนนี้คือใคร" in lower_content:
+            print("DEBUG: ตรวจพบคำสั่งเช็คข้อมูล คนนี้คือใคร!")
+
+            if message.guild is None:
+                await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับพ้ม! 🛸❌")
                 return
-        
-        target_user_id = None
-        target_display_name = ""
-        is_remind_self = False
+            
+            user_msg_clean = message.content.lower()
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            
+            if not any(keyword in user_msg_clean for keyword in bot_keywords):
+                return
 
-        if "เตือนฉัน" in lower_content or "เตือนผม" in lower_content:
-            is_remind_self = True
-            target_user_id = message.author.id
-            target_display_name = "ตัวเมทเอง"
-        
-        else:
+            guild = message.guild
+            target_user = None
+
             has_id = regex_lib.search(r'(\d{17,19})', message.content)
-            if message.mentions:
-                target_user = message.mentions[0]
-                target_user_id = target_user.id
-                target_display_name = f"คุณ {target_user.display_name}"
-            elif has_id:
-                target_user_id = int(has_id.group(1))
-                try:
-                    fetched_user = await bot.fetch_user(target_user_id)
-                    if fetched_user:
-                        target_display_name = f"คุณ {fetched_user.display_name}"
-                except:
-                    target_display_name = f"พรรคพวก ID: {target_user_id}"
+            
+            if has_id:
+                target_id = int(has_id.group(1))
+                member_in_guild = guild.get_member(target_id)
+                if member_in_guild:
+                    target_user = member_in_guild
+                else:
+                    await message.reply("หว่า... ผมส่องเรดาร์หาคนๆ นี้ในเซิร์ฟเวอร์ปัจจุบันไม่เจอเลยครับ ข้อมูลของเขาจะถูกล็อกไว้เพื่อความเป็นส่วนตัวน้า 🤫❌")
+                    return
 
-        if target_user_id:
-            try:
-                time_match = regex_lib.search(r'(\d{1,2}[:.]\d{2})', message.content)
-                if time_match:
-                    target_time = time_match.group(1).replace('.', ':').zfill(5)
-                    note_text = message.content.split("ว่า")[-1].strip() if "ว่า" in message.content else "ถึงเวลาแล้วครับ!"
-                    
-                    if is_remind_self:
-                        user_data = load_user_data()
-                        if "reminders" not in user_data:
-                            user_data["reminders"] = []
-                            
-                        user_data["reminders"].append({
-                            "user_id": str(target_user_id),
-                            "time": target_time,
-                            "text": note_text,
-                            "channel_id": str(message.channel.id)
-                        })
-                        save_user_data(user_data)
-                        
-                        await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} เรื่อง '{note_text}' ให้ตัวเมทเองเรียบร้อยแล้วครับพ้ม! ⏰")
+            elif message.mentions:
+                target_user = message.mentions[0]
+
+            if target_user:
+                data_memory = load_user_data()
+                target_id_str = str(target_user.id)
+                user_info = data_memory.get(target_id_str)
+                
+                if user_info:
+                    if isinstance(user_info, str):
+                        await message.reply(f"คนนี้เหรอครับ... ผมจำได้ว่าเขาคือ '{user_info}' ครับ")
                     else:
-                        reminders = load_reminders()
-                        reminders.append({
-                            "target_id": str(target_user_id),
-                            "from": message.author.display_name,
-                            "time": target_time,
-                            "text": note_text
-                        })
-                        save_reminders(reminders)
+                        nickname = user_info.get("nickname", "ยังไม่มีฉายา/ชื่อเล่น")
+                        birthday = user_info.get("birthday", "ยังไม่ได้ระบุวันเกิด")
                         
-                        await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับพ้ม! 🫡⏰")
+                        response_msg = (f"คนนี้เหรอครับ... ข้อมูลในสมองกลผมบอกว่า:\n"
+                                        f"🔹 **ฉายา/ชื่อเล่น:** {nickname}\n"
+                                        f"🎂 **วันเกิด:** {birthday} ครับพ้ม!")
+                        await message.reply(response_msg)
+                else:
+                    await message.reply(f"ขออภัยครับ ผมยังไม่มีข้อมูลของ คุณ {target_user.display_name} ในฐานข้อมูลเลยครับ")
+            else:
+                await message.reply("ช่วย @Tag (Mention) เพื่อน หรือพิมพ์ใส่เลข ID ของคนที่อยากให้ผมเช็คประวัติด้วยน้าครับพ้ม!")
+            
+            return
+
+        #  ดูรายชื่อทั้งหมด ───────────────────────────────
+        if "รายชื่อคนในดิส" in lower_content:
+            if message.guild is not None:
+                bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+                if not any(keyword in lower_content for keyword in bot_keywords):
+                    return
+                
+            print("DEBUG: ตรวจพบคำสั่งเรียกดูรายชื่อคนในดิส!")
+
+            try:
+                MY_MASTER_ID = 1133740216822267954
+                is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
+
+                user_data = load_user_data()
+                if not user_data:
+                    await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
+                    return
+
+                if message.guild is None:
+                    if is_master_command and message.author.id == MY_MASTER_ID:
+                        pass 
+                    else:
+                        await message.reply("ขออภัยครับ! คำสั่งเรียกดูรายชื่อปกติจำกัดให้ใช้ภายในเซิร์ฟเวอร์เท่านั้นน้า 🛸❌")
+                        return
+
+                if is_master_command:
+                    if message.author.id != MY_MASTER_ID:
+                        await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับพ้ม! 🤫❌")
+                        return
+                    
+                    response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
+                    for user_id_str, data in user_data.items():
+                        if user_id_str == "reminders":
+                            continue
+                            
+                        if isinstance(data, dict):
+                            nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
+                            birthday = data.get("birthday", "ยังไม่ได้ระบุ")
+                        else:
+                            nickname = data
+                            birthday = "ยังไม่ได้ระบุ"
+                        
+                        response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
+                    
+                    await message.reply(response_msg)
+                    return
+
+                else:
+                    guild = message.guild
+                    response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
+                    has_anyone_here = False
+                    
+                    for user_id_str, data in user_data.items():
+                        if user_id_str == "reminders":
+                            continue
+
+                        member = guild.get_member(int(user_id_str))
+                        if not member:
+                            continue
+                        
+                        has_anyone_here = True
+                        if isinstance(data, dict):
+                            nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
+                            birthday = data.get("birthday", "ยังไม่ได้ระบุ")
+                        else:
+                            nickname = data
+                            birthday = "ยังไม่ได้ระบุ"
+                        
+                        if birthday != "ยังไม่ได้ระบุ":
+                            response_msg += f"• <@{user_id_str}>: {nickname} (วันเกิด: {birthday})\n"
+                        else:
+                            response_msg += f"• <@{user_id_str}>: {nickname}\n"
+                    
+                    if has_anyone_here:
+                        await message.reply(response_msg)
+                    else:
+                        await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
                     
                     return
                     
             except Exception as e:
-                print(f"DEBUG Error Reminder System: {e}")
-                await message.reply("เกิดข้อผิดพลาดด้านเทคนิคในการบันทึกระบบแจ้งเตือนครับเมท")
-                return
-            
-            await message.reply("ขออภัยครับเมท ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
-            return
-        
-        else:
-            await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับพ้ม")
-            return
-        
-    #  ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่ ────────────────────────────────────────
-    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
-    found_trigger = next((word for word in trigger_words if word in lower_content), None)
-
-    if found_trigger:
-        print(f"📝 [DEBUG ฝากบอก]: เจอคำดักจับ -> '{found_trigger}'")
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        
-        if any(keyword in lower_content for keyword in bot_keywords) or message.guild is None:
-            print(f"🤖 [DEBUG ฝากบอก]: อนุมัติการทำงาน (เรียกชื่อบอท หรือ คุยใน DM) กำลังตัดข้อความ...")
-            parts = message.content.split(found_trigger, 1)
-            reason = parts[1].strip() if len(parts) > 1 else ""
-
-            if reason:
-                try:
-                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-                    cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
-                                   (str(message.author.id), reason, 1, now))
-                    conn.commit()
-                    print(f"💾 [DEBUG ฝากบอก]: บันทึกสำเร็จ! ID: {message.author.id} ข้อความ: '{reason}'")
-
-                    await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
-                    return  # 🌟 ตัดจบการทำงานทันที ไม่ให้ไหลไปหา AI Gemini
-                except Exception as db_err:
-                    print(f"❌ [DEBUG ฝากบอก ERROR]: บันทึกฐานข้อมูลพัง -> {db_err}")
-                    return
-            else:
-                print(f"⚠️ [DEBUG ฝากบอก]: ผู้ใช้ลืมพิมพ์ข้อความหลังคำฝาก")
-                await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
-                return
-        else:
-            print(f"⏭️ [DEBUG ฝากบอก]: มีคำฝากบอกในเซิร์ฟเวอร์ แต่ไม่มีการเรียกชื่อบอท ข้ามบล็อกนี้ไป")
-
-    if message.guild is not None:
-        target_user = None
-        cursor.execute("DELETE FROM user_status WHERE timestamp < DATETIME('now', '-30 minutes')")
-        conn.commit()
-
-        if message.mentions:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if any(keyword in lower_content for keyword in bot_keywords):
-                target_user = next((u for u in message.mentions if u.id != bot.user.id), None)
-        
-        elif "หายไปไหน" in message.content or "ไปไหน" in message.content:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if any(keyword in lower_content for keyword in bot_keywords):
-                cursor.execute("SELECT user_id FROM user_status WHERE is_away = 1")
-                active_away_users = cursor.fetchall()
-                
-                for (uid,) in active_away_users:
-                    member = message.guild.get_member(int(uid))
-                    if member and (member.display_name in message.content or member.name in message.content):
-                        target_user = member
-                        break
-
-        if target_user:
-            cursor.execute("SELECT status_message, is_away, timestamp FROM user_status WHERE user_id = ?", (str(target_user.id),))
-            row = cursor.fetchone()
-            
-            if row:
-                status_msg, is_away, timestamp_str = row
-                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
-                
-                if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
-                    name = target_user.display_name
-                    jokes = [
-                        f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
-                        f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
-                        f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
-                    ]
-                    selected_joke = random.choice(jokes)
-                    
-                    await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
-                    await bagley_speak(message.guild, selected_joke)
-                    return
-
-            if "หายไปไหน" in message.content or "ไปไหน" in message.content:
-                reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
-                await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
-                await bagley_speak(message.guild, reply)
+                print(f"🚨 ERROR ในระบบรายชื่อตาทิพย์: {e}")
+                await message.reply("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท ลองใหม่อีกครั้งน้า")
                 return
 
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if not any(keyword in lower_content for keyword in bot_keywords):
-            if message.guild is not None:
-                return
-
-    # 🔍 [ระบบเช็คประวัติ คนนี้คือใคร] ──────────────────────────────────────────
-    if "คนนี้คือใคร" in lower_content:
-        print("DEBUG: ตรวจพบคำสั่งเช็คข้อมูล คนนี้คือใคร!")
-
-        if message.guild is None:
-            await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับพ้ม! 🛸❌")
-            return
-        
-        user_msg_clean = message.content.lower()
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        
-        if not any(keyword in user_msg_clean for keyword in bot_keywords):
-            return
-
-        guild = message.guild
-        target_user = None
-
-        has_id = regex_lib.search(r'(\d{17,19})', message.content)
-        
-        if has_id:
-            target_id = int(has_id.group(1))
-            member_in_guild = guild.get_member(target_id)
-            if member_in_guild:
-                target_user = member_in_guild
-            else:
-                await message.reply("หว่า... ผมส่องเรดาร์หาคนๆ นี้ในเซิร์ฟเวอร์ปัจจุบันไม่เจอเลยครับ ข้อมูลของเขาจะถูกล็อกไว้เพื่อความเป็นส่วนตัวน้า 🤫❌")
-                return
-
-        elif message.mentions:
-            target_user = message.mentions[0]
-
-        if target_user:
-            data_memory = load_user_data()
-            target_id_str = str(target_user.id)
-            user_info = data_memory.get(target_id_str)
-            
-            if user_info:
-                if isinstance(user_info, str):
-                    await message.reply(f"คนนี้เหรอครับ... ผมจำได้ว่าเขาคือ '{user_info}' ครับ")
-                else:
-                    nickname = user_info.get("nickname", "ยังไม่มีฉายา/ชื่อเล่น")
-                    birthday = user_info.get("birthday", "ยังไม่ได้ระบุวันเกิด")
-                    
-                    response_msg = (f"คนนี้เหรอครับ... ข้อมูลในสมองกลผมบอกว่า:\n"
-                                    f"🔹 **ฉายา/ชื่อเล่น:** {nickname}\n"
-                                    f"🎂 **วันเกิด:** {birthday} ครับพ้ม!")
-                    await message.reply(response_msg)
-            else:
-                await message.reply(f"ขออภัยครับ ผมยังไม่มีข้อมูลของ คุณ {target_user.display_name} ในฐานข้อมูลเลยครับ")
-        else:
-            await message.reply("ช่วย @Tag (Mention) เพื่อน หรือพิมพ์ใส่เลข ID ของคนที่อยากให้ผมเช็คประวัติด้วยน้าครับพ้ม!")
-        
-        return
-
-    #  ดูรายชื่อทั้งหมด ───────────────────────────────
-    if "รายชื่อคนในดิส" in lower_content:
-        if message.guild is not None:
+        # 🔊 [ระบบสรุปสถิติห้องเสียง] ──────────────────────────────────────────
+        if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
             bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
             if not any(keyword in lower_content for keyword in bot_keywords):
                 return
             
-        print("DEBUG: ตรวจพบคำสั่งเรียกดูรายชื่อคนในดิส!")
-
-        try:
-            MY_MASTER_ID = 1133740216822267954
-            is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
-
-            user_data = load_user_data()
-            if not user_data:
-                await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
-                return
-
             if message.guild is None:
-                if is_master_command and message.author.id == MY_MASTER_ID:
-                    pass 
-                else:
-                    await message.reply("ขออภัยครับ! คำสั่งเรียกดูรายชื่อปกติจำกัดให้ใช้ภายในเซิร์ฟเวอร์เท่านั้นน้า 🛸❌")
-                    return
-
-            if is_master_command:
-                if message.author.id != MY_MASTER_ID:
-                    await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับพ้ม! 🤫❌")
-                    return
-                
-                response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
-                for user_id_str, data in user_data.items():
-                    if user_id_str == "reminders":
-                        continue
-                        
-                    if isinstance(data, dict):
-                        nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
-                        birthday = data.get("birthday", "ยังไม่ได้ระบุ")
-                    else:
-                        nickname = data
-                        birthday = "ยังไม่ได้ระบุ"
-                    
-                    response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
-                
-                await message.reply(response_msg)
+                await message.reply("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเข้าไปส่องห้องเสียงไม่ได้ครับพ้ม! 🛸❌")
                 return
 
-            else:
-                guild = message.guild
-                response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
-                has_anyone_here = False
-                
-                for user_id_str, data in user_data.items():
-                    if user_id_str == "reminders":
-                        continue
+            data = load_voice_data()
+            today_str = datetime.now().strftime("%Y-%m-%d")
 
-                    member = guild.get_member(int(user_id_str))
-                    if not member:
-                        continue
-                    
-                    has_anyone_here = True
-                    if isinstance(data, dict):
-                        nickname = data.get("nickname", "ยังไม่มีชื่อเล่น")
-                        birthday = data.get("birthday", "ยังไม่ได้ระบุ")
-                    else:
-                        nickname = data
-                        birthday = "ยังไม่ได้ระบุ"
-                    
-                    if birthday != "ยังไม่ได้ระบุ":
-                        response_msg += f"• <@{user_id_str}>: {nickname} (วันเกิด: {birthday})\n"
-                    else:
-                        response_msg += f"• <@{user_id_str}>: {nickname}\n"
-                
-                if has_anyone_here:
-                    await message.reply(response_msg)
-                else:
-                    await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
-                
+            if not data or data.get("date") != today_str or not data.get("stats"):
+                await message.reply("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับเมท!")
                 return
-                
-        except Exception as e:
-            print(f"🚨 ERROR ในระบบรายชื่อตาทิพย์: {e}")
-            await message.reply("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท ลองใหม่อีกครั้งน้า")
+
+            stats = data["stats"]
+            sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)[:15]
+            
+            report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
+            
+            top_name = sorted_stats[0][1]['name']
+            top_seconds = sorted_stats[0][1]['total_time']
+            
+            for i, (u_id, info) in enumerate(sorted_stats, 1):
+                ts = info['total_time']
+                time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที" if ts >= 3600 else f"{int(ts//60)}นาที {int(ts%60)}วิ"
+                report += f"{i}. {info['name']}: {time_display}\n"
+
+            await message.reply(report)
+
+            if message.guild.voice_client:
+                speech = f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ"
+                await bagley_speak(message.guild, speech)
             return
-
-    # 🔊 [ระบบสรุปสถิติห้องเสียง] ──────────────────────────────────────────
-    if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if not any(keyword in lower_content for keyword in bot_keywords):
-            return
-        
-        if message.guild is None:
-            await message.reply("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเข้าไปส่องห้องเสียงไม่ได้ครับพ้ม! 🛸❌")
-            return
-
-        data = load_voice_data()
-        today_str = datetime.now().strftime("%Y-%m-%d")
-
-        if not data or data.get("date") != today_str or not data.get("stats"):
-            await message.reply("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับเมท!")
-            return
-
-        stats = data["stats"]
-        sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)[:15]
-        
-        report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
-        
-        top_name = sorted_stats[0][1]['name']
-        top_seconds = sorted_stats[0][1]['total_time']
-        
-        for i, (u_id, info) in enumerate(sorted_stats, 1):
-            ts = info['total_time']
-            time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที" if ts >= 3600 else f"{int(ts//60)}นาที {int(ts%60)}วิ"
-            report += f"{i}. {info['name']}: {time_display}\n"
-
-        await message.reply(report)
-
-        if message.guild.voice_client:
-            speech = f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ"
-            await bagley_speak(message.guild, speech)
-        return
 
     # 🔇 [ระบบปิดรายงานห้องเสียง] ──────────────────────────────────────────
     if "ปิดรายงานห้องเสียง" in lower_content or "ปิดทักห้องเสียง" in lower_content:
@@ -1660,7 +1657,7 @@ async def on_message(message):
             if diag_command:
                 await ctx.invoke(diag_command)
             return
-        
+    
     #  ระบบสแกนรูปภาพด้วยสมองกล Gemini ─────────────────────────────────────────
     if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
@@ -1833,62 +1830,69 @@ async def on_message(message):
             
             await message.reply(f"🌐 **Translation Result ({target_lang}):**\n{answer}")
             return
-        
-    # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
-    is_sqlite_triggered = False
-
-    if message.guild is not None:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
-            is_sqlite_triggered = True
-    else:
-        is_sqlite_triggered = True
-
-    if is_sqlite_triggered:
-        cursor.execute("SELECT keyword, response FROM teach_memory")
-        all_teachings = cursor.fetchall()
-        
-        matched_response = None
-        for keyword, response_text in all_teachings:
-            if keyword in lower_content:
-                matched_response = response_text
-                break
-
-        if matched_response:
-            async with message.channel.typing():
-                bagley_prompt = (
-                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
-                    f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
-                    f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
-                    f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
-                    f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
-                )
-                
-                try:
-                    response = await client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite",
-                        contents=bagley_prompt
-                    )
-                    bagley_styled_text = response.text.strip()
-                    if not bagley_styled_text:
-                        bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
-                        
-                except Exception as e:
-                    print(f"🚨 Teach Gemini DM/Guild Error: {e}")
-                    bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
-
-                await message.reply(bagley_styled_text)
-                return
-
+            
         else:
+            #  ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite + เรียบเรียงด้วย Gemini ────────────────
+            is_sqlite_triggered = False
+
+            if message.guild is not None:
+                bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+                if any(keyword in lower_content for keyword in bot_keywords):
+                    is_sqlite_triggered = True
+            else:
+                is_sqlite_triggered = True
+
+            matched_response = None
+
+            if is_sqlite_triggered:
+                cursor.execute("SELECT keyword, response FROM teach_memory")
+                all_teachings = cursor.fetchall()
+                
+                for keyword, response_text in all_teachings:
+                    if keyword in lower_content:
+                        matched_response = response_text
+                        break
+
+            if matched_response:
+                if message.guild is not None:
+                    await message.reply("กำลังโหลด...", delete_after=2.0)
+
+                async with message.channel.typing():
+                    bagley_prompt = (
+                        f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
+                        f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
+                        f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
+                        f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
+                        f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
+                    )
+                    
+                    try:
+                        response = await client.aio.models.generate_content(
+                            model="gemini-3.1-flash-lite",
+                            contents=bagley_prompt
+                        )
+                        bagley_styled_text = response.text.strip()
+                        if not bagley_styled_text:
+                            bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
+                            
+                    except Exception as e:
+                        print(f"🚨 Teach Gemini DM/Guild Error: {e}")
+                        bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
+
+                    await message.reply(bagley_styled_text)
+                    return # 👈 ทำงานเสร็จ ตัดจบตรงนี้ ไม่ให้ไหลไปหา Free Chat ด้านล่าง!
+
+            #  ระบบคุยเล่นอิสระ Free Chat (Gemini) - ดึงออกมาอยู่นอกบล็อก SQLite ──────────────
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
             user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
 
             # เงื่อนไขการตอบ: ตอบทันทีถ้าเป็น DM (guild เป็น None) หรือ ถ้าอยู่ในกลุ่มและมีการเรียกชื่อบอท/แท็กบอท
-            if message.guild is None or (user_question or bot.user.mentioned_in(message)):
+            if message.guild is None or (user_question and (any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message))):
+                if message.guild is not None:
+                    await message.reply("กำลังโหลด...", delete_after=2.0)
+
                 async with message.channel.typing():
                     try:
-                        # 🎬 ดึงประวัติแชทล่าสุด 10 ข้อความในช่องนั้นๆ มาทำสคริปต์บทละคร
                         messages = []
                         async for msg in message.channel.history(limit=10):
                             messages.append(msg)
@@ -1931,7 +1935,6 @@ async def on_message(message):
                 return
                 
             else:
-                # กรณีในกลุ่มที่พิมพ์แค่คำว่า "แบ็คลี่" ลอยๆ ไม่มีประโยคอื่นต่อท้าย
                 if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) and message.guild:
                     await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
                 return
