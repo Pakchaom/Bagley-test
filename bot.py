@@ -1269,112 +1269,6 @@ async def on_message(message):
             await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับพ้ม!")
             return
 
-    # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
-    is_sqlite_triggered = False
-
-    if message.guild is not None:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
-            is_sqlite_triggered = True
-    else:
-        is_sqlite_triggered = True
-
-    if is_sqlite_triggered:
-        cursor.execute("SELECT keyword, response FROM teach_memory")
-        all_teachings = cursor.fetchall()
-        
-        matched_response = None
-        for keyword, response_text in all_teachings:
-            if keyword in lower_content:
-                matched_response = response_text
-                break
-
-        # 🔹 [กรณีที่ 1] เจอคำสอนจำในคลัง SQLite (ตอบสไตล์ Bagley)
-        if matched_response:
-            async with message.channel.typing():
-                bagley_prompt = (
-                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
-                    f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
-                    f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
-                    f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
-                    f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
-                )
-                
-                try:
-                    response = await client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite",
-                        contents=bagley_prompt
-                    )
-                    bagley_styled_text = response.text.strip()
-                    if not bagley_styled_text:
-                        bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
-                        
-                except Exception as e:
-                    print(f"🚨 Teach Gemini DM/Guild Error: {e}")
-                    bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
-
-                await message.reply(bagley_styled_text)
-                return
-
-        # 🔹 [กรณีที่ 2] ไม่เจอคำสอนจำ => ปล่อยไหลมาเข้าสู่โหมดคุยเล่นอิสระ (Free Chat)
-        else:
-            user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
-            user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
-
-            # เงื่อนไขการตอบ: ตอบทันทีถ้าเป็น DM (guild เป็น None) หรือ ถ้าอยู่ในกลุ่มและมีการเรียกชื่อบอท/แท็กบอท
-            if message.guild is None or (user_question or bot.user.mentioned_in(message)):
-                async with message.channel.typing():
-                    try:
-                        # 🎬 ดึงประวัติแชทล่าสุด 10 ข้อความในช่องนั้นๆ มาทำสคริปต์บทละคร
-                        messages = []
-                        async for msg in message.channel.history(limit=10):
-                            messages.append(msg)
-                        messages.reverse()
-                        
-                        chat_log = ""
-                        for msg in messages:
-                            if msg.content.strip():
-                                speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
-                                chat_log += f"[{speaker}]: {msg.clean_content}\n"
-
-                        # 🛠️ หลอมรวม Prompt สั่งการระบบพร้อมโครงสร้างบทสนทนา
-                        free_chat_prompt = f"""
-คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์ จากโลก DedSec ในเกม Watch Dogs
-คุณกำลังสนทนากับผู้ใช้ โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ [ชื่อผู้ใช้]' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ห้ามพูดคำว่า 'ค่ะ/นะคะ'
-
-นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้:
-{chat_log}
-
-จงประมวลผลข้อความล่าสุด และตอบกลับอย่างเป็นธรรมชาติ สั้น กระชับ แต่อย่าทิ้งความกวนโอ๊ยสไตล์อังกฤษครับเมท
-"""
-                        response = await client.aio.models.generate_content(
-                            model="gemini-3.1-flash-lite",
-                            contents=free_chat_prompt
-                        )
-                        bagley_styled_text = response.text.strip()
-                        
-                        if not bagley_styled_text:
-                            bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับเมท!"
-
-                    except Exception as e:
-                        print(f"🚨 Free Chat Gemini Error: {e}")
-                        bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับเมท! 🤖🛸"
-
-                    await message.reply(bagley_styled_text)
-                    
-                    # 🔊 ถ้าน้องสถิตอยู่ในห้องเสียงอยู่แล้ว ให้แปลงคำตอบนี้ส่งไปพูดในโหมด Voice ด้วย
-                    if message.guild and message.guild.voice_client:
-                        if not message.guild.voice_client.is_playing():
-                            clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
-                            await bagley_speak(message.guild, clean_voice_text)
-                return
-                
-            else:
-                # กรณีในกลุ่มที่พิมพ์แค่คำว่า "แบ็คลี่" ลอยๆ ไม่มีประโยคอื่นต่อท้าย
-                if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) and message.guild:
-                    await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
-                return
-
     # 🌐 [ระบบแปลภาษาคู่ขนาน] ──────────────────────────────────────────
     if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
         if message.guild is not None:
@@ -1905,42 +1799,112 @@ async def on_message(message):
         elif any(word in lower_content for word in ["เช็คสถานะระบบ", "ตรวจสอบระบบ", "เช็คการทำงาน", "คุณโอเคมั้ย", "คุณโอเคไหม", "ตรวจสอบสถานะการทำงาน"]):
             await ctx.invoke(bot.get_command('diagnostic'))
             return
+        
+    # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
+    is_sqlite_triggered = False
 
-        # =================================================================
-        # D. ด่านสุดท้าย: ถ้าไม่ตรงกับคำสั่งไหนเลย => ส่งให้ AI Gemini พูดคุยอิสระ
-        # =================================================================
-        elif "แบ็คลี่" in lower_content or "bagley" in lower_content or bot.user.mentioned_in(message) or message.guild is None:
+    if message.guild is not None:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if any(keyword in lower_content for keyword in bot_keywords):
+            is_sqlite_triggered = True
+    else:
+        is_sqlite_triggered = True
+
+    if is_sqlite_triggered:
+        cursor.execute("SELECT keyword, response FROM teach_memory")
+        all_teachings = cursor.fetchall()
+        
+        matched_response = None
+        for keyword, response_text in all_teachings:
+            if keyword in lower_content:
+                matched_response = response_text
+                break
+
+        # 🔹 [กรณีที่ 1] เจอคำสอนจำในคลัง SQLite (ตอบสไตล์ Bagley)
+        if matched_response:
+            async with message.channel.typing():
+                bagley_prompt = (
+                    f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
+                    f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
+                    f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
+                    f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
+                    f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
+                )
+                
+                try:
+                    response = await client.aio.models.generate_content(
+                        model="gemini-3.1-flash-lite",
+                        contents=bagley_prompt
+                    )
+                    bagley_styled_text = response.text.strip()
+                    if not bagley_styled_text:
+                        bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
+                        
+                except Exception as e:
+                    print(f"🚨 Teach Gemini DM/Guild Error: {e}")
+                    bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
+
+                await message.reply(bagley_styled_text)
+                return
+
+        # 🔹 [กรณีที่ 2] ไม่เจอคำสอนจำ => ปล่อยไหลมาเข้าสู่โหมดคุยเล่นอิสระ (Free Chat)
+        else:
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
             user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
 
-            if user_question or (message.guild is None):
+            # เงื่อนไขการตอบ: ตอบทันทีถ้าเป็น DM (guild เป็น None) หรือ ถ้าอยู่ในกลุ่มและมีการเรียกชื่อบอท/แท็กบอท
+            if message.guild is None or (user_question or bot.user.mentioned_in(message)):
                 async with message.channel.typing():
                     try:
-                        user_id = str(message.author.id)
-                        save_message(user_id, "user", user_question)
-                        history = load_history(user_id)
+                        # 🎬 ดึงประวัติแชทล่าสุด 10 ข้อความในช่องนั้นๆ มาทำสคริปต์บทละคร
+                        messages = []
+                        async for msg in message.channel.history(limit=10):
+                            messages.append(msg)
+                        messages.reverse()
                         
-                        response = await client.aio.models.generate_content(
-                            model=MODEL_NAME, 
-                            config={'system_instruction': SYSTEM_PROMPT},
-                            contents=history 
-                        )
-                        answer = response.text
-                        
-                        await message.reply(answer)
-                        save_message(user_id, "model", answer)
+                        chat_log = ""
+                        for msg in messages:
+                            if msg.content.strip():
+                                speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
+                                chat_log += f"[{speaker}]: {msg.clean_content}\n"
 
-                        clean_answer = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', answer)
-                        if message.guild and message.guild.voice_client:
-                            if not message.guild.voice_client.is_playing():
-                                await bagley_speak(message.guild, clean_answer)
+                        # 🛠️ หลอมรวม Prompt สั่งการระบบพร้อมโครงสร้างบทสนทนา
+                        free_chat_prompt = f"""
+คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์ จากโลก DedSec ในเกม Watch Dogs
+คุณกำลังสนทนากับผู้ใช้ โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ [ชื่อผู้ใช้]' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ห้ามพูดคำว่า 'ค่ะ/นะคะ'
+
+นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้:
+{chat_log}
+
+จงประมวลผลข้อความล่าสุด และตอบกลับอย่างเป็นธรรมชาติ สั้น กระชับ แต่อย่าทิ้งความกวนโอ๊ยสไตล์อังกฤษครับเมท
+"""
+                        response = await client.aio.models.generate_content(
+                            model="gemini-3.1-flash-lite",
+                            contents=free_chat_prompt
+                        )
+                        bagley_styled_text = response.text.strip()
+                        
+                        if not bagley_styled_text:
+                            bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับเมท!"
 
                     except Exception as e:
-                        await message.reply("วงจรประมวลผลผมสะดุดนิดหน่อยครับเมท!")
-                        print(f"AI Error: {e}")
+                        print(f"🚨 Free Chat Gemini Error: {e}")
+                        bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับเมท! 🤖🛸"
+
+                    await message.reply(bagley_styled_text)
+                    
+                    # 🔊 ถ้าน้องสถิตอยู่ในห้องเสียงอยู่แล้ว ให้แปลงคำตอบนี้ส่งไปพูดในโหมด Voice ด้วย
+                    if message.guild and message.guild.voice_client:
+                        if not message.guild.voice_client.is_playing():
+                            clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
+                            await bagley_speak(message.guild, clean_voice_text)
+                return
+                
             else:
-                await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
-            return
+                # กรณีในกลุ่มที่พิมพ์แค่คำว่า "แบ็คลี่" ลอยๆ ไม่มีประโยคอื่นต่อท้าย
+                if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) and message.guild:
+                    await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
+                return
 
     # --- [ส่วนที่ 3: ระบบอ่านแชทคนในห้องเสียง (ล่าม)] ---
     if is_tts_enabled and not is_playing_music and not message.content.startswith('!'):
