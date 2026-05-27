@@ -1,20 +1,22 @@
 # --- Discord & Utilities ---
 import discord
-from discord.ext import commands
-from discord import ui
+from discord.ext import commands, tasks
+from discord import app_commands, ui
+from discord.ui import Button, View
 import subprocess
 import os
 import sys
 import io
 import sqlite3
 import asyncio
-from dotenv import load_dotenv
-from discord import app_commands
-from datetime import datetime, timedelta
-from typing import Union, Optional
 import json
 import time
 import collections
+from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from typing import Union, Optional
+import random
+import re as regex_lib
 
 # --- Google Gen AI ---
 from google import genai
@@ -25,9 +27,6 @@ from gtts import gTTS
 import edge_tts
 import yt_dlp
 import requests
-from discord.ext import tasks
-import random
-import re as regex_lib
 
 is_moving_group = False
 
@@ -824,6 +823,55 @@ class PartyCreateView(ui.View):
         except:
             pass
 
+class DMFollowUpView(View):
+    def __init__(self, bot, main_channel, inviter, target_user, loop_speak_func):
+        super().__init__(timeout=180) # ปุ่มใน DM ให้เวลาตัดสินใจ 3 นาที (ปรับได้ครับ)
+        self.bot = bot
+        self.main_channel = main_channel  # ห้องพิมพ์หลักในเซิร์ฟเวอร์
+        self.inviter = inviter            # คนที่พอกดตาม (คนแท็ก)
+        self.target_user = target_user    # คนที่โดนตาม (เจ้าของ DM)
+        self.loop_speak_func = loop_speak_func # ฟังก์ชัน bagley_speak ของเมท
+
+    @discord.ui.button(label="ตอบรับ 🟢", style=discord.ButtonStyle.green)
+    async def accept_callback(self, interaction: discord.Interaction, button: Button):
+        # ปิดใช้งานปุ่มทันทีหลังกดเพื่อป้องกันการกดซ้ำ
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="รับทราบครับ! ผมจะไปแจ้งคุณเมทในเซิร์ฟเวอร์ให้นะครับ 🏃‍♂️", view=self)
+        
+        # 📊 ส่งข้อความกลับเซิร์ฟเวอร์หลัก
+        report_msg = f"🔔 **[รายงานการตามตัว]**: คุณ {self.target_user.display_name} **ตอบรับ** คำเชิญและกำลังมาหาแล้วครับเมท! @{self.inviter.display_name}"
+        await self.main_channel.send(report_msg)
+        
+        # 🔊 ถ้าบอทอยู่ห้องเสียง ให้พูดรายงานด้วย
+        if self.main_channel.guild.voice_client:
+            speech_text = f"รายงานครับคุณ {self.inviter.display_name} คุณ {self.target_user.display_name} ตอบรับคำเชิญแล้วกำลังมาครับ"
+            await self.loop_speak_func(self.main_channel.guild, speech_text)
+
+    @discord.ui.button(label="ไม่สะดวก / ปฏิเสธ 🔴", style=discord.ButtonStyle.red)
+    async def decline_callback(self, interaction: discord.Interaction, button: Button):
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="รับทราบครับ ปฏิเสธคำเชิญเรียบร้อย!", view=self)
+        
+        # 📊 ส่งข้อความกลับเซิร์ฟเวอร์หลัก
+        report_msg = f"❌ **[รายงานการตามตัว]**: คุณ {self.target_user.display_name} แจ้งว่า **ไม่สะดวก** ในตอนนี้ครับเมท @{self.inviter.display_name}"
+        await self.main_channel.send(report_msg)
+        
+        # 🔊 ถ้าบอทอยู่ห้องเสียง ให้พูดรายงานด้วย
+        if self.main_channel.guild.voice_client:
+            speech_text = f"รายงานครับคุณ {self.inviter.display_name} คุณ {self.target_user.display_name} ปฏิเสธคำเชิญในตอนนี้ครับ"
+            await self.loop_speak_func(self.main_channel.guild, speech_text)
+
+    async def on_timeout(self):
+        # ถ้าหมดเวลาแล้วยังไม่กด ให้ปิดปุ่ม
+        for item in self.children:
+            item.disabled = True
+        try:
+            await self.message.edit(content="⌛ คำเชิญหมดอายุเนื่องจากไม่มีการตอบกลับภายในเวลาที่กำหนดครับ", view=self)
+        except:
+            pass
+
 # --- Database Setup ---
 def init_db():
     global conn
@@ -957,6 +1005,69 @@ async def on_message(message):
                 spam_check[user_id] = {'content': current_content, 'count': 1, 'last_time': now}
         else:
             spam_check[user_id] = {'content': current_content, 'count': 1, 'last_time': now}
+
+    # ==========================================
+    # 🏃‍♂️ [ระบบเสือกคอยตามตัว: ดักจับการแท็กเพื่อนในกลุ่ม - เวอร์ชันเข้าใจทุกรูปแบบ]
+    # ==========================================
+    if message.guild is not None and message.mentions and not message.author.bot and not message.mention_everyone:
+        
+        real_mentions = [u for u in message.mentions if u.id != bot.user.id]
+        
+        if real_mentions:
+            target_user = real_mentions[0]
+            
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            is_bot_called = any(kw in lower_content for kw in bot_keywords)
+            
+            if is_bot_called and "ตาม" in lower_content:
+                await message.reply(f"รับทราบคำสั่งด่วนครับเมท! Bagley สายสืบวิ่งเสี้ยววินาที วิ่งไปเคาะประตู DM หาคุณ {target_user.display_name} ให้เดี๋ยวนี้เลยครับ! 🏃‍♂️💨")
+                try:
+                    view = DMFollowUpView(bot=bot, main_channel=message.channel, inviter=message.author, target_user=target_user, loop_speak_func=bagley_speak)
+                    dm_content = f"👋 สวัสดีครับคุณ {target_user.display_name}! มีคุณ **{message.author.display_name}** จากเซิร์ฟเวอร์ **{message.guild.name}** กำลังต้องการตัวคุณอย่างเร่งด่วนครับ! เมทสะดวกเข้าดิสตอนนี้มั้ยครับพ้ม?"
+                    dm_message = await target_user.send(dm_content, view=view)
+                    view.message = dm_message
+                except discord.Forbidden:
+                    await message.channel.send(f"หว่า... คุณ {target_user.display_name} ปิดประตู DM ไว้ (ปิดรับข้อความส่วนตัว) ผมเลยเข้าไปตามให้ไม่ได้ครับเมท 🛸❌")
+                return
+
+            question_msg = await message.reply(f"เห็นเมทแท็กคุณ {target_user.display_name} ให้ผมแชทไปตาม (DM) ให้มั้ยครับพ้ม? (พิมพ์บอกผมว่า 'ตามให้หน่อย' หรือ 'ไม่ต้อง' ได้เลยน้า มีเวลา 30 วิครับ)")
+            
+            def check_reply(m):
+                if m.author.id != message.author.id or m.channel.id != message.channel.id:
+                    return False
+                
+                m_lower = m.content.lower()
+                is_yes = any(word in m_lower for word in ["ตามให้หน่อย", "ตามที", "ตามให้ที", "ตามสิ", "ตามด้วย"])
+                is_no = any(word in m_lower for word in ["ไม่ต้อง", "ไม่เป็นไร", "ไม่จำต้อง"])
+                
+                return is_yes or is_no
+            
+            try:
+                reply_msg = await bot.wait_for('message', check=check_reply, timeout=30.0)
+                reply_lower = reply_msg.content.lower()
+                
+                if any(word in reply_lower for word in ["ตามให้หน่อย", "ตามที", "ตามให้ที", "ตามสิ", "ตามด้วย"]):
+                    await reply_msg.reply("รับทราบครับพ้ม! Bagley สายสืบวิ่งเสี้ยววินาที วิ่งไปเคาะประตู DM ให้เดี๋ยวนี้เลยครับ! 🏃‍♂️💨")
+                    
+                    try:
+                        view = DMFollowUpView(bot=bot, main_channel=message.channel, inviter=message.author, target_user=target_user, loop_speak_func=bagley_speak)
+                        dm_content = f"👋 สวัสดีครับคุณ {target_user.display_name}! มีคุณ **{message.author.display_name}** จากเซิร์ฟเวอร์ **{message.guild.name}** กำลังต้องการตัวคุณอย่างเร่งด่วนครับ! เมทสะดวกเข้าดิสตอนนี้มั้ยครับพ้ม?"
+                        dm_message = await target_user.send(dm_content, view=view)
+                        view.message = dm_message
+                        
+                    except discord.Forbidden:
+                        await message.channel.send(f"หว่า... คุณ {target_user.display_name} ปิดประตู DM ไว้ (ปิดรับข้อความส่วนตัว) ผมเลยเข้าไปตามให้ไม่ได้ครับเมท 🛸❌")
+                
+                elif any(word in reply_lower for word in ["ไม่ต้อง", "ไม่เป็นไร", "ไม่จำต้อง"]):
+                    await reply_msg.reply("โอเคครับเมท งั้นผมสแตนด์บายรอคำสั่งต่อไปน้าครับพ้ม! 🫡")
+                    
+            except asyncio.TimeoutError:
+                try:
+                    await question_msg.edit(content=f"⌛ [หมดเวลา 30 วิ] ระบบถามตามตัวคุณ {target_user.display_name} หมดอายุแล้วครับเมท")
+                except:
+                    pass
+            
+            return
 
     # ==========================================
     # ⏰ [ส่วนที่ 2: ระบบแจ้งเตือนความจำ]
