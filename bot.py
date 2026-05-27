@@ -1542,54 +1542,35 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]):
+            print("DEBUG: Bagley กำลังเข้าสู่โหมดลบข้อมูลพรรคพวก...")
             data_memory = load_user_data()
             
             if message.mentions:
                 target = message.mentions[0]
                 target_id = str(target.id)
                 
-                has_profile = target_id in data_memory
-                has_birthday = False
-                
-                if "reminders" in data_memory and target_id in data_memory["reminders"]:
-                    del data_memory["reminders"][target_id]
-                    has_birthday = True
-                
-                if has_profile:
+                if target_id in data_memory:
                     del data_memory[target_id]
-                
-                if has_profile or has_birthday:
-                    save_user_data(data_memory)
-                    await message.reply(f"ลบข้อมูลชื่อเล่นและวันเกิดของ {target.display_name} เรียบร้อยครับเมท คลังสมองโล่งโจ้งเลยพ้ม! ❌")
-                    return # 👈 ใส่ล็อกไว้ในบล็อกย่อย เพื่อตัดจบกระบวนการ ไม่ให้ไหลลงไปด้านล่าง
-                else:
-                    await message.reply(f"ผมยังไม่มีข้อมูลทั้งชื่อเล่นและวันเกิดของ {target.display_name} ในระบบเลยครับเมท")
-                    return # 👈 ใส่ล็อกไว้เช่นกัน
+                    save_user_data(data_memory) # บันทึกผลลงไฟล์ JSON
                     
+                    await message.reply(f"จัดให้ครับเมท! ผมทำการลบข้อมูลทั้งหมดรวมถึงวันเกิดของ คุณ {target.display_name} ออกจากระบบคลังสมองกลเรียบร้อยแล้วครับพ้ม! ❌🧠")
+                else:
+                    await message.reply(f"หืม? ในสารบบของผมไม่มีข้อมูลของ คุณ {target.display_name} ตั้งแต่แรกอยู่แล้วนะครับเมท")
+            
             else:
                 user_id = str(message.author.id)
-                has_profile = user_id in data_memory
-                has_birthday = False
                 
-                # 🎂 ลบข้อมูลวันเกิดตัวเองออกจากคลังแจ้งเตือน
-                if "reminders" in data_memory and user_id in data_memory["reminders"]:
-                    del data_memory["reminders"][user_id]
-                    has_birthday = True
-                    
-                if has_profile:
+                if user_id in data_memory:
                     del data_memory[user_id]
-                    
-                if has_profile or has_birthday:
                     save_user_data(data_memory)
-                    await message.reply("ล้างข้อมูลชื่อและวันเกิดของคุณเรียบร้อย ต่อไปนี้ผมจะทักทายคุณแบบคนแปลกหน้าปกติครับเมท 🤠✨")
-                    return
+                    
+                    await message.reply("ล้างข้อมูลชื่อเล่นและวันเกิดของตัวเมทเรียบร้อย! ต่อไปนี้ผมจะทักทายแบบคนแปลกหน้าชวนอึดอัดละกันนะครับพ้ม! 🤠✨")
                 else:
-                    await message.reply("ผมยังไม่ได้จำทั้งชื่อเล่นหรือวันเกิดของเมทไว้เลยนะครับ จะให้ลบตรงไหนดีล่ะเนี่ย")
-                    return
+                    await message.reply("โถๆ... ผมยังไม่ได้บันทึกข้อมูลชื่อหรือวันเกิดอะไรของเมทไว้เลยครับ จะให้ล้างสมองส่วนไหนดีล่ะเนี่ย")
+            
+            return
 
-        # =================================================================
-        # C. หมวดคำสั่งสื่อบันเทิง (Music / YouTube / Guild Join-Leave)
-        # =================================================================
+        #  หมวดคำสั่งสื่อบันเทิง (Music / YouTube / Guild Join-Leave)
         elif any(word in lower_content for word in ["เข้ามา", "join", "มานี่", "เข้ามาในห้อง", "เข้ามาห้อง"]):
             await ctx.invoke(bot.get_command('join'))
             return
