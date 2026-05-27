@@ -106,6 +106,15 @@ def load_user_data():
             return json.load(f)
     except FileNotFoundError:
         return {}
+    
+#  ฟังก์ชันกลางสำหรับลบข้อมูล (ทำหน้าที่ลบอย่างเดียว)
+def เคลียร์ข้อมูลพรรคพวก(user_id: str):
+    data_memory = load_user_data()
+    if user_id in data_memory:
+        del data_memory[user_id]
+        save_user_data(data_memory)
+        return True
+    return False
 
 def load_voice_data():
     try:
@@ -1542,32 +1551,19 @@ async def on_message(message):
             return
 
         elif any(k in lower_content for k in ["ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]):
-            print("DEBUG: Bagley กำลังเข้าสู่โหมดลบข้อมูลพรรคพวก...")
-            data_memory = load_user_data()
+            print("DEBUG: ตรวจพบคำสั่งพิมพ์ปกติ กำลังเชื่อมโยงไปที่ระบบ Slash Command (/forget)...")
             
-            if message.mentions:
-                target = message.mentions[0]
-                target_id = str(target.id)
+            target_user = message.mentions[0] if message.mentions else None
+            
+            forget_cmd = bot.tree.get_command("forget")
+            
+            if forget_cmd:
+                ctx = await bot.get_context(message)
                 
-                if target_id in data_memory:
-                    del data_memory[target_id]
-                    save_user_data(data_memory) # บันทึกผลลงไฟล์ JSON
-                    
-                    await message.reply(f"จัดให้ครับเมท! ผมทำการลบข้อมูลทั้งหมดรวมถึงวันเกิดของ คุณ {target.display_name} ออกจากระบบคลังสมองกลเรียบร้อยแล้วครับพ้ม! ❌🧠")
-                else:
-                    await message.reply(f"หืม? ในสารบบของผมไม่มีข้อมูลของ คุณ {target.display_name} ตั้งแต่แรกอยู่แล้วนะครับเมท")
-            
+                await forget_cmd.callback(ctx, target=target_user)
             else:
-                user_id = str(message.author.id)
+                await message.reply("ขออภัยครับเมท ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับพ้ม!")
                 
-                if user_id in data_memory:
-                    del data_memory[user_id]
-                    save_user_data(data_memory)
-                    
-                    await message.reply("ล้างข้อมูลชื่อเล่นและวันเกิดของตัวเมทเรียบร้อย! ต่อไปนี้ผมจะทักทายแบบคนแปลกหน้าชวนอึดอัดละกันนะครับพ้ม! 🤠✨")
-                else:
-                    await message.reply("โถๆ... ผมยังไม่ได้บันทึกข้อมูลชื่อหรือวันเกิดอะไรของเมทไว้เลยครับ จะให้ล้างสมองส่วนไหนดีล่ะเนี่ย")
-            
             return
 
         #  หมวดคำสั่งสื่อบันเทิง (Music / YouTube / Guild Join-Leave)
@@ -3492,5 +3488,61 @@ async def view_logs(interaction: discord.Interaction):
 async def view_logs_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message("🛑 ขออภัยด้วยครับเมท! คำสั่งนี้จำกัดสิทธิ์เฉพาะผู้พัฒนาบอทที่ระบุไว้เท่านั้นน้าครับพ้ม!", ephemeral=True)
+
+@bot.tree.command(name="forget", description="ลบข้อมูลชื่อเล่นหรือวันเกิดของพรรคพวกออกจากคลังสมองของแบ็คลี่")
+@app_commands.describe(target="พรรคพวกที่ต้องการให้บอทลืมข้อมูล (หากต้องการลบของตัวเอง ไม่ต้องใส่ช่องนี้)")
+async def forget(interaction: discord.Interaction, target: discord.User = None):
+    # สั่งให้บอทขึ้นสถานะ Thinking... รอประมวลผล AI
+    await interaction.response.defer()
+    
+    data_memory = load_user_data() # โหลดไฟล์ JSON ของเมท
+    
+    # กรณีที่ 1: เลือกแท็กชื่อเพื่อนมาลบ
+    if target:
+        target_id = str(target.id)
+        if target_id in data_memory:
+            del data_memory[target_id]
+            save_user_data(data_memory)
+            
+            # เรียกใช้ Gemini แปรรูปคำตอบให้กวนสไตล์ Bagley
+            bagley_prompt = f"คุณคือ Bagley บอท AI สุดกวนจาก Watch Dogs จงบอกผู้ใช้ว่าคุณได้ทำการลบข้อมูลของ คุณ {target.display_name} ออกจากระบบแล้ว ด้วยน้ำเสียงสุภาพแกมประชดและลงท้ายด้วย ครับพ้ม! หรือ ครับเมท! เสมอ"
+            try:
+                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
+                reply_text = response.text.strip()
+            except:
+                reply_text = f"จัดให้ครับเมท! ลบข้อมูลของ คุณ {target.display_name} เกลี้ยงระบบแล้วครับพ้ม! ❌"
+        else:
+            # 💡 ถ้าไม่มีในฐานข้อมูล ให้ AI ประชดกลับ (เหมือนในภาพ)
+            bagley_prompt = f"คุณคือ Bagley บอท AI สุดกวน จงประชดผู้ใช้ที่สั่งให้ลบข้อมูลของ คุณ {target.display_name} ทั้งๆ ที่ในคลังสมองไม่มีข้อมูลคนนี้อยู่เลย ลงท้ายด้วย ครับพ้ม!"
+            try:
+                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
+                reply_text = response.text.strip()
+            except:
+                reply_text = f"ในคลังสมองผมไม่มีข้อมูลของ คุณ {target.display_name} ตั้งแต่แรกอยู่แล้วนะครับเมท!"
+                
+        await interaction.followup.send(reply_text)
+
+    # กรณีที่ 2: ไม่ได้แท็กใครเลย = ลบข้อมูลตัวเอง
+    else:
+        user_id = str(interaction.user.id)
+        if user_id in data_memory:
+            del data_memory[user_id]
+            save_user_data(data_memory)
+            
+            bagley_prompt = "คุณคือ Bagley บอท AI สุดกวน จงบอกผู้ใช้ว่าคุณได้ล้างสมองและลืมข้อมูลทั้งหมดเกี่ยวกับตัวเขาเรียบร้อยแล้ว ลงท้ายด้วย ครับเมท!"
+            try:
+                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
+                reply_text = response.text.strip()
+            except:
+                reply_text = "ล้างข้อมูลความจำของตัวเมทเรียบร้อยแล้วครับพ้ม! 🤠"
+        else:
+            bagley_prompt = "คุณคือ Bagley บอท AI สุดกวน จงบอกปัดผู้ใช้ที่สั่งให้ลบข้อมูลตัวเอง ทั้งๆ ที่บอทไม่เคยจำข้อมูลของเขาไว้เลย ลงท้ายด้วย ครับพ้ม!"
+            try:
+                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
+                reply_text = response.text.strip()
+            except:
+                reply_text = "ผมยังไม่ได้จำข้อมูลอะไรของเมทไว้ในสมองกลเลยนะคำครับพ้ม!"
+                
+        await interaction.followup.send(reply_text)
 
 bot.run(DISCORD_TOKEN)
