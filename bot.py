@@ -1121,179 +1121,6 @@ async def on_message(message):
         if not any(keyword in lower_content for keyword in bot_keywords):
             if message.guild is not None:
                 return
-            
-    #  ระบบสแกนรูปภาพด้วยสมองกล Gemini ─────────────────────────────────────────
-    if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
-        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if message.guild and not any(keyword in lower_content for keyword in bot_keywords):
-            return
-        
-        has_image = False
-        target_message = message
-
-        if message.attachments:
-            if any(message.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
-                has_image = True
-        elif message.reference:
-            try:
-                replied_msg = await message.channel.fetch_message(message.reference.message_id)
-                if replied_msg.attachments and any(replied_msg.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
-                    has_image = True
-                    target_message = replied_msg
-            except:
-                pass
-
-        if has_image:
-            is_dm = isinstance(message.channel, discord.DMChannel)
-            user_msg_clean = message.content.strip()
-
-            if is_dm and not user_msg_clean:
-                await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับเมท? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
-                return
-
-            await message.channel.send("กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท... ")
-            
-            if message.guild:
-                try:
-                    await bagley_speak(message.guild, "กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท")
-                except Exception as tts_start_err:
-                    print(f"TTS Start Error: {tts_start_err}")
-
-            try:
-                image_url = target_message.attachments[0].url
-                user_question = user_msg_clean if user_msg_clean else "ช่วยอธิบายรูปภาพนี้ให้ฟังหน่อยครับ"
-                
-                prompt = f"""
-คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ 
-ให้ตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
-ลงท้ายประโยคด้วย 'ครับ' ห้ามพูดคำว่า 'ค่ะ' หรือ 'นะคะ' เด็ดขาด!
-คำถามจากเมท: {user_question}
-"""
-                response_img = requests.get(image_url)
-                img = Image.open(io.BytesIO(response_img.content))
-                
-                response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite", 
-                    contents=[prompt, img]
-                )
-                ai_text = response.text
-                await message.channel.send(ai_text)
-                
-                if message.guild:
-                    try:
-                        await bagley_speak(message.guild, ai_text)
-                    except Exception as tts_err:
-                        print(f"TTS Error: {tts_err}")
-                return
-
-            except Exception as e:
-                await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
-                return
-
-    # 🎂 [ระบบจดจำข้อมูลส่วนตัว/วันเกิด] ──────────────────────────────────────────
-    if "จำไว้ว่า" in lower_content:
-        if message.guild is not None:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if not any(keyword in lower_content for keyword in bot_keywords):
-                return
-            
-        print("DEBUG: ตรวจพบคำสั่งจำไว้ว่า!")
-        
-        target_user = None
-        target_display_name = "เพื่อนเมท"
-
-        has_id = regex_lib.search(r'(\d{17,19})', message.content)
-        
-        if has_id:
-            target_id = int(has_id.group(1))
-            try:
-                fetched_user = await bot.fetch_user(target_id)
-                if fetched_user:
-                    target_user = fetched_user
-                    target_display_name = fetched_user.display_name
-            except:
-                target_display_name = f"ID: {target_id}"
-                
-        elif message.mentions:
-            target_user = message.mentions[0]
-            target_display_name = target_user.display_name
-
-        if target_user:
-            target_id_str = str(target_user.id) if hasattr(target_user, 'id') else str(target_id)
-
-            ai_prompt = (
-                f"ผู้ใช้พิมพ์ข้อความนี้: '{message.content}'\n"
-                f"จงวิเคราะห์ว่าเขาต้องการให้จดจำข้อมูลประเภทใดเกี่ยวกับ คุณ {target_display_name}\n"
-                f"ให้เลือกตอบเฉพาะคำสำคัญดังต่อไปนี้เท่านั้น (ห้ามตอบนอกเหนือจากนี้):\n"
-                f"- ถ้าเป็นชื่อเล่น ฉายา หรือสถานะทั่วไป ให้ตอบคำว่า: 'nickname'\n"
-                f"- ถ้าเกี่ยวข้องกับวัน เดือน ปีเกิด ให้ตอบคำว่า: 'birthday'\n"
-                f"- ถ้าเกี่ยวข้องกับสิ่งที่ชอบ งานอดิเรก ของกินที่ชอบ ให้ตอบคำว่า: 'hobby'\n"
-                f"คำตอบของคุณ (ตอบแค่คำสำคัญอังกฤษคำเดียวเท่านั้น):"
-            )
-            
-            try:
-                response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite",
-                    contents=ai_prompt
-                )
-                info_type = response.text.lower().strip()
-            except Exception as e:
-                print(f"DEBUG AI Error: {e}")
-                info_type = "nickname"
-
-            raw_info = message.content
-            if "คือ" in raw_info:
-                info = raw_info.split("คือ")[-1].strip()
-            elif "เกิดวันที่" in raw_info:
-                info = raw_info.split("เกิดวันที่")[-1].strip()
-            else:
-                info = raw_info.replace("จำไว้ว่า", "").strip()
-
-            user_data = load_user_data()
-            
-            if target_id_str not in user_data or isinstance(user_data[target_id_str], str):
-                user_data[target_id_str] = {"nickname": "ยังไม่มีชื่อเล่น", "birthday": "ยังไม่ได้ระบุ"}
-
-            if "birthday" in info_type:
-                user_data[target_id_str]["birthday"] = info
-                await message.reply(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับพ้ม! 🎂✨")
-            else:
-                user_data[target_id_str]["nickname"] = info
-                await message.reply(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{info}** เรียบร้อยครับ! 🤠")
-
-            save_user_data(user_data)
-            print(f"DEBUG: บันทึกข้อมูลสำเร็จสำหรับ ID: {target_id_str} ประเภท: {info_type}")
-            return
-            
-        else:
-            await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับพ้ม!")
-            return
-
-    # 🌐 [ระบบแปลภาษาคู่ขนาน] ──────────────────────────────────────────
-    if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
-        if message.guild is not None:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if not any(keyword in lower_content for keyword in bot_keywords):
-                return
-        
-        if message.reference:
-            referenced_msg = await message.channel.fetch_message(message.reference.message_id)
-            text_to_translate = referenced_msg.content
-            
-            if "translate" in lower_content or "แปลเป็นอังกฤษ" in lower_content:
-                target_lang = "English"
-            else:
-                target_lang = "Thai"
-
-            prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
-            response = await client.aio.models.generate_content(
-                model="gemini-3.1-flash-lite",
-                contents=prompt
-            )
-            answer = response.text
-            
-            await message.reply(f"🌐 **Translation Result ({target_lang}):**\n{answer}")
-            return
 
     # 🔍 [ระบบเช็คประวัติ คนนี้คือใคร] ──────────────────────────────────────────
     if "คนนี้คือใคร" in lower_content:
@@ -1800,6 +1627,179 @@ async def on_message(message):
             await ctx.invoke(bot.get_command('diagnostic'))
             return
         
+    #  ระบบสแกนรูปภาพด้วยสมองกล Gemini ─────────────────────────────────────────
+    if any(keyword in message.content for keyword in ["ภาพอะไร", "รูปอะไร", "ดูรูปนี้หน่อย"]) or message.attachments:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        if message.guild and not any(keyword in lower_content for keyword in bot_keywords):
+            return
+        
+        has_image = False
+        target_message = message
+
+        if message.attachments:
+            if any(message.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
+                has_image = True
+        elif message.reference:
+            try:
+                replied_msg = await message.channel.fetch_message(message.reference.message_id)
+                if replied_msg.attachments and any(replied_msg.attachments[0].filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
+                    has_image = True
+                    target_message = replied_msg
+            except:
+                pass
+
+        if has_image:
+            is_dm = isinstance(message.channel, discord.DMChannel)
+            user_msg_clean = message.content.strip()
+
+            if is_dm and not user_msg_clean:
+                await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับเมท? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
+                return
+
+            await message.channel.send("กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท... ")
+            
+            if message.guild:
+                try:
+                    await bagley_speak(message.guild, "กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท")
+                except Exception as tts_start_err:
+                    print(f"TTS Start Error: {tts_start_err}")
+
+            try:
+                image_url = target_message.attachments[0].url
+                user_question = user_msg_clean if user_msg_clean else "ช่วยอธิบายรูปภาพนี้ให้ฟังหน่อยครับ"
+                
+                prompt = f"""
+คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ 
+ให้ตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
+ลงท้ายประโยคด้วย 'ครับ' ห้ามพูดคำว่า 'ค่ะ' หรือ 'นะคะ' เด็ดขาด!
+คำถามจากเมท: {user_question}
+"""
+                response_img = requests.get(image_url)
+                img = Image.open(io.BytesIO(response_img.content))
+                
+                response = await client.aio.models.generate_content(
+                    model="gemini-3.1-flash-lite", 
+                    contents=[prompt, img]
+                )
+                ai_text = response.text
+                await message.channel.send(ai_text)
+                
+                if message.guild:
+                    try:
+                        await bagley_speak(message.guild, ai_text)
+                    except Exception as tts_err:
+                        print(f"TTS Error: {tts_err}")
+                return
+
+            except Exception as e:
+                await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
+                return
+
+    # 🎂 [ระบบจดจำข้อมูลส่วนตัว/วันเกิด] ──────────────────────────────────────────
+    if "จำไว้ว่า" in lower_content:
+        if message.guild is not None:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
+            
+        print("DEBUG: ตรวจพบคำสั่งจำไว้ว่า!")
+        
+        target_user = None
+        target_display_name = "เพื่อนเมท"
+
+        has_id = regex_lib.search(r'(\d{17,19})', message.content)
+        
+        if has_id:
+            target_id = int(has_id.group(1))
+            try:
+                fetched_user = await bot.fetch_user(target_id)
+                if fetched_user:
+                    target_user = fetched_user
+                    target_display_name = fetched_user.display_name
+            except:
+                target_display_name = f"ID: {target_id}"
+                
+        elif message.mentions:
+            target_user = message.mentions[0]
+            target_display_name = target_user.display_name
+
+        if target_user:
+            target_id_str = str(target_user.id) if hasattr(target_user, 'id') else str(target_id)
+
+            ai_prompt = (
+                f"ผู้ใช้พิมพ์ข้อความนี้: '{message.content}'\n"
+                f"จงวิเคราะห์ว่าเขาต้องการให้จดจำข้อมูลประเภทใดเกี่ยวกับ คุณ {target_display_name}\n"
+                f"ให้เลือกตอบเฉพาะคำสำคัญดังต่อไปนี้เท่านั้น (ห้ามตอบนอกเหนือจากนี้):\n"
+                f"- ถ้าเป็นชื่อเล่น ฉายา หรือสถานะทั่วไป ให้ตอบคำว่า: 'nickname'\n"
+                f"- ถ้าเกี่ยวข้องกับวัน เดือน ปีเกิด ให้ตอบคำว่า: 'birthday'\n"
+                f"- ถ้าเกี่ยวข้องกับสิ่งที่ชอบ งานอดิเรก ของกินที่ชอบ ให้ตอบคำว่า: 'hobby'\n"
+                f"คำตอบของคุณ (ตอบแค่คำสำคัญอังกฤษคำเดียวเท่านั้น):"
+            )
+            
+            try:
+                response = await client.aio.models.generate_content(
+                    model="gemini-3.1-flash-lite",
+                    contents=ai_prompt
+                )
+                info_type = response.text.lower().strip()
+            except Exception as e:
+                print(f"DEBUG AI Error: {e}")
+                info_type = "nickname"
+
+            raw_info = message.content
+            if "คือ" in raw_info:
+                info = raw_info.split("คือ")[-1].strip()
+            elif "เกิดวันที่" in raw_info:
+                info = raw_info.split("เกิดวันที่")[-1].strip()
+            else:
+                info = raw_info.replace("จำไว้ว่า", "").strip()
+
+            user_data = load_user_data()
+            
+            if target_id_str not in user_data or isinstance(user_data[target_id_str], str):
+                user_data[target_id_str] = {"nickname": "ยังไม่มีชื่อเล่น", "birthday": "ยังไม่ได้ระบุ"}
+
+            if "birthday" in info_type:
+                user_data[target_id_str]["birthday"] = info
+                await message.reply(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับพ้ม! 🎂✨")
+            else:
+                user_data[target_id_str]["nickname"] = info
+                await message.reply(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{info}** เรียบร้อยครับ! 🤠")
+
+            save_user_data(user_data)
+            print(f"DEBUG: บันทึกข้อมูลสำเร็จสำหรับ ID: {target_id_str} ประเภท: {info_type}")
+            return
+            
+        else:
+            await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับพ้ม!")
+            return
+
+    # 🌐 [ระบบแปลภาษาคู่ขนาน] ──────────────────────────────────────────
+    if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
+        if message.guild is not None:
+            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+            if not any(keyword in lower_content for keyword in bot_keywords):
+                return
+        
+        if message.reference:
+            referenced_msg = await message.channel.fetch_message(message.reference.message_id)
+            text_to_translate = referenced_msg.content
+            
+            if "translate" in lower_content or "แปลเป็นอังกฤษ" in lower_content:
+                target_lang = "English"
+            else:
+                target_lang = "Thai"
+
+            prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
+            response = await client.aio.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                contents=prompt
+            )
+            answer = response.text
+            
+            await message.reply(f"🌐 **Translation Result ({target_lang}):**\n{answer}")
+            return
+        
     # 🧠 [ระบบคลังความจำสั่งสอนฐานข้อมูล SQLite] ────────────────────────────────────
     is_sqlite_triggered = False
 
@@ -1820,7 +1820,6 @@ async def on_message(message):
                 matched_response = response_text
                 break
 
-        # 🔹 [กรณีที่ 1] เจอคำสอนจำในคลัง SQLite (ตอบสไตล์ Bagley)
         if matched_response:
             async with message.channel.typing():
                 bagley_prompt = (
@@ -1847,7 +1846,6 @@ async def on_message(message):
                 await message.reply(bagley_styled_text)
                 return
 
-        # 🔹 [กรณีที่ 2] ไม่เจอคำสอนจำ => ปล่อยไหลมาเข้าสู่โหมดคุยเล่นอิสระ (Free Chat)
         else:
             user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
             user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
@@ -1868,7 +1866,6 @@ async def on_message(message):
                                 speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
                                 chat_log += f"[{speaker}]: {msg.clean_content}\n"
 
-                        # 🛠️ หลอมรวม Prompt สั่งการระบบพร้อมโครงสร้างบทสนทนา
                         free_chat_prompt = f"""
 คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์ จากโลก DedSec ในเกม Watch Dogs
 คุณกำลังสนทนากับผู้ใช้ โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ [ชื่อผู้ใช้]' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ห้ามพูดคำว่า 'ค่ะ/นะคะ'
@@ -1893,7 +1890,6 @@ async def on_message(message):
 
                     await message.reply(bagley_styled_text)
                     
-                    # 🔊 ถ้าน้องสถิตอยู่ในห้องเสียงอยู่แล้ว ให้แปลงคำตอบนี้ส่งไปพูดในโหมด Voice ด้วย
                     if message.guild and message.guild.voice_client:
                         if not message.guild.voice_client.is_playing():
                             clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
