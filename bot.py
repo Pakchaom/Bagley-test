@@ -1487,7 +1487,7 @@ async def on_message(message):
                     await message.channel.send("จะให้ผมสแกนใคร รบกวน @แท็กชื่อ หรือบอกว่า 'สแกนฉัน' ด้วยครับเมท")
                 return
 
-            elif any(k in lower_content for k in ["ปิดระบบ", "ปิดเครื่อง", "เลิกงานแล้ว", "พักผ่อนได้", "shutdown"]):
+            elif any(k in lower_content for k in ["ปิดคอมบริษัท", "ปิดเครื่องบริษัท", "shutdown"]):
                 ctx = await bot.get_context(message)
                 if await bot.is_owner(message.author):
                     await ctx.invoke(bot.get_command('shutdown'))
