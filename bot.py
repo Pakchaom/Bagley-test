@@ -772,7 +772,7 @@ class PartyCreateView(ui.View):
         
         # เมื่อเลือกคนเสร็จ ถามต่อเรื่อง Bagley จะตามไปมั้ย
         follow_view = ui.View()
-        yes_btn = ui.Button(label="พา Bagley ไปด้วย", style=discord.ButtonStyle.green, emoji="🤖")
+        yes_btn = ui.Button(label=f"พา {BOT_NAME} ไปด้วย", style=discord.ButtonStyle.green, emoji="🤖")
         no_btn = ui.Button(label="ไม่ต้องตามมา", style=discord.ButtonStyle.grey)
 
         async def yes_callback(it: discord.Interaction):
