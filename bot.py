@@ -3151,7 +3151,7 @@ async def shutdown_all(interaction: discord.Interaction):
     else:
         os.system("sudo shutdown -h now")
 
-@bot.hybrid_command(name="update_bot", description="ดึงโค้ดล่าสุดจาก GitHub และรีสตาร์ทบอท")
+@bot.hybrid_command(name="update_bot", description="ดึงโค้ดล่าสุดจาก GitHub แบบล้างประวัติชนกันและรีสตาร์ทบอท")
 async def update_bot(ctx: commands.Context):
     await ctx.defer()
     
@@ -3159,31 +3159,37 @@ async def update_bot(ctx: commands.Context):
         await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
         return
 
-    await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดจาก GitHub...")
+    await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดโครงสร้างใหม่ล่าสุดจาก GitHub...")
     
     try:
-        git_output = subprocess.check_output(
-            ["git", "pull"], 
+        fetch_output = subprocess.check_output(
+            ["git", "fetch", "--all"], 
             stderr=subprocess.STDOUT, 
             text=True
         )
-        print(f"🤠 [Git Pull Success]:\n{git_output}")
         
-        await ctx.send(f"✅ **[GIT PULL SUCCESS]** ดึงโค้ดล่าสุดสำเร็จแล้วครับเมท!")
+        reset_output = subprocess.check_output(
+            ["git", "reset", "--hard", "origin/main"], 
+            stderr=subprocess.STDOUT, 
+            text=True
+        )
+        
+        print(f"🤠 [Git Force Sync Success]:\n{fetch_output}\n{reset_output}")
+        await ctx.send(f"✅ **[GIT FORCE SYNC SUCCESS]** ซิงค์โค้ดจักรวาลใหม่ล่าสุดตรงปกเรียบร้อยครับเมท!")
         
     except subprocess.CalledProcessError as e:
-        error_git = f"❌ **[GIT PULL FAILED]** บอทสั่งดึงโค้ดไม่สำเร็จเนื่องจาก:\n```\n{e.output}\n```"
+        error_git = f"❌ **[GIT SYNC FAILED]** สั่งซิงค์โค้ดล้มเหลวเนื่องจาก:\n```\n{e.output}\n```"
         print(error_git)
         await ctx.send(error_git)
         return
         
     except Exception as e:
-        error_system = f"❌ **[SYSTEM ERROR]** ระบบไม่มีโปรแกรม Git หรือหา Path ไม่เจอ: {e}"
+        error_system = f"❌ **[SYSTEM ERROR]** มีข้อผิดพลาดในระบบเน็ตเวิร์กหรือโปรแกรม Git: {e}"
         print(error_system)
         await ctx.send(error_system)
         return
 
-    await ctx.send("🔄 โค้ดพร้อมแล้ว! กำลังสั่งเปิดบอทเวอร์ชันใหม่ใน 3 วินาทีครับพ้ม...")
+    await ctx.send("🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งเปิดบอทใหม่ใน 3 วินาทีครับพ้ม...")
     await asyncio.sleep(3.0)
     
     bot_dir = os.path.dirname(os.path.abspath(__file__))
@@ -3199,7 +3205,7 @@ async def update_bot(ctx: commands.Context):
             )
         
         print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
-        await ctx.send("✅ **[RESTARTING]** อัปเดตเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!")
+        await ctx.send("✅ **[RESTARTING]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!")
         
         try:
             global conn
@@ -3207,11 +3213,11 @@ async def update_bot(ctx: commands.Context):
         except: pass
 
         await bot.close()
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.5) 
         os._exit(0)
         
     except Exception as e:
-        error_bat = f"❌ **[BAT FILE ERROR]** เกิดข้อผิดพลาดตอนเรียกไฟล์ .bat: {e}"
+        error_bat = f"❌ **[BAT FILE ERROR]** เกิดข้อผิดพลาดตอนเรียกสคริปต์ .bat รีสตาร์ท: {e}"
         print(error_bat)
         await ctx.send(error_bat)
 
