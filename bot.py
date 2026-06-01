@@ -460,26 +460,37 @@ async def check_youtube_updates():
                 except:
                     pass
 
-            if is_live and live_video_id and live_video_id != last_id:
-                status_url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={live_video_id}&part=snippet"
-                status_res = requests.get(status_url).json()
-                
-                live_title = "สตรีมสดที่กำลังดุเดือด!"
-                if "items" in status_res and len(status_res["items"]) > 0:
-                    live_title = status_res["items"][0]["snippet"]["title"]
-
+            is_live = False
+            live_video_id = None
+            if '{"liveStreamabilityRenderer"' in html and '"videoId":"' in html:
                 try:
-                    await send_yt_alert(guild_id, name, live_title, live_video_id, is_live=True)
-                except Exception as alert_err:
-                    print(f"⚠️ [YouTube Live Alert Error] ส่งแจ้งเตือนหรือพูดพลาด แต่จะเซฟ DB ต่อเพื่อกันลูป: {alert_err}")
+                    live_video_id = html.split('"videoId":"')[1].split('"')[0]
+                    is_live = True
+                except:
+                    pass
 
-                c.execute(
-                    "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
-                    (live_video_id, channel_id, guild_id)
-                )
-                conn.commit()
-                print(f"🔴 [YouTube Live] บันทึกความจำไลฟ์สำเร็จ: {name} -> {live_video_id}")
-                continue # ข้ามไปเช็กช่องถัดไป
+            if is_live and live_video_id:
+                if live_video_id != last_id:
+                    status_url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={live_video_id}&part=snippet"
+                    status_res = requests.get(status_url).json()
+                    
+                    live_title = "สตรีมสดที่กำลังดุเดือด!"
+                    if "items" in status_res and len(status_res["items"]) > 0:
+                        live_title = status_res["items"][0]["snippet"]["title"]
+
+                    try:
+                        await send_yt_alert(guild_id, name, live_title, live_video_id, is_live=True)
+                    except Exception as alert_err:
+                        print(f"⚠️ [YouTube Live Alert Error] ส่งแจ้งเตือนหรือพูดพลาด แต่จะเซฟ DB ต่อเพื่อกันลูป: {alert_err}")
+
+                    c.execute(
+                        "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
+                        (live_video_id, channel_id, guild_id)
+                    )
+                    conn.commit()
+                    print(f"🔴 [YouTube Live] บันทึกความจำไลฟ์สำเร็จ: {name} -> {live_video_id}")
+                
+                continue
 
             ch_url = f"https://www.googleapis.com/youtube/v3/channels?key={YT_API_KEY}&id={channel_id}&part=contentDetails"
             ch_res = requests.get(ch_url).json()
