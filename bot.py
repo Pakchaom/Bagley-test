@@ -442,7 +442,10 @@ async def check_youtube_updates():
 
     for channel_id, name, last_id, guild_id in channels:
         try:
-            live_url = f"https://www.youtube.com/channel/{channel_id}/live"
+            if str(channel_id).startswith("@"):
+                live_url = f"https://www.youtube.com/{channel_id}/live"
+            else:
+                live_url = f"https://www.youtube.com/channel/{channel_id}/live"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(live_url, timeout=10) as response:
@@ -458,7 +461,6 @@ async def check_youtube_updates():
                     pass
 
             if is_live and live_video_id and live_video_id != last_id:
-                # สั่งเรียกข้อมูลชื่อไลฟ์จาก API เพื่อความสวยงาม
                 status_url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={live_video_id}&part=snippet"
                 status_res = requests.get(status_url).json()
                 
@@ -466,15 +468,18 @@ async def check_youtube_updates():
                 if "items" in status_res and len(status_res["items"]) > 0:
                     live_title = status_res["items"][0]["snippet"]["title"]
 
-                await send_yt_alert(guild_id, name, live_title, live_video_id, is_live=True)
+                try:
+                    await send_yt_alert(guild_id, name, live_title, live_video_id, is_live=True)
+                except Exception as alert_err:
+                    print(f"⚠️ [YouTube Live Alert Error] ส่งแจ้งเตือนหรือพูดพลาด แต่จะเซฟ DB ต่อเพื่อกันลูป: {alert_err}")
 
                 c.execute(
                     "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
                     (live_video_id, channel_id, guild_id)
                 )
                 conn.commit()
-                print(f"🔴 [YouTube Live] ตรวจพบการสตรีมสด: {name} -> {live_video_id}")
-                continue
+                print(f"🔴 [YouTube Live] บันทึกความจำไลฟ์สำเร็จ: {name} -> {live_video_id}")
+                continue # ข้ามไปเช็กช่องถัดไป
 
             ch_url = f"https://www.googleapis.com/youtube/v3/channels?key={YT_API_KEY}&id={channel_id}&part=contentDetails"
             ch_res = requests.get(ch_url).json()
@@ -491,7 +496,10 @@ async def check_youtube_updates():
                     title = latest_item["snippet"]["title"]
                     
                     if current_video_id and current_video_id != last_id:
-                        await send_yt_alert(guild_id, name, title, current_video_id, is_live=False)
+                        try:
+                            await send_yt_alert(guild_id, name, title, current_video_id, is_live=False)
+                        except Exception as alert_err:
+                            print(f"⚠️ [YouTube Video Alert Error] ส่งคลิปใหม่พลาด แต่จะเซฟ DB ต่อเพื่อกันลูป: {alert_err}")
 
                         c.execute(
                             "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
