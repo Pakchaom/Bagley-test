@@ -137,7 +137,7 @@ def get_reminders_for_user(user_id):
     data = load_user_data()
     reminders = data.get("reminders", [])
     
-    user_notes = [r['content'] for r in reminders if r['user_id'] == str(user_id) and not r.get('is_notified', False)]
+    user_notes = [r.get('content', 'แจ้งเตือนความจำ') for r in reminders if r.get('user_id') == str(user_id) and not r.get('is_notified', False)]
     
     if user_notes:
         return ", ".join(user_notes)
@@ -442,48 +442,66 @@ async def check_youtube_updates():
 
     for channel_id, name, last_id, guild_id in channels:
         try:
+            live_url = f"https://www.youtube.com/channel/{channel_id}/live"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(live_url, timeout=10) as response:
+                    html = await response.text()
+            
+            is_live = False
+            live_video_id = None
+            if '{"liveStreamabilityRenderer"' in html and '"videoId":"' in html:
+                try:
+                    live_video_id = html.split('"videoId":"')[1].split('"')[0]
+                    is_live = True
+                except:
+                    pass
+
+            if is_live and live_video_id and live_video_id != last_id:
+                # สั่งเรียกข้อมูลชื่อไลฟ์จาก API เพื่อความสวยงาม
+                status_url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={live_video_id}&part=snippet"
+                status_res = requests.get(status_url).json()
+                
+                live_title = "สตรีมสดที่กำลังดุเดือด!"
+                if "items" in status_res and len(status_res["items"]) > 0:
+                    live_title = status_res["items"][0]["snippet"]["title"]
+
+                await send_yt_alert(guild_id, name, live_title, live_video_id, is_live=True)
+
+                c.execute(
+                    "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
+                    (live_video_id, channel_id, guild_id)
+                )
+                conn.commit()
+                print(f"🔴 [YouTube Live] ตรวจพบการสตรีมสด: {name} -> {live_video_id}")
+                continue
+
             ch_url = f"https://www.googleapis.com/youtube/v3/channels?key={YT_API_KEY}&id={channel_id}&part=contentDetails"
             ch_res = requests.get(ch_url).json()
             
             if "items" in ch_res and len(ch_res["items"]) > 0:
                 uploads_playlist_id = ch_res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
                 
-                # ดึงมา 3 คลิปเพื่อความชัวร์
                 playlist_url = f"https://www.googleapis.com/youtube/v3/playlistItems?key={YT_API_KEY}&playlistId={uploads_playlist_id}&part=snippet&maxResults=3"
                 playlist_res = requests.get(playlist_url).json()
                 
                 if "items" in playlist_res and len(playlist_res["items"]) > 0:
-                    # 🎯 ดึงข้อมูลคลิปที่ใหม่ที่สุด (อันดับ 1 บนสุด) มาเช็กเป็นหลัก
                     latest_item = playlist_res["items"][0]
                     current_video_id = latest_item["snippet"]["resourceId"].get("videoId")
                     title = latest_item["snippet"]["title"]
                     
-                    # ล็อกเป้า: จะแจ้งเตือนก็ต่อเมื่อ "คลิปบนสุดอันใหม่นี้" ไม่ตรงกับในฐานข้อมูลเท่านั้น!
                     if current_video_id and current_video_id != last_id:
-                        
-                        # เช็กสถานะว่าเป็นไลฟ์สดอยู่ไหม
-                        status_url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={current_video_id}&part=snippet,liveStreamingDetails"
-                        status_res = requests.get(status_url).json()
-                        
-                        is_live = False
-                        if "items" in status_res and len(status_res["items"]) > 0:
-                            video_details = status_res["items"][0]
-                            if "liveStreamingDetails" in video_details and "actualEndTime" not in video_details["liveStreamingDetails"]:
-                                is_live = True
-                        
-                        # ส่งแจ้งเตือน 5 ตัวแปรตามสเปกเดิมของเมท
-                        await send_yt_alert(guild_id, name, title, current_video_id, is_live)
+                        await send_yt_alert(guild_id, name, title, current_video_id, is_live=False)
 
-                        # บันทึกคลิปใหม่ล่าสุดนี้ลงฐานข้อมูลทันที
                         c.execute(
                             "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
                             (current_video_id, channel_id, guild_id)
                         )
                         conn.commit()
-                        print(f"💾 [YouTube] บันทึกความจำสำเร็จ: {name} -> {current_video_id}")
+                        print(f"💾 [YouTube] พบคลิปใหม่สำเร็จ: {name} -> {current_video_id}")
 
         except Exception as e:
-            print(f"YouTube Loop Error for channel {name}: {e}")
+            print(f"❌ YouTube Loop Error for channel {name}: {e}")
 
 # 🛠️ ฟังก์ชันเสริมแยกออกมาช่วยพิมพ์และส่งเสียงพูด
 async def send_yt_alert(guild_id, channel_name, video_title, video_id, is_live):
@@ -517,19 +535,24 @@ async def check_reminders():
     data = load_user_data()
     reminders = data.get("reminders", [])
     
-    remaining_reminders = []  # ลิสต์เก็บรายการที่ยังไม่ถึงเวลาเตือน
+    remaining_reminders = []
     updated = False
 
     for r in reminders:
-        # ถ้าถึงเวลาแจ้งเตือน
-        if (r['time'] == now_colon or r['time'] == now_dot):
-            user_id = int(r['user_id'])
+        r_time = r.get('time')
+        r_user_id = r.get('user_id')
+
+        if not r_time or not r_user_id:
+            updated = True  
+            continue        
+
+        if (r_time == now_colon or r_time == now_dot):
             try:
+                user_id = int(r_user_id)
                 user = await bot.fetch_user(user_id)
                 if user:
-                    content = r['content']
+                    content = r.get('content', 'แจ้งเตือนความจำครับเมท!')
                     
-                    # วนหาห้อง Voice
                     member = None
                     for guild in bot.guilds:
                         m = guild.get_member(user_id)
@@ -538,22 +561,20 @@ async def check_reminders():
                             break
                     
                     if member:
-                        # วาร์ปไป Hijack ห้องเสียง
-                        bot.loop.create_task(bagley_hijack_alert(member.voice.channel, content))
+                        bot.loop.create_task(bagley_alert(member.voice.channel, content))
                     else:
-                        # ส่ง DM ปกติถ้าไม่อยู่ในห้องเสียง
                         try:
                             await user.send(f"🔔 สวัสดีครับเมท! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
                         except Exception as e:
                             print(f"DEBUG: ส่ง DM ไม่ได้เพราะ {e}")
                             
-                updated = True  # ส่งสัญญาณว่าข้อมูลมีการเปลี่ยนแปลง (รายการนี้ส่งแล้ว ไม่เก็บเข้าลิสต์ใหม่)
+                    updated = True
                 
             except Exception as e:
                 print(f"Error processing reminder: {e}")
-                remaining_reminders.append(r)  # ถ้าเกิด Error ร้ายแรง ให้เก็บรายการนี้ไว้เผื่อลองใหม่รอบหน้า
+                remaining_reminders.append(r)
         else:
-            remaining_reminders.append(r)  # ถ้ายังไม่ถึงเวลา ให้เก็บรักษาไว้เหมือนเดิม
+            remaining_reminders.append(r)
 
     if updated:
         data["reminders"] = remaining_reminders
