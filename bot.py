@@ -31,6 +31,10 @@ from discord.ext import tasks
 import random
 import re as regex_lib
 
+# --- RAM Cleaner ---
+import gc
+import psutil
+
 is_moving_group = False
 
 conn = sqlite3.connect('bagley_memory.db', check_same_thread=False)
@@ -599,6 +603,11 @@ async def check_friend_reminders():
     if has_changed:
         save_reminders(updated_reminders)
 
+@tasks.loop(hours=6.0)
+async def auto_brain_cleanup():
+    before, after, saved = perform_cleanup(bot)
+    print(f"🤖 [Auto Cleanup]: ล้างสมองสำเร็จ! RAM ลดลง {saved:.2f} MB (จาก {before:.2f} MB เหลือ {after:.2f} MB)")
+
 async def fade_out_source(vc, duration=1.5, steps=15):
     """ ค่อยๆ ลดเสียงลงจนเงียบแล้วหยุดเล่น """
     if vc and vc.source and hasattr(vc.source, 'volume'):
@@ -964,6 +973,20 @@ class PartyCreateView(ui.View):
         except:
             pass
 
+def perform_cleanup(bot):
+    process = psutil.Process(os.getpid())
+    before_mem = process.memory_info().rss / 1024 / 1024
+    
+    if hasattr(bot, "cached_messages"):
+        bot.cached_messages.clear()
+        
+    gc.collect()
+    
+    after_mem = process.memory_info().rss / 1024 / 1024
+    saved_mem = before_mem - after_mem
+    
+    return before_mem, after_mem, saved_mem
+
 # --- Database Setup ---
 def init_db():
     global conn
@@ -1022,9 +1045,10 @@ tree = bot.tree
 
 @bot.event
 async def on_ready():
+    if not auto_brain_cleanup.is_running():
+        auto_brain_cleanup.start()
     print(f'--- {bot.user.name} Online ---')
     
-    # เรียกใช้การตั้งค่าฐานข้อมูล
     try:
         init_db()
         print("🗄️ Database: member_profiles table is ready.")
@@ -3707,19 +3731,16 @@ async def view_logs_error(interaction: discord.Interaction, error: app_commands.
 @bot.tree.command(name="forget", description="ลบข้อมูลชื่อเล่นหรือวันเกิดของพรรคพวกออกจากคลังสมองของแบ็คลี่")
 @app_commands.describe(target="พรรคพวกที่ต้องการให้บอทลืมข้อมูล (หากต้องการลบของตัวเอง ไม่ต้องใส่ช่องนี้)")
 async def forget(interaction: discord.Interaction, target: discord.User = None):
-    # สั่งให้บอทขึ้นสถานะ Thinking... รอประมวลผล AI
     await interaction.response.defer()
     
-    data_memory = load_user_data() # โหลดไฟล์ JSON ของเมท
+    data_memory = load_user_data()
     
-    # กรณีที่ 1: เลือกแท็กชื่อเพื่อนมาลบ
     if target:
         target_id = str(target.id)
         if target_id in data_memory:
             del data_memory[target_id]
             save_user_data(data_memory)
             
-            # เรียกใช้ Gemini แปรรูปคำตอบให้กวนสไตล์ Bagley
             bagley_prompt = f"คุณคือ Bagley บอท AI สุดกวนจาก Watch Dogs จงบอกผู้ใช้ว่าคุณได้ทำการลบข้อมูลของ คุณ {target.display_name} ออกจากระบบแล้ว ด้วยน้ำเสียงสุภาพแกมประชดและลงท้ายด้วย ครับพ้ม! หรือ ครับเมท! เสมอ"
             try:
                 response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
@@ -3727,7 +3748,6 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
             except:
                 reply_text = f"จัดให้ครับเมท! ลบข้อมูลของ คุณ {target.display_name} เกลี้ยงระบบแล้วครับพ้ม! ❌"
         else:
-            # 💡 ถ้าไม่มีในฐานข้อมูล ให้ AI ประชดกลับ (เหมือนในภาพ)
             bagley_prompt = f"คุณคือ Bagley บอท AI สุดกวน จงประชดผู้ใช้ที่สั่งให้ลบข้อมูลของ คุณ {target.display_name} ทั้งๆ ที่ในคลังสมองไม่มีข้อมูลคนนี้อยู่เลย ลงท้ายด้วย ครับพ้ม!"
             try:
                 response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
@@ -3737,7 +3757,6 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
                 
         await interaction.followup.send(reply_text)
 
-    # กรณีที่ 2: ไม่ได้แท็กใครเลย = ลบข้อมูลตัวเอง
     else:
         user_id = str(interaction.user.id)
         if user_id in data_memory:
@@ -3766,5 +3785,41 @@ async def imagine(ctx: commands.Context, *, prompt: str):
     await ctx.defer()
 
     await generate_and_send_image(ctx, prompt)
+
+@bot.hybrid_command(name="sys_cleanup", description="สั่งให้แบ็คลี่เคลียร์แคชและคืนพื้นที่ RAM ของระบบทันที")
+async def sys_cleanup(ctx: commands.Context):
+    if ctx.interaction:
+        await ctx.interaction.response.defer()
+    
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        msg_denied = f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸"
+        if ctx.interaction:
+            await ctx.interaction.followup.send(msg_denied)
+        else:
+            await ctx.send(msg_denied)
+        return
+        
+    before, after, saved = perform_cleanup(ctx.bot)
+    
+    if saved > 0:
+        msg = (
+            f"🧹 **[SYSTEM CLEANUP]** แบ็คลี่เคลียร์ RAM โล่งแล้วครับเมท!\n"
+            f"📊 **RAM ก่อนเคลียร์:** `{before:.2f} MB`\n"
+            f"📉 **RAM หลังเคลียร์:** `{after:.2f} MB`\n"
+            f"♻️ **คืนพื้นที่ความจำได้:** `{saved:.2f} MB` ครับพ้ม!"
+        )
+    else:
+        msg = (
+            f"🧹 **[SYSTEM CLEANUP]** สมองของแบ็คลี่สะอาดกริ๊บอยู่แล้วครับเมท!\n"
+            f"📊 **RAM ปัจจุบัน:** `{after:.2f} MB` ไม่จำเป็นต้องรีไซเคิลเพิ่มครับ"
+        )
+        
+    if ctx.interaction:
+        await ctx.interaction.followup.send(msg)
+    else:
+        await ctx.send(msg)
+        
+    if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
+        await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับเมท")
 
 bot.run(DISCORD_TOKEN)
