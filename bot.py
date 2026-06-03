@@ -737,7 +737,7 @@ async def follow_creator_task():
             now_hour = datetime.now().hour
             time_greeting = ""
             if 0 <= now_hour < 13:
-                time_greeting = "ตื่นแล้วหรอครับเมท อรุณสวัสดิ์ครับ "
+                time_greeting = "อรุณสวัสดิ์ครับ "
             elif 13 <= now_hour < 14:
                 time_greeting = "สวัสดีตอนบ่ายครับ "
             elif 14 <= now_hour < 19:
@@ -2492,10 +2492,21 @@ async def on_voice_state_update(member, before, after):
                     today = datetime.now().strftime("%d/%m")
                     
                     if special_info:
-                        if "เกิดวันที่" in special_info and today in special_info:
-                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้วันที่ {today} เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ!"
+                        if isinstance(special_info, dict):
+                            nickname = special_info.get("nickname", "ยังไม่ระบุ")
+                            birthday = special_info.get("birthday", "ยังไม่ระบุ")
                         else:
-                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ หรือที่ให้ผมจำว่าคุณ {special_info}"
+                            nickname = special_info
+                            birthday = "ยังไม่ระบุ"
+
+                        if birthday and birthday != "ยังไม่ระบุ" and today in birthday:
+                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้วันที่ {today} เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ!"
+                        
+                        elif nickname and nickname != "ยังไม่ระบุ":
+                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ หรือที่ให้ผมจำว่าคุณ {nickname}"
+                        
+                        else:
+                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ"
                     else:
                         report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ"
                     
@@ -3514,15 +3525,23 @@ async def update_bot(ctx: commands.Context):
 async def profile_scan(ctx, member: discord.Member):
     await ctx.defer()
 
+    try:
+        user_data = load_user_data()
+        member_info = user_data.get(str(member.id), {})
+        custom_nickname = member_info.get("nickname", "ยังไม่ระบุ")
+        birthday = member_info.get("birthday", "ยังไม่ระบุ")
+    except Exception as e:
+        print(f"📁 Error loading user data in scan: {e}")
+        custom_nickname = "ยังไม่ระบุ"
+        birthday = "ยังไม่ระบุ"
+
     # --- 1. ข้อมูลพื้นฐาน (Hacker Vision Version) ---
     created_at = member.created_at.strftime("%d %b %Y")
     joined_at = member.joined_at.strftime("%d %b %Y")
     
-    # คำนวณอายุบัญชี (สร้างมานานแค่ไหน) และ ระยะเวลาที่อยู่ในเซิร์ฟ
     account_age_days = (discord.utils.utcnow() - member.created_at).days
     days_since_joined = (discord.utils.utcnow() - member.joined_at).days
     
-    # ดึงยศสูงสุดของเป้าหมาย
     top_role = member.top_role.name if member.top_role else "พลเมืองทั่วไป"
     
     # --- 2. วิเคราะห์กิจกรรมและเตรียมบทพูด (AI Analysis) ---
@@ -3558,12 +3577,14 @@ async def profile_scan(ctx, member: discord.Member):
         relationship_context += f"- เป้าหมายคือ คุณ {member.display_name} ซึ่งเป็นสมาชิกทั่วไปในเซิร์ฟเวอร์ สามารถใช้มุกตลกหน้าตายสไตล์อังกฤษแซะขี้เล่นได้ตามความเหมาะสม\n"
 
     prompt = f"""
-คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์สุดกวน ขี้เล่น มีระดับ และเต็มไปด้วยไหวพริบสไตล์ชายหนุ่มอังกฤษ จากโลก DedSec
+คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์สุดกวน มีไหวพริบ ช่างประชดประชันแต่พึ่งพาได้จากโลก DedSec
 จงใช้ข้อมูลดิจิทัลฟุตพริ้นท์เหล่านี้มาวิเคราะห์พฤติกรรมเป้าหมาย:
-- ชื่อเป้าหมาย: คุณ {member.display_name}
+- ชื่อบัญชี: {member.display_name}
+- ชื่อเล่นในคลังสมอง: {custom_nickname}
+- วันเกิดในคลังสมอง: {birthday}
 - ยศสูงสุด (Top Role): {top_role}
 - อายุบัญชีดิสคอร์ด: {account_age_days} วัน
-- ระยะเวลาที่อยู่ในเซิร์ฟนี้: {days_since_joined} วัน
+- ระยะเวลาที่อยู่ในเซิร์ฟนี้: {days_joined_at if 'days_joined_at' in locals() else days_since_joined} วัน
 - กิจกรรมที่กำลังทำ: {current_game}
 - สิ่งที่กำลังทำอื่น ๆ: {', '.join(activities) if activities else 'ใช้ชีวิตลึกลับ ไร้ร่องรอยดิจิทัลค้างคา'}
 
@@ -3571,7 +3592,7 @@ async def profile_scan(ctx, member: discord.Member):
 {relationship_context}
 
 กฎเหล็กด้านบุคลิกภาพ (สำคัญมาก):
-1. ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นวิเคราะห์นิสัยใจคอและพฤติกรรมตามข้อมูลดิบจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทนินทากัน
+1. ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นวิเคราะห์นิสัยใจคอและพฤติกรรมตามข้อมูลดิบจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทนินทากัน (หากมีชื่อเล่นหรือวันเกิดระบุมา สามารถหยิบมาแซวร่วมด้วยได้เลย)
 2. หากอายุบัญชี (Account Age) น้อยกว่า 30 วัน ให้เหน็บแนมแบบขำ ๆ ว่าเป็นบุคคลต้องสงสัยหรือไอดีผีเพิ่งเกิด
 3. แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ')
 4. ส่วน Voice: เขียนคำอ่านภาษาไทยให้สละสลวย กระชับ 2-3 ประโยค เพื่อให้ระบบพูดออกเสียง (TTS) ได้ราบรื่น ไม่ติดขัด
@@ -3596,9 +3617,13 @@ Voice: [คำพูดรายงานสรุปให้เมทฟัง
         analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับเมท"
         voice_report = f"สแกนข้อมูลของคุณ {member.display_name} เรียบร้อยครับเมท"
 
+    # --- 3. ส่ง Embed (หน้าจอรายงานผลที่มีชื่อเล่นและวันเกิด) ---
     embed = discord.Embed(title=f"📁 [PROFILER V.3] TARGET ANALYSIS: {member.display_name}", color=0x00ff00)
     embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="🆔 USER DATA", value=f"• Name: {member.name}\n• ID: {member.id}", inline=False)
+    
+    user_data_value = f"• Name: {member.name}\n• Nickname: {custom_nickname}\n• Birthday: {birthday}\n• ID: {member.id}"
+    embed.add_field(name="🆔 USER DATA", value=user_data_value, inline=False)
+    
     embed.add_field(name="🧠 BEHAVIORAL ANALYSIS", value=f"```fix\n{analysis_report}\n```", inline=False)
     
     if activities:
@@ -3610,7 +3635,12 @@ Voice: [คำพูดรายงานสรุปให้เมทฟัง
     if ctx.voice_client and ctx.voice_client.channel and not ctx.voice_client.is_playing():
         if ctx.author.voice and ctx.author.voice.channel == ctx.voice_client.channel:
             full_report = f"{voice_report} {analysis_report}"
-            await bagley_speak(ctx.guild, full_report)
+            try:
+                import re
+                clean_voice_text = re.sub(r'[^\w\s\u0e00-\u0e7f]+', '', full_report)
+                await bagley_speak(ctx.guild, clean_voice_text)
+            except Exception as tts_err:
+                print(f"🚨 Scan Command TTS Error: {tts_err}")
             
 @bot.hybrid_command(name="set_alert", description="ตั้งค่าห้องรายงาน และให้แบ็คลี่รายงานตัว")
 @commands.has_permissions(administrator=True)
@@ -3622,7 +3652,6 @@ async def set_alert(ctx, channel: discord.TextChannel):
     msg = f"ระบบเซ็นเซอร์พร้อมทำงานที่ห้อง {channel.name} เรียบร้อยครับเมท"
     await ctx.send(f"📡 **[SYSTEM]** {msg}")
     
-    # ถ้าแบ็คลี่อยู่ในห้องเสียง ให้พูดบอกด้วย
     if ctx.voice_client:
         await bagley_speak(ctx.guild, msg)
 
