@@ -709,7 +709,7 @@ async def follow_creator_task():
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
             return
 
-        today = datetime.date.today()
+        today = datetime.today().date()
         user_id = found_member.id
         
         if last_greeting_dates.get(user_id) != today:
