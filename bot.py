@@ -735,13 +735,13 @@ async def follow_creator_task():
             now_hour = datetime.now().hour
             time_greeting = ""
             if 0 <= now_hour < 13:
-                time_greeting = "ตื่นแล้วหรอครับเมท อรุณสวัสดิ์ครับคุณ "
+                time_greeting = "ตื่นแล้วหรอครับเมท อรุณสวัสดิ์ครับ "
             elif 13 <= now_hour < 14:
-                time_greeting = "สวัสดีตอนบ่ายครับคุณ "
+                time_greeting = "สวัสดีตอนบ่ายครับ "
             elif 14 <= now_hour < 19:
-                time_greeting = "สวัสดีตอนเย็นครับคุณ "
+                time_greeting = "สวัสดีตอนเย็นครับ "
             elif 19 <= now_hour <= 23:
-                time_greeting = "สวัสดีตอนกลางคืนครับคุณ "
+                time_greeting = "สวัสดีตอนกลางคืนครับ "
 
             if both_present:
                 greetings = [
@@ -752,10 +752,10 @@ async def follow_creator_task():
             else:
                 name_call = "คุณชะอม" if target_member.id == 1133740216822267954 else "คุณชาช่า"
                 greetings = [
-                    f"{time_greeting} {name_call} มาแล้วหรอครับครับเมท ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} {name_call} มาแล้วหรอครับเมท ยินดีต้อนรับนะครับ!",
                     f"{time_greeting} {name_call} เพิ่งมาหรอครับเมท ยินดีต้อนรับนะครับ!",
                     f"{time_greeting} {name_call} มีอะไรให้รับใช้มั้ยครับเมท ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงแล้วครับเมท ยินดีต้อนรับนะครับ!"
+                    f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงแล้วครับ ยินดีต้อนรับนะครับ!"
                 ]
                 
             msg = random.choice(greetings)
