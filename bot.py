@@ -2480,35 +2480,34 @@ async def on_voice_state_update(member, before, after):
         is_reporting_enabled = voice_report_status.get(guild_id, True)
 
         if is_reporting_enabled:
+            data_memory = load_user_data() 
+            special_info = data_memory.get(str(member.id))
+            
+            if special_info:
+                if isinstance(special_info, dict):
+                    nickname = special_info.get("nickname", "ยังไม่ระบุ")
+                    birthday = special_info.get("birthday", "ยังไม่ระบุ")
+                else:
+                    nickname = special_info
+                    birthday = "ยังไม่ระบุ"
+            else:
+                nickname = "ยังไม่ระบุ"
+                birthday = "ยังไม่ระบุ"
+
+            calling_name = nickname if (nickname and nickname != "ยังไม่ระบุ") else member.display_name
+            
+            today = datetime.now().strftime("%d/%m")
+
+            # 🚪 1. กรณีคน "เข้า" ห้องเสียง
             if before.channel != bot_channel and after.channel == bot_channel:
                 if member.id != bot.user.id:
 
                     await asyncio.sleep(1.0)
                     
-                    data_memory = load_user_data() 
-                    
-                    special_info = data_memory.get(str(member.id))
-
-                    today = datetime.now().strftime("%d/%m")
-                    
-                    if special_info:
-                        if isinstance(special_info, dict):
-                            nickname = special_info.get("nickname", "ยังไม่ระบุ")
-                            birthday = special_info.get("birthday", "ยังไม่ระบุ")
-                        else:
-                            nickname = special_info
-                            birthday = "ยังไม่ระบุ"
-
-                        if birthday and birthday != "ยังไม่ระบุ" and today in birthday:
-                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้วันที่ {today} เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ!"
-                        
-                        elif nickname and nickname != "ยังไม่ระบุ":
-                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ หรือที่ให้ผมจำว่าคุณ {nickname}"
-                        
-                        else:
-                            report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ"
+                    if birthday and birthday != "ยังไม่ระบุ" and today in birthday:
+                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้วันที่ {today} เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ!"
                     else:
-                        report = f"คุณ {member.display_name} เข้ามาในห้องแล้วครับ"
+                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ"
                     
                     await bagley_speak_wait(member.guild, report)
 
@@ -2517,9 +2516,10 @@ async def on_voice_state_update(member, before, after):
                         note_msg = f"เมทอย่าลืมนะครับ เมทมีโน้ตที่ฝากไว้คือ {pending_notes}"
                         await bagley_speak_wait(member.guild, note_msg)
 
+            # 🚪 2. กรณีคน "ออก" ห้องเสียง
             elif before.channel == bot_channel and after.channel != bot_channel:
                 if member.id != bot.user.id:
-                    msg = f"คุณ {member.display_name} ออกจากห้องไปครับ"
+                    msg = f"คุณ {calling_name} ออกจากห้องไปครับ"
                     await bagley_speak_wait(member.guild, msg)
         else:
             print(f"DEBUG: ข้ามการพูดรายงานในกิลด์ {guild_id} เนื่องจากเมทสั่ง 'ปิดรายงานห้องเสียง' ไว้ชั่วคราว")
