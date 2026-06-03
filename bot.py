@@ -47,6 +47,8 @@ user_join_times = {}
 
 voice_report_status = {}
 
+bot_follow_targets = {}
+
 created_party_channels = []
 
 is_playing_music = False
@@ -2416,29 +2418,55 @@ async def on_voice_state_update(member, before, after):
 
     guild_id = member.guild.id
 
-    # 🔄 [สลักระเบิดรีเซ็ตอัตโนมัติ] เช็คว่าถ้าตัวบอทเองเป็นฝ่ายออกจากห้องเสียง (ไม่ว่าจะโดนเตะ, สั่งดิสคอนเนค, หรือห้องสลาย)
-    # ให้ทำการล้างสถานะปิดรายงานทิ้งทันที เพื่อให้กลับมาค่าเริ่มต้นเปิดทำงานปกติในรอบหน้า!
     if member.id == bot.user.id and after.channel is None:
         voice_report_status.pop(guild_id, None)
         print(f"DEBUG: ตัวบอทออกจากห้องเสียงแล้ว ทำการรีเซ็ตสวิตช์รายงานเสียงของกิลด์ {guild_id} กลับเป็น เปิด (True) อัตโนมัติ")
 
-    # ค้นหาว่าในเซิร์ฟเวอร์นี้ บอทกำลังเชื่อมต่ออยู่ในห้องเสียงไหนไหม
     voice_client = member.guild.voice_client
+    
+    has_followed_out = False
 
-    # 🧹 [ส่วนที่ 1] จัดการเก็บกวาด "ห้องปาร์ตี้สร้างเอง"
-    if before.channel is not None:
+    if voice_client and voice_client.channel:
+        bot_channel = voice_client.channel
+        followed_leader_id = bot_follow_targets.get(guild_id)
+        
+        if followed_leader_id and member.id == followed_leader_id:
+            if before.channel == bot_channel and after.channel != bot_channel:
+                print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง บอทจะพูดบอกลาแล้ววาร์ปออกตามทันที!")
+                
+                bot_follow_targets[guild_id] = None
+                has_followed_out = True # เปิดสวิตช์เปิดทางด่วน ข้ามระบบตรวจจับห้องร้างซ้ำซ้อนด้านล่าง
+                
+                data_memory = load_user_data() 
+                special_info = data_memory.get(str(member.id))
+                if special_info and isinstance(special_info, dict):
+                    calling_name = special_info.get("nickname", member.display_name)
+                elif special_info:
+                    calling_name = special_info
+                else:
+                    calling_name = member.display_name
+                if calling_name == "ยังไม่ระบุ": calling_name = member.display_name
+
+                exit_msg = f"คุณ {calling_name} ออกไปแล้วครับ เจ้านายผมออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
+                await bagley_speak_wait(member.guild, exit_msg)
+                
+                try:
+                    await voice_client.disconnect()
+                    voice_report_status.pop(guild_id, None)
+                except Exception as e:
+                    print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายตามเจ้านาย: {e}")
+
+    # 🧹 [ส่วนที่ 1] จัดการเก็บกวาด "ห้องปาร์ตี้สร้างเอง" (รันเฉพาะตอนไม่ใช่กรณีเจ้านายเดินหนี)
+    if not has_followed_out and before.channel is not None:
         channel_to_check = before.channel
         
-        # เช็คว่าห้องอยู่ในลิสต์ และ (ไม่มีคนเลย หรือ เหลือแค่บอทคนเดียว)
         is_empty_or_only_bot = (len(channel_to_check.members) == 0) or \
                                (len(channel_to_check.members) == 1 and bot.user in channel_to_check.members)
 
         if channel_to_check.id in created_party_channels and is_empty_or_only_bot:
             try:
-                # ถ้าบอทอยู่ในห้องนั้นด้วย ให้มันออกมาจากห้องก่อนลบ
                 if voice_client and voice_client.channel == channel_to_check:
                     await voice_client.disconnect()
-                    # รีเซ็ตสวิตช์ทันทีเมื่อบอทหลุดการเชื่อมต่อ
                     voice_report_status.pop(guild_id, None)
 
                 await channel_to_check.delete(reason="ห้องปาร์ตี้ร้าง - Bagley ลบให้อัตโนมัติ")
@@ -2448,11 +2476,10 @@ async def on_voice_state_update(member, before, after):
             except Exception as e:
                 print(f"❌ ลบห้องไม่ได้: {e}")
 
-    # 🚶‍♂️ [ส่วนที่ 2] ออกจาก "ห้องทั่วไป" เมื่อไม่มีคนอยู่กับบอท (Auto-Leave)
-    if voice_client and voice_client.channel:
+    # 🚶‍♂️ [ส่วนที่ 2] ออกจาก "ห้องทั่วไป" เมื่อไม่มีคนอยู่กับบอท (Auto-Leave ยามปกติ)
+    if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
         
-        # เช็คว่าบอทอยู่คนเดียวในห้องนั้นไหม (จำนวนสมาชิกในห้องเหลือ 1 และคนๆ นั้นคือบอท)
         if len(bot_channel.members) == 1 and bot.user in bot_channel.members:
             if bot_channel.id in created_party_channels:
                 return
@@ -2460,18 +2487,16 @@ async def on_voice_state_update(member, before, after):
             print(f"DEBUG: ห้องทั่วไป '{bot_channel.name}' ร้างแล้ว แบ็คลี่เตรียมถอนกำลัง...")
             await asyncio.sleep(1.5)
             
-            # เช็คซ้ำอีกรอบหลังหน่วงเวลา
             if len(bot_channel.members) == 1 and bot.user in bot_channel.members:
                 try:
                     await voice_client.disconnect()
-                    # รีเซ็ตสวิตช์ทันทีเมื่อบอทกดออกเอง
                     voice_report_status.pop(guild_id, None)
                     print(f"DEBUG: แบ็คลี่กดออกจากห้องร้าง '{bot_channel.name}' เรียบร้อยครับเมท")
                 except Exception as e:
                     print(f"❌ เกิดข้อผิดพลาดในการสั่ง Auto-Leave ห้องทั่วไป: {e}")
 
-    # ตรวจสอบและรายงานเสียง คนเข้า-ออกห้องเสียง (เวอร์ชันเปิด-ปิดชั่วคราว)
-    if voice_client and voice_client.channel:
+    # 📢 [ส่วนที่ 3] ตรวจสอบและรายงานเสียง คนเข้า-ออกห้องเสียงยามปกติ
+    if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
         
         if voice_client.is_playing():
@@ -2495,15 +2520,12 @@ async def on_voice_state_update(member, before, after):
                 birthday = "ยังไม่ระบุ"
 
             calling_name = nickname if (nickname and nickname != "ยังไม่ระบุ") else member.display_name
-            
             today = datetime.now().strftime("%d/%m")
 
             # 🚪 1. กรณีคน "เข้า" ห้องเสียง
             if before.channel != bot_channel and after.channel == bot_channel:
                 if member.id != bot.user.id:
-
                     await asyncio.sleep(1.0)
-                    
                     if birthday and birthday != "ยังไม่ระบุ" and today in birthday:
                         report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้วันที่ {today} เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ!"
                     else:
@@ -2516,7 +2538,7 @@ async def on_voice_state_update(member, before, after):
                         note_msg = f"เมทอย่าลืมนะครับ เมทมีโน้ตที่ฝากไว้คือ {pending_notes}"
                         await bagley_speak_wait(member.guild, note_msg)
 
-            # 🚪 2. กรณีคน "ออก" ห้องเสียง
+            # 🚪 2. กรณีคน "ออก" ห้องเสียงยามปกติ
             elif before.channel == bot_channel and after.channel != bot_channel:
                 if member.id != bot.user.id:
                     msg = f"คุณ {calling_name} ออกจากห้องไปครับ"
@@ -2655,13 +2677,13 @@ async def join(ctx: commands.Context):
         channel = ctx.author.voice.channel
 
         if ctx.voice_client is not None:
-            # ถ้าอยู่อีกห้อง ให้ย้ายมาห้องนี้
             await ctx.voice_client.move_to(channel)
             vc = ctx.voice_client
         else:
-            # ถ้ายังไม่อยู่เลย ให้เชื่อมต่อใหม่และเก็บค่าไว้ใน vc
             vc = await channel.connect()
         
+        bot_follow_targets[ctx.guild.id] = None
+
         # ✨ เพิ่ม Delay เพื่อให้ระบบเสียงนิ่งก่อนพูด
         await asyncio.sleep(1.0)
 
@@ -2671,10 +2693,8 @@ async def join(ctx: commands.Context):
         online_source.volume = 0.5 # ตั้งเสียงเริ่มต้น
         vc.play(online_source)
 
-        # 2. รอให้เสียงเล่นไปสักพัก (สมมติไฟล์ยาว 3 วิ รอ 1.8 วิแล้วเริ่มเฟด)
         await asyncio.sleep(1.8) 
 
-        # 3. Loop ค่อยๆ เฟดเสียงลงภายใน 1 วินาที
         steps = 10
         for _ in range(steps):
             if online_source:
@@ -2685,11 +2705,9 @@ async def join(ctx: commands.Context):
         if vc.is_playing():
             vc.stop()
 
-        # --- 🕒 ส่วนของ Logic เวลา ---
         now_hour = datetime.now().hour
         greeting = ""
 
-        # กำหนดคำทักทายตามช่วงเวลาที่เมทต้องการ
         if 0 <= now_hour < 13:
             greeting = "แบ็คลี่ ประจำการ! อรุณสวัสดิ์ครับ "
         elif 13 <= now_hour < 14:
@@ -2708,7 +2726,6 @@ async def join(ctx: commands.Context):
             "ผมเข้ามาในห้องเสียงแล้วครับ"
         ]
         
-        # รวมคำทักทาย (ถ้ามี) เข้ากับคำพูดที่สุ่มได้
         msg = f"{greeting}{random.choice(quotes)}"
         
         # --- 📤 การตอบกลับ ---
