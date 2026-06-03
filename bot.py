@@ -684,7 +684,6 @@ async def follow_creator_task():
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
             member = guild.get_member(user_id)
-            # ถ้าเจอตัว และกำลังนั่งเล่นอยู่ในห้องเสียง
             if member and member.voice and member.voice.channel:
                 target_channel = member.voice.channel
                 guild_to_join = guild
@@ -699,10 +698,16 @@ async def follow_creator_task():
         if voice_client and voice_client.channel == target_channel:
             return
 
-        if voice_client:
-            await voice_client.move_to(target_channel)
-        else:
-            voice_client = await target_channel.connect()
+        print(f"🔍 [Bagley] เจอ {found_member.display_name} อยู่ที่ห้อง '{target_channel.name}' กำลังตามไปหาครับเมท...")
+
+        try:
+            if voice_client:
+                await voice_client.move_to(target_channel)
+            else:
+                voice_client = await target_channel.connect()
+        except Exception as e:
+            print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
+            return
 
         today = datetime.date.today()
         user_id = found_member.id
@@ -711,19 +716,31 @@ async def follow_creator_task():
             name_call = "คุณชะอม" if user_id == 1133740216822267954 else "คุณชาช่า"
             
             greetings = [
-                f"มาแล้วหรอครับ{name_call} ครับพ้ม!",
-                f"ตื่นแล้วหรอครับ{name_call} ครับเมท!",
-                f"อรุณสวัสดิ์ครับ{name_call} วันนี้มีอะไรให้แบ็คลี่รับใช้มั้ยครับพ้ม!",
-                f"แอบมาส่อง{name_call} ในห้องเสียงครับเมท!"
+                f"มาแล้วหรอครับคุณ{name_call} สวัสดีครับเมท!",
+                f"ตื่นแล้วหรอครับคุณ{name_call} สวัสดีครับเมท!"
             ]
             msg = random.choice(greetings)
             
-            await asyncio.sleep(1)
-            await bagley_speak(guild_to_join, msg)
+            await asyncio.sleep(2.5)
             
-            last_greeting_dates[user_id] = today
+            try:
+                print("🔊 [Bagley] กำลังเปิดระบบเสียง drone_online...")
+                
+                if voice_client and not voice_client.is_playing():
+                    sound_source = discord.FFmpegPCMAudio('drone_online.mp3')
+                    voice_client.play(sound_source)
+                    while voice_client.is_playing():
+                        await asyncio.sleep(0.1)
+
+                print(f"🗣️ [Bagley] กำลังส่งเสียงทักทาย: {msg}")
+                await bagley_speak(guild_to_join, msg)
+                
+                last_greeting_dates[user_id] = today
+                
+            except Exception as e:
+                print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนเล่นเสียงหรือทักทาย: {e}")
         else:
-            pass
+            print(f"🤫 [Bagley] วันนี้เคยทักทาย {found_member.display_name} ไปแล้ว ขอเข้าสแตนด์บายเงียบ ๆ ไร้เสียงรบกวนครับพ้ม")
 
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
