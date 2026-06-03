@@ -71,7 +71,7 @@ ALLOWED_TEACH_USERS = [
 ]
 
 ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกับชาช่า
-auto_follow_enabled = True
+auto_follow_status = {uid: True for uid in ALLOWED_USERS}
 last_greeting_dates = {}
 
 LOG_BUFFER = collections.deque(maxlen=10)
@@ -673,22 +673,26 @@ async def fade_out_source(vc, duration=1.5, steps=15):
 @tasks.loop(minutes=10)
 async def follow_creator_task():
     global last_greeting_dates
-    
-    if not auto_follow_enabled:
-        return
-
     today = datetime.today().date()
-    active_targets = []
+    active_targets = []  # เก็บข้อมูลคนที่เจอในห้องเสียงทั้งหมด
 
+    # 🔍 1. สแกนหาทุกคนที่อยู่ในห้องเสียงในทุกเซิฟเวอร์
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
+            
+            # 🛑 [จุดเปลี่ยนสำคัญ] เช็กว่าคน ๆ นี้ปิดระบบเดินตามไว้หรือเปล่า? ถ้าปิดให้ skip ข้ามไปเลยครับ!
+            if not auto_follow_status.get(user_id, True):
+                continue
+                
             member = guild.get_member(user_id)
             if member and member.voice and member.voice.channel:
                 active_targets.append((member, member.voice.channel, guild))
 
+    # ถ้าไม่มีใครเปิดระบบ หรือไม่มีใครอยู่ห้องเสียงเลย -> สแตนด์บายเงียบ ๆ
     if not active_targets:
         return
 
+    # 🎯 2. ลอจิกการตัดสินใจเลือกห้องที่จะไป (กรณีออนไลน์พร้อมกัน)
     target_member = None
     target_channel = None
     guild_to_join = None
@@ -702,22 +706,18 @@ async def follow_creator_task():
             both_present = True
         else:
             un_greeted_targets = [t for t in active_targets if last_greeting_dates.get(t[0].id) != today]
-            
             if len(un_greeted_targets) == 1:
                 target_member, target_channel, guild_to_join = un_greeted_targets[0]
-                print(f"🎯 [Bagley] ตี้แตกแยกห้อง! เลือกไปห้อง '{target_channel.name}' เพราะ {target_member.display_name} ยังไม่ได้ทักทายวันนี้")
             else:
                 chaom_target = next((t for t in active_targets if t[0].id == 1133740216822267954), active_targets[0])
                 target_member, target_channel, guild_to_join = chaom_target
-                print(f"🎯 [Bagley] ตี้แตกแยกห้อง (สถานะเท่ากัน) ขอเลือกไปหาคุณชะอมที่ห้อง '{target_channel.name}' ก่อนครับเมท")
 
+    # 🚀 3. เริ่มกระบวนการเคลื่อนย้ายและส่งเสียงทักทาย (คงเดิมไว้ทั้งหมด)
     if target_channel and guild_to_join and target_member:
         voice_client = guild_to_join.voice_client
 
         if voice_client and voice_client.channel == target_channel:
             return
-
-        print(f"🔍 [Bagley] เจอ {target_member.display_name} อยู่ที่ห้อง '{target_channel.name}' กำลังตามไปหาครับเมท...")
 
         try:
             if voice_client:
@@ -732,10 +732,8 @@ async def follow_creator_task():
         greeting_key = "both_together" if both_present else target_member.id
         
         if last_greeting_dates.get(greeting_key) != today:
-            
             now_hour = datetime.now().hour
             time_greeting = ""
-
             if 0 <= now_hour < 13:
                 time_greeting = "ตื่นแล้วหรอครับเมท อรุณสวัสดิ์ครับคุณ "
             elif 13 <= now_hour < 14:
@@ -757,16 +755,13 @@ async def follow_creator_task():
                     f"{time_greeting} {name_call} มาแล้วหรอครับครับเมท ยินดีต้อนรับนะครับ!",
                     f"{time_greeting} {name_call} เพิ่งมาหรอครับเมท ยินดีต้อนรับนะครับ!",
                     f"{time_greeting} {name_call} มีอะไรให้รับใช้มั้ยครับเมท ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงครับเมท ยินดีต้อนรับนะครับ!"
+                    f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงแล้วครับเมท ยินดีต้อนรับนะครับ!"
                 ]
                 
             msg = random.choice(greetings)
-            
             await asyncio.sleep(1.0)
             
             try:
-                print("🔊 [Bagley] กำลังเปิดระบบเสียง drone_online และเริ่มคำนวณการ Fade out...")
-                
                 online_source = discord.PCMVolumeTransformer(
                     discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
                 )
@@ -783,9 +778,7 @@ async def follow_creator_task():
                 if vc.is_playing():
                     vc.stop()
 
-                print(f"🗣️ [Bagley] กำลังส่งเสียงทักทายตามเวลา: {msg}")
                 await bagley_speak_wait(guild_to_join, msg)
-                
                 last_greeting_dates[greeting_key] = today
                 
                 if both_present:
@@ -794,8 +787,6 @@ async def follow_creator_task():
                 
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนเล่นเสียงหรือทักทาย: {e}")
-        else:
-            print(f"🤫 [Bagley] วันนี้เคยทักทายรูปแบบนี้ไปแล้ว ขอเข้าโหมดสแตนด์บายเฝ้าดูเงียบ ๆ ครับพ้ม")
 
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
@@ -4002,22 +3993,22 @@ async def sys_cleanup(ctx: commands.Context):
     if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
         await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับเมท")
 
-@bot.hybrid_command(name="stop_follow", description="[เฉพาะชะอม/ชาช่า] สั่งให้แบ็คลี่หยุดเดินตามห้องเสียงชั่วคราว")
-async def stop_follow(ctx):
-    if ctx.author.id not in ALLOWED_USERS:
-        return await ctx.send("คำสั่งนี้ล็อกสิทธิ์เฉพาะคุณชะอมและคุณชาช่าเท่านั้นครับพ้ม! ❌", ephemeral=True)
+@bot.hybrid_command(name="unfollow_me", description="สั่งให้ Bagley เลิกเดินตามตัวเราเอง")
+async def unfollow_me(ctx: commands.Context):
+    user_id = ctx.author.id
+    if user_id in ALLOWED_USERS:
+        auto_follow_status[user_id] = False
+        await ctx.send(f"รับทราบครับเมท! แบ็คลี่ปิดระบบเดินตามของ {ctx.author.display_name} เรียบร้อยครับพ้ม (ท่านอื่นยังตามปกติอยู่น้า)")
+    else:
+        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับพ้ม!")
 
-    global auto_follow_enabled
-    auto_follow_enabled = False
-    await ctx.send("รับทราบครับเมท! ผมจะหยุดตามเป็นเงาชั่วคราว ขอตัวไปพักผ่อนชาร์จแบตก่อนนะครับพ้ม! 🔋", ephemeral=True)
-
-@bot.hybrid_command(name="start_follow", description="[เฉพาะชะอม/ชาช่า] สั่งให้แบ็คลี่กลับมาเดินตามห้องเสียง")
-async def start_follow(ctx):
-    if ctx.author.id not in ALLOWED_USERS:
-        return await ctx.send("คำสั่งนี้ล็อกสิทธิ์เฉพาะคุณชะอมและคุณชาช่าเท่านั้นครับพ้ม! ❌", ephemeral=True)
-
-    global auto_follow_enabled
-    auto_follow_enabled = True
-    await ctx.send("ระบุพิกัดเรียบร้อย! กลับมาทำหน้าที่บอทติดตามตัวเดอะแก๊งแล้วครับเมท! 🤖⚡", ephemeral=True)
+@bot.hybrid_command(name="follow_me", description="สั่งให้ Bagley กลับมาเดินตามตัวเราอีกครั้ง")
+async def follow_me(ctx: commands.Context):
+    user_id = ctx.author.id
+    if user_id in ALLOWED_USERS:
+        auto_follow_status[user_id] = True
+        await ctx.send(f"ระบบ Neural Link เชื่อมต่อใหม่! แบ็คลี่เปิดระบบเดินตามของ {ctx.author.display_name} พร้อมสแตนด์บายแล้วครับพ้ม!")
+    else:
+        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับพ้ม!")
 
 bot.run(DISCORD_TOKEN)
