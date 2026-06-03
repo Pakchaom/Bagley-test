@@ -3415,15 +3415,12 @@ async def undeaf_member(ctx, member: discord.Member):
 
 @bot.event
 async def on_command_error(ctx, error):
-    # ดักจับ Error กรณีคนที่ไม่ใช่เจ้าของบอทมาสั่งคำสั่งที่มี @commands.is_owner()
     if isinstance(error, commands.NotOwner):
         return await ctx.send("🛑 **ปฏิเสธการเข้าถึง:** คำสั่งนี้สงวนไว้ให้พรรคพวกระดับผู้สร้าง (เจ้าของบอท) เท่านั้นครับเมท!", delete_after=10)
     
-    # กรณี Error อื่นๆ
     elif isinstance(error, commands.CommandOnCooldown):
         return await ctx.send(f"⚠️ ใจเย็นครับเมท รอก่อนอีก {error.retry_after:.1f} วินาทีน้า", delete_after=5)
     
-    # ถ้าไม่ใช่ Error ที่ดักไว้ ให้พิมพ์ลง Console
     else:
         print(f'Ignoring exception in command {ctx.command}:', error)
 
@@ -3459,7 +3456,7 @@ async def update_bot(ctx: commands.Context):
         await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
         return
 
-    await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดโครงสร้างใหม่ล่าสุดจาก GitHub...")
+    status_msg = await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดโครงสร้างใหม่ล่าสุดจาก GitHub...")
     
     try:
         fetch_output = subprocess.check_output(
@@ -3475,21 +3472,24 @@ async def update_bot(ctx: commands.Context):
         )
         
         print(f"🤠 [Git Force Sync Success]:\n{fetch_output}\n{reset_output}")
-        await ctx.send(f"✅ **[GIT FORCE SYNC SUCCESS]** ซิงค์โค้ดจักรวาลใหม่ล่าสุดตรงปกเรียบร้อยครับเมท!")
+        
+        await status_msg.edit(content="✅ **[GIT FORCE SYNC SUCCESS]** ซิงค์โค้ดจักรวาลใหม่ล่าสุดตรงปกเรียบร้อยครับเมท!")
         
     except subprocess.CalledProcessError as e:
         error_git = f"❌ **[GIT SYNC FAILED]** สั่งซิงค์โค้ดล้มเหลวเนื่องจาก:\n```\n{e.output}\n```"
         print(error_git)
-        await ctx.send(error_git)
+        await status_msg.edit(content=error_git)
         return
         
     except Exception as e:
         error_system = f"❌ **[SYSTEM ERROR]** มีข้อผิดพลาดในระบบเน็ตเวิร์กหรือโปรแกรม Git: {e}"
         print(error_system)
-        await ctx.send(error_system)
+        await status_msg.edit(content=error_system)
         return
 
-    await ctx.send("🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งเปิดบอทใหม่ใน 3 วินาทีครับพ้ม...")
+    await asyncio.sleep(1.5)
+    
+    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งเปิดบอทใหม่ใน 3 วินาทีครับพ้ม...")
     await asyncio.sleep(3.0)
     
     bot_dir = os.path.dirname(os.path.abspath(__file__))
@@ -3505,7 +3505,8 @@ async def update_bot(ctx: commands.Context):
             )
         
         print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
-        await ctx.send("✅ **[RESTARTING]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!")
+        
+        await status_msg.edit(content="✅ **[RESTARTING]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!")
         
         try:
             global conn
@@ -3519,7 +3520,7 @@ async def update_bot(ctx: commands.Context):
     except Exception as e:
         error_bat = f"❌ **[BAT FILE ERROR]** เกิดข้อผิดพลาดตอนเรียกสคริปต์ .bat รีสตาร์ท: {e}"
         print(error_bat)
-        await ctx.send(error_bat)
+        await status_msg.edit(content=error_bat)
 
 @bot.hybrid_command(name="profile_scan", description="สแกนและวิเคราะห์พฤติกรรมเป้าหมาย พร้อมรายงานด้วยเสียง")
 async def profile_scan(ctx, member: discord.Member):
