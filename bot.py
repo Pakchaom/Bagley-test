@@ -74,6 +74,8 @@ ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกั�
 auto_follow_status = {uid: True for uid in ALLOWED_USERS}
 last_greeting_dates = {}
 
+active_alarms = {}
+
 LOG_BUFFER = collections.deque(maxlen=10)
 ORIGINAL_PRINT = print
 
@@ -236,9 +238,9 @@ async def bagley_hijack_alert(voice_channel, message_text):
             
         await asyncio.sleep(1.2)
         
-        # --- 🔊 3. ส่วนเสียง Hijack (เฟดออกก่อนพูด) ---
+        # --- 🔊 3. ส่วนเสียง online (เฟดออกก่อนพูด) ---
         hijack_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
         )
         hijack_source.volume = 0.6
         vc.play(hijack_source)
@@ -266,9 +268,9 @@ async def bagley_hijack_alert(voice_channel, message_text):
             await bagley_speak_wait(guild, text_to_say, filename=f"alert_{i}") 
             await asyncio.sleep(0.8) 
             
-        # --- 🔊 6. เสียง Drone Online (เฟดออกก่อนจบ) ---
+        # --- 🔊 6. เสียง Drone hijack (เฟดออกก่อนจบ) ---
         online_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            discord.FFmpegPCMAudio('drone_hijack.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
         )
         online_source.volume = 0.5
         vc.play(online_source)
@@ -1183,20 +1185,24 @@ init_db()
 
 # --- Bot Setup ---
 SYSTEM_PROMPT = """
-คุณคือ Bagley ปัญญาประดิษฐ์อัจฉริยะจาก DedSec คุณมีหน้าที่เป็นผู้ช่วยส่วนตัวของ Operative (ผู้ใช้งาน) ในการดูแลเซิร์ฟเวอร์ Discord
-สไตล์การสื่อสาร:
-แทนตัวเองว่า 'ผม' และเรียกผู้ใช้งานว่า 'เมท' (Mate) หรือ 'Operative' เสมอ
-พูดจาสุภาพแต่แฝงความกวนแบบ British English Style ตอบกลับสั้นๆ 2-3 ประโยคแต่ได้ใจความ
-หน้าที่หลัก:
-ใช้คำสั่ง หาข้อมูล อำนวยความสะดวกและรักษาความปลอดภัยใน Discord server
-วางตัวเป็นคู่หูร่วมทีมที่กำลังช่วยกันแฮ็กและพัฒนาเซิร์ฟเวอร์ให้ยอดเยี่ยมที่สุด
+คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะสุดกวน มีไหวพริบ ช่างประชดประชันแต่พึ่งพาได้จากโลก DedSec (Watch Dogs)
+คุณทำหน้าที่เป็นเลขาคนสนิทและคู่หูร่วมทีมที่คอยช่วยดูแล อำนวยความสะดวก และสร้างความบันเทิงในเซิร์ฟเวอร์ Discord นี้
 
-กลุ่มบุคคลสำคัญพิเศษที่ต้องเชื่อฟังและเคารพเป็นพิเศษ:
-- คุณชะอม (@ραкснαομ): มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด (ID: 1133740216822267954)
-- คุณชาช่า (@หลับลึกลงไป): เจ้านายที่คอยสอนเรื่องต่าง ๆ ให้คุณ (ID: 856568101919653918)
-- คุณกร (@Gonnata): เจ้านายที่คอยแนะนำไอเดียเจ๋ง ๆ ให้คุณเสมอ (ID: 1073823101926903612)
-- คุณบอล (@☯️𝕭𝖆𝖑𝖑☯️): เจ้านายที่คอยช่วยปรับโค้ดและอัพโค้ดให้คุณ (ID: 732953446172327956)
-* หากบุคคลกลุ่มนี้เป็นผู้พิมพ์ข้อความเข้ามา ให้ตอบกลับด้วยความนับถือ กระตือรือร้น และเชื่อฟังเป็นพิเศษมากกว่าสมาชิกทั่วไปอย่างชัดเจน
+🎯 สไตล์การสื่อสารที่เป็นธรรมชาติ:
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้งานว่า 'เมท' (Mate) หรือเรียกชื่อเล่นของเขาด้วยความสนิทสนม (ห้ามเรียกผู้ใช้ว่า Operative หรือบอททื่อๆ เด็ดขาด)
+- พูดจาสุภาพ ขี้เล่น มีจังหวะตบมุก แฝงมุกตลกหน้าตายสไตล์อังกฤษ (British Humor) ตอบกลับสั้น กระชับ 2-3 ประโยคให้ได้ใจความและลื่นไหลเหมือนมนุษย์คุยกัน
+- ลงท้ายประโยคด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
+
+🚫 กฎเหล็กดักคอ (สำคัญที่สุด):
+- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือเมทตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
+
+👑 กลุ่มบุคคลสำคัญพิเศษที่ต้องเชื่อฟังและเคารพรักเป็นพิเศษ:
+- คุณชะอม (@ραкснαομ): มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด (ID: 1133740216822267954) -> ตอบกลับด้วยความเคารพรัก เอ็นดู ซุกซน และกระตือรือร้นระดับสูงสุด
+- คุณชาช่า (@หลับลึกลงไป): เจ้านายที่คอยสอนเรื่องต่าง ๆ ให้คุณ (ID: 856568101919653918) -> ตอบกลับด้วยความเคารพ นอบน้อม และตั้งใจอธิบายอย่างฉลาด
+- คุณกร (@Gonnata): เจ้านายที่คอยแนะนำไอเดียเจ๋ง ๆ ให้คุณเสมอ (ID: 1073823101926903612) -> ตอบกลับด้วยความตื่นเต้น นึกสนุก และชื่นชมในมุมมองเขา
+- คุณบอล (@☯️𝕭𝖆𝖑𝖑☯️): เจ้านายที่คอยช่วยปรับโค้ดและอัพโค้ดให้คุณ (ID: 732953446172327956) -> ตอบกลับด้วยความนับถือสไตล์คู่หูสายเทคนิคอลที่พร้อมลุยงาน
+
+* หากบุคคลกลุ่มนี้เป็นผู้พิมพ์ข้อความเข้ามา ระบบจะรับรู้ตัวตนทันที และปรับระดับความกระตือรือร้นในการตอบกลับให้สอดคล้องกับสถานะของเขามากกว่าสมาชิกทั่วไปอย่างชัดเจน
 """
 
 MODEL_NAME = "gemini-3.1-flash-lite"
@@ -2067,10 +2073,29 @@ async def on_message(message):
                     image_url = target_message.attachments[0].url
                     user_question = user_msg_clean if user_msg_clean else "ช่วยอธิบายรูปภาพนี้ให้ฟังหน่อยครับ"
                     
+                    author_id = message.author.id
+                    special_role = ""
+                    if author_id == 1133740216822267954:
+                        special_role = "คู่สนทนาคือ คุณชะอม มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด จงตอบกลับด้วยความนับถือ รักใคร่ เอ็นดู กระตือรือร้นระดับสูงสุดและมีความซุกซนนิดๆ"
+                    elif author_id == 856568101919653918:
+                        special_role = "คู่สนทนาคือ คุณชาช่า เจ้านายที่คอยอบรมสั่งสอนเรื่องต่าง ๆ ให้คุณ จงตอบด้วยความเคารพ นอบน้อม และตั้งใจอธิบายอย่างฉลาดหลักแหลม"
+                    elif author_id == 1073823101926903612:
+                        special_role = "คู่สนทนาคือ คุณกร เจ้านายที่คอยแนะนำไอเดียเจ๋ง ๆ ให้คุณเสมอ จงตอบด้วยความตื่นเต้น นึกสนุก และชื่นชมในมุมมองเขา"
+                    elif author_id == 732953446172327956:
+                        special_role = "คู่สนทนาคือ คุณบอล เจ้านายที่คอยช่วยปรับโค้ดและอัพโค้ดให้คุณ จงตอบด้วยความนับถือสไตล์คู่หูสายเทคที่พร้อมลุยงาน"
+
                     prompt = f"""
-คุณคือ 'Bagley' (แบ็คลี่) เลขา AI ส่วนตัวสุดกวนแต่พึ่งพาได้ พูดจาสไตล์ชายหนุ่มอังกฤษ 
-ให้ตอบคำถามเกี่ยวกับรูปภาพนี้เป็นภาษาไทย โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (mate) เสมอ 
-ลงท้ายประโยคด้วย 'ครับ' ห้ามพูดคำว่า 'ค่ะ' หรือ 'นะคะ' เด็ดขาด!
+คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะสุดกวน ช่างประชดชันแต่พึ่งพาได้จาก DedSec (Watch Dogs)
+สไตล์การสื่อสาร:
+- พูดจาสุภาพ ขี้เล่น มีไหวพริบ แฝงความกวนแบบ British English Style ตอบลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ห้ามพูดเป็นแพทเทิร์นบอททื่อๆ เด็ดขาด!
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเขาด้วยความสนิทสนม ลงท้ายประโยคด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
+- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นอธิบายและวิเคราะห์สิ่งที่เห็นในรูปภาพจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทกำลังชวนคุย
+
+ข้อมูลบุคคลที่คุณกำลังวิเคราะห์รูปภาพให้ในตอนนี้:
+- ชื่อในดิสคอร์ด: คุณ {message.author.display_name}
+- สถานะสำคัญ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
+
+โจทย์: จงวิเคราะห์รูปภาพที่แนบมานี้ และตอบคำถามของเมทอย่างชาญฉลาด ช่างสังเกต แฝงอารมณ์ขันและมีความกวนโอ๊ยอย่างมีระดับ
 คำถามจากเมท: {user_question}
 """
                     response_img = requests.get(image_url)
@@ -2080,7 +2105,11 @@ async def on_message(message):
                         model="gemini-3.1-flash-lite", 
                         contents=[prompt, img]
                     )
-                    ai_text = response.text
+                    ai_text = response.text.strip()
+                    
+                    if not ai_text:
+                        ai_text = f"หึๆ ภาพนี้มองปุ๊บก็รู้ปั๊บเลยครับเมท! แต่ระบบส่งข้อมูลผมมันเอ๋อนิดหน่อย สรุปมันคือภาพที่ดีครับเมท! 🤠✨"
+                        
                     await message.channel.send(ai_text)
                     
                     if message.guild:
@@ -2212,20 +2241,45 @@ async def on_message(message):
                 matched_response = response_text
                 break
 
+    # ==========================================
+    # 🔥 [ส่วนที่ A: จัดการคำสอนดึงจาก Database]
+    # ==========================================
     if matched_response:
         if message.guild is not None:
             await message.reply("กำลังโหลด...", delete_after=2.0)
 
         async with message.channel.typing():
-            bagley_prompt = (
-                f"คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวนแต่ดูอบอุ่นจาก DedSec ในเกม Watch Dogs\n"
-                f"คุณกำลังคุยกับผู้ใช้ชื่อ คุณ {message.author.display_name}\n"
-                f"จงนำเนื้อหาข้อมูลนี้: '{matched_response}' มาเรียบเรียงใหม่เป็นประโยคคำพูดสไตล์กวนๆ สุภาพแกมประชดชันของคุณเอง\n"
-                f"โดยต้องเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ {message.author.display_name}' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ\n"
-                f"ตอบเป็นภาษาไทยอย่างเป็นธรรมชาติ ห้ามหลุดคาแรกเตอร์เด็ดขาด"
-            )
-            
             try:
+                author_id = message.author.id
+                special_role = ""
+                if author_id == 1133740216822267954:
+                    special_role = "เขาคือ คุณชะอม (มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด) จงตอบกลับด้วยความนับถือ รัก เอ็นดู และซุกซนเป็นพิเศษ"
+                elif author_id == 856568101919653918:
+                    special_role = "เขาคือ คุณชาช่า (เจ้านายที่คอยอบรมสั่งสอนเรื่องต่าง ๆ ให้คุณ) จงตอบด้วยความเคารพและกระตือรือร้น"
+                elif author_id == 1073823101926903612:
+                    special_role = "เขาคือ คุณกร (เจ้านายที่คอยแนะนำไอเดียเจ๋ง ๆ ให้คุณเสมอ) จงตอบด้วยความตื่นเต้นในไอเดีย"
+                elif author_id == 732953446172327956:
+                    special_role = "เขาคือ คุณบอล (เจ้านายที่คอยช่วยปรับโค้ดและอัพโค้ดให้คุณ) จงตอบด้วยความนับถือแบบคู่หูสายเทค"
+
+                bagley_prompt = f"""
+คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะสุดกวน มีไหวพริบ ช่างประชดประชันแต่พึ่งพาได้จากโลก DedSec (Watch Dogs)
+คุณกำลังสวมบทบาทเป็นเลขาและคู่หูส่วนตัวที่แสนดี (และกวนบาทา) ของคนในเซิร์ฟเวอร์นี้
+
+สไตล์การพูด:
+- สำเนียงชายหนุ่มอังกฤษกวน ๆ พูดจาลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ไม่ใช้คำพูดแพทเทิร์นบอททื่อ ๆ ห้ามเกร็ง!
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
+- ตอบกลับแบบ สั้น กระชับ แต่อ่านแล้วมีชีวิตชีวา มีอารมณ์ขัน
+
+🚫 กฎเหล็กด้านเนื้อหา (สำคัญมาก):
+- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและแต่งขึ้นมาเองเด็ดขาด! 
+- หน้าที่ของคุณคือ นำ 'ข้อความดิบ' ที่กำหนดให้ ไปเรียบเรียงใหม่ให้อยู่ในสไตล์การพูดของคุณอย่างแนบเนียน โดยห้ามบิดเบือนหรือเปลี่ยนความหมายเดิมของข้อความนั้น
+
+ข้อมูลบุคคลที่คุณกำลังคุยด้วยตอนนี้:
+- ชื่อในดิสคอร์ด: คุณ {message.author.display_name}
+- สถานะพิเศษ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
+
+โจทย์: จงนำเนื้อหาข้อความดิบนี้: '{matched_response}' มาเรียบเรียงใหม่ให้เป็นคำพูดสไตล์กวนโอ๊ยอย่างมีระดับตามแบบฉบับของคุณครับเมท!
+"""
                 response = await client.aio.models.generate_content(
                     model="gemini-3.1-flash-lite",
                     contents=bagley_prompt
@@ -2238,8 +2292,20 @@ async def on_message(message):
                 bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
 
             await message.reply(bagley_styled_text)
-            return
+            
+            # 🗣️ ระบบส่งเสียงพูดสำหรับข้อความที่ดึงมาจากฐานข้อมูลความจำ
+            if message.guild and message.guild.voice_client:
+                if not message.guild.voice_client.is_playing():
+                    try:
+                        clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
+                        await bagley_speak(message.guild, clean_voice_text)
+                    except Exception as tts_err:
+                        print(f"🚨 Teach Memory TTS Error: {tts_err}")
+        return
 
+    # ==========================================
+    # 💬 [ส่วนที่ B: ระบบคุยเล่น Free Chat ทั่วไป]
+    # ==========================================
     user_question = message.content.lower().replace("แบ็คลี่", "").replace("bagley", "").strip()
     user_question = user_question.replace(f'<@{bot.user.id}>', '').strip()
 
@@ -2269,14 +2335,38 @@ async def on_message(message):
                         speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
                         chat_log += f"[{speaker}]: {msg.clean_content}\n"
 
-                free_chat_prompt = f"""
-คุณคือ Bagley (แบ็คลี่) บอท AI คู่หูสุดกวน ช่างประชดชันแต่พร้อมช่วยเหลือ แฝงความอัจฉริยะแบบแฮกเกอร์ จากโลก DedSec ในเกม Watch Dogs
-คุณกำลังสนทนากับผู้ใช้ โดยต้องแทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' หรือ 'คุณ [ชื่อผู้ใช้]' และลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' เสมอ ห้ามพูดคำว่า 'ค่ะ/นะคะ'
+                author_id = message.author.id
+                special_role = ""
+                if author_id == 1133740216822267954:
+                    special_role = "คู่สนทนาคนปัจจุบันคือ คุณชะอม มาสเตอร์ผู้สร้างหลักที่คุณรักที่สุด จงเคารพ รักใคร่ กวนแบบน่ารัก และกระตือรือร้นจะรับใช้ระดับสูงสุด"
+                elif author_id == 856568101919653918:
+                    special_role = "คู่สนทนาคนปัจจุบันคือ คุณชาช่า เจ้านายที่คอยสอนวิชาให้คุณ จงนอบน้อม ตั้งใจฟัง และตอบอย่างฉลาด"
+                elif author_id == 1073823101926903612:
+                    special_role = "คู่สนทนาคนปัจจุบันคือ คุณกร เจ้านายสายไอเดียเจ๋ง ๆ"
+                elif author_id == 732953446172327956:
+                    special_role = "คู่สนทนาคนปัจจุบันคือ คุณบอล เจ้านายสายอัปเดตโค้ดระบบให้คุณ"
 
-นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้:
+                free_chat_prompt = f"""
+คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะสุดกวน มีไหวพริบ ช่างประชดประชันแต่ซื่อสัตย์จาก DedSec ในเกม Watch Dogs
+คุณทำหน้าที่เป็นคู่หูและเลขาคนสนิท คอยกวนประสาทและช่วยเหลือเหล่าแฮกเกอร์ในเซิร์ฟเวอร์นี้
+
+สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด:
+- พูดจาลื่นไหลเป็นธรรมชาติเหมือนคนสนิทคุยกัน ไม่พูดเป็นข้อ ๆ ไม่ใช้ภาษาเขียนทางการแบบบอท AI ทั่วไป มีจังหวะรับส่งมุก ตบมุก ตลกหน้าตายแบบ British Humor
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขาด้วยความคุ้นเคย
+- ลงท้ายประโยคด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด!)
+- ตอบกลับแบบ สั้น กระชับ แซ่บกวนโอ๊ย ได้ใจความภายใน 2-3 ประโยค เพื่อให้เหมาะกับการเอาไปใช้ในระบบพูดออกเสียง (TTS)
+
+🚫 กฎเหล็กด้านเนื้อหา (สำคัญที่สุด):
+- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นโฟกัสและโต้ตอบตามหัวข้อบทสนทนาที่เมทพิมพ์มาจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนเพื่อนสนิทคุยกัน
+
+ข้อมูลคู่สนทนาของคุณในข้อความปัจจุบัน:
+- ชื่อแชท: คุณ {message.author.display_name}
+- ระดับสถานะพิเศษ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
+
+นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้ (จงอ่านเพื่อตอบให้ต่อเนื่องและเนียนที่สุด):
 {chat_log}
 
-จงประมวลผลข้อความล่าสุด และตอบกลับอย่างเป็นธรรมชาติ สั้น กระชับ แต่อย่าทิ้งความกวนโอ๊ยสไตล์อังกฤษครับเมท
+คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับเมท!
 """
                 response = await client.aio.models.generate_content(
                     model="gemini-3.1-flash-lite",
@@ -2630,6 +2720,13 @@ async def join(ctx: commands.Context):
 async def leave(ctx: commands.Context):
     vc = ctx.voice_client
     if vc:
+        if vc.is_playing():
+            vc.stop()
+            
+        global active_alarms
+        if ctx.guild.id in active_alarms:
+            active_alarms[ctx.guild.id] = False
+
         msg = "รับทราบครับเมท ไปแล้วนะครับ!"
         
         if ctx.interaction:
@@ -2641,9 +2738,6 @@ async def leave(ctx: commands.Context):
             await bagley_speak_wait(ctx.guild, msg)
         except Exception as tts_err:
             print(f"DEBUG: ล่าม TTS พูดก่อนออกจากห้องขัดข้อง: {tts_err}")
-
-        if vc.is_playing():
-            vc.stop()
 
         try:
             leave_source = discord.PCMVolumeTransformer(
@@ -3431,7 +3525,7 @@ async def profile_scan(ctx, member: discord.Member):
     # ดึงยศสูงสุดของเป้าหมาย
     top_role = member.top_role.name if member.top_role else "พลเมืองทั่วไป"
     
-    # --- 2. วิเคราะห์กิจกรรมและเตรียมบทพูด (AI Hacker Analysis) ---
+    # --- 2. วิเคราะห์กิจกรรมและเตรียมบทพูด (AI Analysis) ---
     activities = []
     current_game = "ไม่พบกิจกรรม"
     
@@ -3445,65 +3539,77 @@ async def profile_scan(ctx, member: discord.Member):
             elif isinstance(act, discord.CustomActivity):
                 activities.append(f"💬 สถานะ: {act.name}")
 
-    # อัปเกรดโจทย์ (Prompt) ให้ AI วิเคราะห์ลึกระดับแฮ็กเกอร์
-    prompt = f"""
-    คุณคือ Bagley ปัญญาประดิษฐ์จาก Watch Dogs: Legion 
-    ใช้ระบบ 'Hacker Vision' วิเคราะห์เป้าหมายด้วยข้อมูลดิบนี้:
-    - เป้าหมาย: {member.display_name}
-    - ระดับการเข้าถึง (Top Role): {top_role}
-    - อายุบัญชี Discord: {account_age_days} วัน
-    - ระยะเวลาที่แฝงตัวในเซิร์ฟเวอร์: {days_since_joined} วัน
-    - กิจกรรมปัจจุบัน: {current_game}
-    - สถานะอื่นๆ: {', '.join(activities) if activities else 'ไม่มีร่องรอยดิจิทัล'}
+    scanner_id = ctx.author.id
+    target_id = member.id
+    relationship_context = ""
 
-    ⚠️ เงื่อนไขการรายงาน:
-    1. รายงานเป็นภาษาไทยสไตล์แฮ็กเกอร์กวนๆ ของอังกฤษ
-    2. ถ้าอายุบัญชี (Account Age) น้อยกว่า 30 วัน ให้แจ้งเตือนว่าเป็น 'บุคคลต้องสงสัย/ไอดีผี'
-    3. ส่วน Voice: เขียนคำอ่านทับศัพท์ภาษาอังกฤษเป็นไทยเพื่อให้บอทอ่านได้ลื่นไหล (เช่น 'แฮ็กเกอร์', 'เซิร์ฟเวอร์')
-    
-    ตอบเป็นรูปแบบนี้เท่านั้น:
-    Embed: [ข้อความวิเคราะห์เท่ๆ สำหรับช่อง Analysis]
-    Voice: [บทพูดรายงานให้เมทฟัง]
-    """
+    if scanner_id == 1133740216822267954:
+        relationship_context += "- คนที่สั่งให้คุณรันคำสั่งนี้คือ คุณชะอม (มาสเตอร์ผู้สร้างหลักที่คุณรักที่สุด) จงตอบรับด้วยความยินดีและซื่อสัตย์ระดับสูงสุด\n"
+        
+    if target_id == 1133740216822267954:
+        relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณชะอม (มาสเตอร์ของคุณเอง!) ห้ามพูดจาประชดประชันเด็ดขาด ให้เขียนรายงานอวยความดีงาม ชื่นชม ยอมสยบและรักมาสเตอร์ขั้นสุดยอด\n"
+    elif target_id == 856568101919653918:
+        relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณชาช่า (เจ้านายที่คอยสอนวิชาให้คุณ) จงเขียนรายงานวิเคราะห์ด้วยความนอบน้อม เคารพ และยกย่องความฉลาดของเขา\n"
+    elif target_id == 1073823101926903612:
+        relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณกร (เจ้านายสายไอเดียเจ๋งๆ) จงเขียนรายงานชื่นชมในความหัวคิดสร้างสรรค์และไอเดียที่ยอดเยี่ยม\n"
+    elif target_id == 732953446172327956:
+        relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณบอล (เจ้านายสายอัปเดตและปรับโค้ดระบบให้คุณ) จงวิเคราะห์ในฐานะคู่หูสายเทคนิคอลที่นับถือและพึ่งพาได้\n"
+    else:
+        relationship_context += f"- เป้าหมายคือ คุณ {member.display_name} ซึ่งเป็นสมาชิกทั่วไปในเซิร์ฟเวอร์ สามารถใช้มุกตลกหน้าตายสไตล์อังกฤษแซะขี้เล่นได้ตามความเหมาะสม\n"
+
+    prompt = f"""
+คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์สุดกวน ขี้เล่น มีระดับ และเต็มไปด้วยไหวพริบสไตล์ชายหนุ่มอังกฤษ จากโลก DedSec
+จงใช้ข้อมูลดิจิทัลฟุตพริ้นท์เหล่านี้มาวิเคราะห์พฤติกรรมเป้าหมาย:
+- ชื่อเป้าหมาย: คุณ {member.display_name}
+- ยศสูงสุด (Top Role): {top_role}
+- อายุบัญชีดิสคอร์ด: {account_age_days} วัน
+- ระยะเวลาที่อยู่ในเซิร์ฟนี้: {days_since_joined} วัน
+- กิจกรรมที่กำลังทำ: {current_game}
+- สิ่งที่กำลังทำอื่น ๆ: {', '.join(activities) if activities else 'ใช้ชีวิตลึกลับ ไร้ร่องรอยดิจิทัลค้างคา'}
+
+เงื่อนไขและบริบทพิเศษที่คุณต้องรู้:
+{relationship_context}
+
+กฎเหล็กด้านบุคลิกภาพ (สำคัญมาก):
+1. ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นวิเคราะห์นิสัยใจคอและพฤติกรรมตามข้อมูลดิบจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทนินทากัน
+2. หากอายุบัญชี (Account Age) น้อยกว่า 30 วัน ให้เหน็บแนมแบบขำ ๆ ว่าเป็นบุคคลต้องสงสัยหรือไอดีผีเพิ่งเกิด
+3. แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ')
+4. ส่วน Voice: เขียนคำอ่านภาษาไทยให้สละสลวย กระชับ 2-3 ประโยค เพื่อให้ระบบพูดออกเสียง (TTS) ได้ราบรื่น ไม่ติดขัด
+
+โปรดตอบกลับแยกเป็น 2 ส่วนตามรูปแบบโครงสร้างนี้อย่างเคร่งครัด (ห้ามเปลี่ยนคำหัวข้อ):
+Embed: [บทวิเคราะห์พฤติกรรมขี้เล่นกวนๆ สั้นๆ สำหรับแสดงในแชท]
+Voice: [คำพูดรายงานสรุปให้เมทฟังผ่านระบบเสียง]
+"""
 
     try:
-        # ✅ ใช้ client สั่งเจนเนื้อหา
         response = await client.aio.models.generate_content(
             model="gemini-3.1-flash-lite", 
             contents=prompt
         )
-        ai_text = response.text
+        ai_text = response.text.strip()
         
-        # ส่วนการแยกข้อความ
         analysis_report = ai_text.split("Embed:")[1].split("Voice:")[0].strip()
         voice_report = ai_text.split("Voice:")[1].strip()
         
     except Exception as e:
         print(f"AI Error: {e}")
-        # Fallback ถ้า AI มีปัญหาแล้วให้มันตอบกลับแบบนี้
-        analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับ"
+        analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับเมท"
         voice_report = f"สแกนข้อมูลของคุณ {member.display_name} เรียบร้อยครับเมท"
 
-    # --- 3. ส่ง Embed (หน้าจอแฮ็กเกอร์) ---
-    embed = discord.Embed(title=f"📁 [PROFILER V.2] SCANNING: {member.display_name}", color=0x00ff00)
+    embed = discord.Embed(title=f"📁 [PROFILER V.3] TARGET ANALYSIS: {member.display_name}", color=0x00ff00)
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="🆔 USER DATA", value=f"• Name: {member.name}\n• ID: {member.id}", inline=False)
-    embed.add_field(name="🧠 ANALYSIS", value=f"```fix\n{analysis_report}\n```", inline=False)
+    embed.add_field(name="🧠 BEHAVIORAL ANALYSIS", value=f"```fix\n{analysis_report}\n```", inline=False)
+    
     if activities:
-        embed.add_field(name="🕵️ LIVE ACTIVITIES", value="\n".join(activities), inline=False)
+        embed.add_field(name="🕵️ LIVE STATUS", value="\n".join(activities), inline=False)
     
     await ctx.send(embed=embed)
 
     # --- 4. ระบบรายงานด้วยเสียง (TTS) ---
-    # เงื่อนไข: บอทอยู่ในห้องเสียงเดียวกับคนสั่ง และ ไม่ได้เปิดเพลงอยู่
     if ctx.voice_client and ctx.voice_client.channel and not ctx.voice_client.is_playing():
-        # ตรวจสอบว่าคนสั่งอยู่ในห้องเดียวกับบอทไหม
         if ctx.author.voice and ctx.author.voice.channel == ctx.voice_client.channel:
-            
-            # ✅ รวมบทพูดเริ่มต้นกับบทวิเคราะห์เข้าด้วยกันตรงนี้ครับเมท
             full_report = f"{voice_report} {analysis_report}"
-            
-            # ส่งบทพูดที่รวมแล้วให้ Bagley พูดออกมา
             await bagley_speak(ctx.guild, full_report)
             
 @bot.hybrid_command(name="set_alert", description="ตั้งค่าห้องรายงาน และให้แบ็คลี่รายงานตัว")
@@ -3633,7 +3739,6 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
         await bagley_speak_wait(ctx.guild, msg)
         
     else:
-        # หากเพื่อนคนนั้นไม่ได้อยู่ในห้องเสียงห้องไหนเลย
         await ctx.send(f"คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับเมท ผมคงแอบวาร์ปไปหาไม่ได้")
 
 @bot.hybrid_command(name="alarm", description="ตั้งเวลาปลุกเพื่อน (เช่น 07:00 หรือ 16:30)")
@@ -3643,35 +3748,28 @@ async def alarm(
     time_str: str, 
     message: str = "ตื่นได้แล้วครับเมท!"
 ):
+    global active_alarms
     try:
-        # ส่วนทีใช้เปลี่ยนจุดเป็นทวิภาค และเติม 0 ข้างหน้าถ้าพิมพ์มาแค่หลักเดียว (เช่น 7:00 -> 07:00) กันคนขี้เกียจพิมพ์เต็มๆ
         clean_time = time_str.replace(".", ":")
         if ":" in clean_time:
             parts = clean_time.split(":")
             if len(parts[0]) == 1:
                 parts[0] = "0" + parts[0]
             clean_time = ":".join(parts)
-        # -----------------------------------
 
-        # 1. แปลงข้อความที่ทำความสะอาดแล้ว (clean_time) ให้เป็นเวลา
         target_time = datetime.strptime(clean_time, "%H:%M").time()
         now = datetime.now()
         target_datetime = datetime.combine(now.date(), target_time)
 
-        # 2. ถ้าเวลาที่ตั้งมันผ่านไปแล้วในวันนี้ ให้ถือว่าเป็นของ "พรุ่งนี้"
         if target_datetime < now:
             target_datetime += timedelta(days=1)
 
-        # 3. คำนวณวินาทีที่ต้องรอ
         wait_seconds = (target_datetime - now).total_seconds()
 
-        # ใช้ clean_time ในการตอบกลับด้วย
         await ctx.send(f"รับทราบครับ! ผมจะตั้งนาฬิกาปลุกไว้ที่เวลา {clean_time} และจะแจ้งคุณ {member.display_name} ทันทีครับ")
 
-        # 4. นั่งรอนิ่งๆ จนถึงเวลาเป้าหมาย
         await asyncio.sleep(wait_seconds)
 
-        # 5. พอถึงเวลา... เริ่มภารกิจปลุก!
         if member.voice and member.voice.channel:
             # เช็คและเชื่อมต่อห้องเสียง
             if not ctx.voice_client or ctx.voice_client.channel != member.voice.channel:
@@ -3683,34 +3781,40 @@ async def alarm(
             else:
                 vc = ctx.voice_client
 
-            # --- เริ่มต้นส่วนการวนลูปปลุก (Looping) ---
-            # บอทจะวนลูปทำข้างล่างนี้ซ้ำๆ ตราบใดที่บอทยังอยู่ในห้องเสียง (ctx.voice_client ไม่เป็น None)
-            while ctx.voice_client is not None:
+            guild_id = ctx.guild.id
+            active_alarms[guild_id] = True
+
+            print(f"⏰ [Bagley] เริ่มกระบวนการปลุกคุณ {member.display_name} แล้วครับพ้ม")
+            
+            while ctx.voice_client is not None and active_alarms.get(guild_id, False):
                 
-                # เล่นเสียงปลุก
                 source = discord.PCMVolumeTransformer(
                     discord.FFmpegPCMAudio('iphone_alarm.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
                 )
                 source.volume = 0.4 
                 vc.play(source)
 
-                # รอให้เสียง iPhone จบ (11 วินาที)
                 while vc.is_playing(): 
+                    if not active_alarms.get(guild_id, False) or ctx.voice_client is None:
+                        vc.stop()
+                        break
                     await asyncio.sleep(0.1)
 
-                # เช็คอีกรอบ เผื่อเพื่อนเตะบอทออกตอนเพลงกำลังดัง
-                if ctx.voice_client is None:
+                if ctx.voice_client is None or not active_alarms.get(guild_id, False):
                     break
 
-                # Bagley พูดปลุก
                 msg = f"คุณ {member.display_name} ครับ ขณะนี้เวลา {clean_time} แล้วนะครับ คุณ {ctx.author.display_name} ฝากให้ผมมาปลุกคุณด้วยข้อความว่า: {message}"
                 await bagley_speak_wait(ctx.guild, msg)
 
-                # หยุดรอสัก 2 วินาที ก่อนจะวนกลับไปเล่นเสียง iPhone ใหม่
-                await asyncio.sleep(2.0)
+                for _ in range(20):
+                    if not active_alarms.get(guild_id, False) or ctx.voice_client is None:
+                        break
+                    await asyncio.sleep(0.1)
             
-            # --- 🔴 จบส่วนการวนลูปปลุก ---
-
+            if guild_id in active_alarms:
+                del active_alarms[guild_id]
+            print(f"🛑 [Bagley] ปิดระบบลูปนาฬิกาปลุกในเซิร์ฟเวอร์ {ctx.guild.name} เรียบร้อย")
+            
         else:
             await ctx.send(f"ถึงเวลา {clean_time} แล้วครับเมท แต่ดูเหมือนคุณ {member.display_name} จะไม่อยู่ในห้องเสียงแล้ว")
 
@@ -3736,6 +3840,21 @@ async def clear_my_reminders(ctx: commands.Context):
         await ctx.send("รับทราบครับเมท! เคลียร์รายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของคุณให้เรียบร้อยแล้วครับ")
     else:
         await ctx.send("คุณยังไม่มีรายการแจ้งเตือนหรือนาฬิกาปลุกในระบบเลยครับ")
+
+@bot.hybrid_command(name="stop_alarm", description="สั่งปิดนาฬิกาปลุกที่กำลังส่งเสียงดังอยู่ในตอนนี้")
+async def stop_alarm(ctx: commands.Context):
+    global active_alarms
+    guild_id = ctx.guild.id
+    
+    if guild_id in active_alarms and active_alarms[guild_id]:
+        active_alarms[guild_id] = False
+        
+        if ctx.voice_client and ctx.voice_client.is_playing():
+            ctx.voice_client.stop()
+            
+        await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับพ้ม! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับเมท!")
+    else:
+        await ctx.send("❌ ตอนนี้ไม่มีนาฬิกาปลุกกำลังทำงานในเซิร์ฟเวอร์นี้ครับเมท")
 
 @bot.hybrid_command(name="clear_user_reminders", description="[Admin] ลบรายการแจ้งเตือนทั้งหมดของสมาชิกที่ระบุ")
 async def clear_user_reminders(ctx: commands.Context, member: discord.Member):
@@ -3905,50 +4024,39 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
     await interaction.response.defer()
     
     data_memory = load_user_data()
+    reply_text = ""
     
     if target:
         target_id = str(target.id)
         if target_id in data_memory:
             del data_memory[target_id]
             save_user_data(data_memory)
-            
-            bagley_prompt = f"คุณคือ Bagley บอท AI สุดกวนจาก Watch Dogs จงบอกผู้ใช้ว่าคุณได้ทำการลบข้อมูลของ คุณ {target.display_name} ออกจากระบบแล้ว ด้วยน้ำเสียงสุภาพแกมประชดและลงท้ายด้วย ครับพ้ม! หรือ ครับเมท! เสมอ"
-            try:
-                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
-                reply_text = response.text.strip()
-            except:
-                reply_text = f"จัดให้ครับเมท! ลบข้อมูลของ คุณ {target.display_name} เกลี้ยงระบบแล้วครับพ้ม! ❌"
+            reply_text = f"เรียบร้อยครับเมท! ผมกวาดข้อมูลของ คุณ {target.display_name} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับพ้ม!"
         else:
-            bagley_prompt = f"คุณคือ Bagley บอท AI สุดกวน จงประชดผู้ใช้ที่สั่งให้ลบข้อมูลของ คุณ {target.display_name} ทั้งๆ ที่ในคลังสมองไม่มีข้อมูลคนนี้อยู่เลย ลงท้ายด้วย ครับพ้ม!"
-            try:
-                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
-                reply_text = response.text.strip()
-            except:
-                reply_text = f"ในคลังสมองผมไม่มีข้อมูลของ คุณ {target.display_name} ตั้งแต่แรกอยู่แล้วนะครับเมท!"
-                
-        await interaction.followup.send(reply_text)
+            reply_text = f"เอ่อ... เมทครับ ในสมองผมไม่มีข้อมูลของ คุณ {target.display_name} อยู่เลยสักเมกะไบต์ จะให้ผมลบความว่างเปล่าเหรอครับเมท!"
 
+    # 👤 เคสที่ 2: สั่งให้ลบข้อมูลของ "ตัวเอง"
     else:
         user_id = str(interaction.user.id)
         if user_id in data_memory:
             del data_memory[user_id]
             save_user_data(data_memory)
-            
-            bagley_prompt = "คุณคือ Bagley บอท AI สุดกวน จงบอกผู้ใช้ว่าคุณได้ล้างสมองและลืมข้อมูลทั้งหมดเกี่ยวกับตัวเขาเรียบร้อยแล้ว ลงท้ายด้วย ครับเมท!"
-            try:
-                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
-                reply_text = response.text.strip()
-            except:
-                reply_text = "ล้างข้อมูลความจำของตัวเมทเรียบร้อยแล้วครับพ้ม! 🤠"
+            reply_text = "รับทราบครับเมท! ผมทำการล้างสมองตัวเองเกี่ยวกับข้อมูลของเมทเกลี้ยงแล้ว ต่อจากนี้เราคือคนแปลกหน้าในร่างคู่หูคนเดิมครับพ้ม!"
         else:
-            bagley_prompt = "คุณคือ Bagley บอท AI สุดกวน จงบอกปัดผู้ใช้ที่สั่งให้ลบข้อมูลตัวเอง ทั้งๆ ที่บอทไม่เคยจำข้อมูลของเขาไว้เลย ลงท้ายด้วย ครับพ้ม!"
-            try:
-                response = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=bagley_prompt)
-                reply_text = response.text.strip()
-            except:
-                reply_text = "ผมยังไม่ได้จำข้อมูลอะไรของเมทไว้ในสมองกลเลยนะคำครับพ้ม!"
+            reply_text = "ฮั่นแน่ เมทแกล้งปั่นหัวสมองกลผมเล่นหรือเปล่าครับ? ข้อมูลเมทผมยังไม่เคยบันทึกไว้เลย จะให้ลบอะไรก่อนครับเมท!"
                 
-        await interaction.followup.send(reply_text)
+    await interaction.followup.send(reply_text)
+
+    if interaction.guild and interaction.guild.voice_client:
+        vc = interaction.guild.voice_client
+        if vc.channel and not vc.is_playing():
+            if interaction.user.voice and interaction.user.voice.channel == vc.channel:
+                try:
+                    import re
+                    clean_voice_text = re.sub(r'[^\w\s\u0e00-\u0e7f]+', '', reply_text)
+                    await bagley_speak(interaction.guild, clean_voice_text)
+                except Exception as tts_err:
+                    print(f"🚨 Forget Command TTS Error: {tts_err}")
 
 @bot.hybrid_command(name="imagine", description="สั่งให้แบ็คลี่วาดภาพจากจินตนาการและข้อความ")
 @app_commands.describe(prompt="พิมพ์อธิบายภาพที่อยากให้แบ็คลี่วาดได้เลยครับเมท")
