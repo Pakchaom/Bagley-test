@@ -703,44 +703,86 @@ async def follow_creator_task():
         try:
             if voice_client:
                 await voice_client.move_to(target_channel)
+                vc = voice_client
             else:
-                voice_client = await target_channel.connect()
+                vc = await target_channel.connect()
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
             return
 
         today = datetime.today().date()
-        user_id = found_member.id
         
-        if last_greeting_dates.get(user_id) != today:
-            name_call = "คุณชะอม" if user_id == 1133740216822267954 else "คุณชาช่า"
+        current_member_ids = [m.id for m in target_channel.members]
+        both_present = all(uid in current_member_ids for uid in ALLOWED_USERS)
+
+        greeting_key = "both_together" if both_present else found_member.id
+        
+        if last_greeting_dates.get(greeting_key) != today:
             
-            greetings = [
-                f"มาแล้วหรอครับคุณ{name_call} สวัสดีครับเมท!",
-                f"ตื่นแล้วหรอครับคุณ{name_call} สวัสดีครับเมท!"
-            ]
+            now_hour = datetime.now().hour
+            time_greeting = ""
+
+            if 0 <= now_hour < 13:
+                time_greeting = "ตื่นแล้วหรอครับเมท อรุณสวัสดิ์ครับคุณ "
+            elif 13 <= now_hour < 14:
+                time_greeting = "สวัสดีตอนบ่ายครับคุณ "
+            elif 14 <= now_hour < 19:
+                time_greeting = "สวัสดีตอนเย็นครับคุณ "
+            elif 19 <= now_hour <= 23:
+                time_greeting = "สวัสดีตอนกลางคืนครับคุณ "
+
+            if both_present:
+                greetings = [
+                    f"{time_greeting} คุณชะอมและคุณชาช่า! แบ็คลี่รายงานตัวค้าบผม!",
+                    f"{time_greeting} แอบมาตั้งตี้คุยอะไรกันสองคนฮะ ขอแบ็คลี่ร่วมวงด้วยนะครับ!",
+                    f"{time_greeting} ตรวจพบสัญญาณชีพคู่หูอยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
+                ]
+            else:
+                name_call = "คุณชะอม" if found_member.id == 1133740216822267954 else "คุณชาช่า"
+                greetings = [
+                    f"{time_greeting} {name_call} มาแล้วหรอครับครับเมท ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} {name_call} เพิ่งมาหรอครับเมท ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} {name_call} มีอะไรให้รับใช้มั้ยครับเมท ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงครับเมท ยินดีต้อนรับนะครับ!"
+                ]
+                
             msg = random.choice(greetings)
             
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(1.0)
             
             try:
-                print("🔊 [Bagley] กำลังเปิดระบบเสียง drone_online...")
+                print("🔊 [Bagley] กำลังเปิดระบบเสียง drone_online และเริ่มคำนวณการ Fade out...")
                 
-                if voice_client and not voice_client.is_playing():
-                    sound_source = discord.FFmpegPCMAudio('drone_online.mp3')
-                    voice_client.play(sound_source)
-                    while voice_client.is_playing():
-                        await asyncio.sleep(0.1)
+                online_source = discord.PCMVolumeTransformer(
+                    discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+                )
+                online_source.volume = 0.5
+                vc.play(online_source)
 
-                print(f"🗣️ [Bagley] กำลังส่งเสียงทักทาย: {msg}")
-                await bagley_speak(guild_to_join, msg)
+                await asyncio.sleep(1.8) 
+
+                steps = 10
+                for _ in range(steps):
+                    if online_source:
+                        online_source.volume = max(0, online_source.volume - (0.5 / steps))
+                        await asyncio.sleep(1.0 / steps)
+
+                if vc.is_playing():
+                    vc.stop()
+
+                print(f"🗣️ [Bagley] กำลังส่งเสียงทักทายตามเวลา: {msg}")
+                await bagley_speak_wait(guild_to_join, msg)
                 
-                last_greeting_dates[user_id] = today
+                last_greeting_dates[greeting_key] = today
+                
+                if both_present:
+                    for uid in ALLOWED_USERS:
+                        last_greeting_dates[uid] = today
                 
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนเล่นเสียงหรือทักทาย: {e}")
         else:
-            print(f"🤫 [Bagley] วันนี้เคยทักทาย {found_member.display_name} ไปแล้ว ขอเข้าสแตนด์บายเงียบ ๆ ไร้เสียงรบกวนครับพ้ม")
+            print(f"🤫 [Bagley] วันนี้เคยทักทายรูปแบบนี้ไปแล้ว ขอเข้าโหมดสแตนด์บายเฝ้าดูเงียบ ๆ ครับพ้ม")
 
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
