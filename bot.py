@@ -801,7 +801,6 @@ class GroupMoveView(ui.View):
         self.selected_members = []
         self.target_channel = None
 
-        # สร้างเมนูเลือกเพื่อน (เลือกได้หลายคน)
         member_options = [
             discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
             for m in members if not m.bot
@@ -815,7 +814,6 @@ class GroupMoveView(ui.View):
         self.member_select.callback = self.member_callback
         self.add_item(self.member_select)
 
-        # สร้างเมนูเลือกห้องปลายทาง
         channel_options = [
             discord.SelectOption(label=c.name, value=str(c.id), emoji="🏠")
             for c in voice_channels
@@ -829,7 +827,6 @@ class GroupMoveView(ui.View):
 
     async def member_callback(self, interaction: discord.Interaction):
         try:
-            # บอก Discord ว่า "รับทราบแล้ว กำลังทำให้อยู่นะ"
             await interaction.response.defer(ephemeral=True) 
         except Exception as e:
             print(f"Interaction error: {e}")
@@ -840,27 +837,39 @@ class GroupMoveView(ui.View):
     async def channel_callback(self, interaction: discord.Interaction):
         self.target_channel = interaction.guild.get_channel(int(self.channel_select.values[0]))
         
-        # เมื่อเลือกห้องแล้ว ให้ถามต่อว่าจะให้บอทตามไปด้วยไหม
         if self.selected_members:
-            # สร้างปุ่มถาม
-            follow_view = ui.View()
-            yes_btn = ui.Button(label="พา Bagley ไปด้วย", style=discord.ButtonStyle.green)
-            no_btn = ui.Button(label="ไม่ต้องตามมา", style=discord.ButtonStyle.grey)
+            
+            if interaction.guild.voice_client:
+                follow_view = ui.View()
+                yes_btn = ui.Button(label="พา Bagley ไปด้วย", style=discord.ButtonStyle.green)
+                no_btn = ui.Button(label="ไม่ต้องตามมา", style=discord.ButtonStyle.grey)
 
-            async def yes_callback(it: discord.Interaction):
-                await self.execute_move(it, follow_bot=True)
-            async def no_callback(it: discord.Interaction):
-                await self.execute_move(it, follow_bot=False)
+                async def yes_callback(it: discord.Interaction):
+                    try: await it.response.defer(ephemeral=True)
+                    except: pass
+                    await self.execute_move(it, follow_bot=True)
+                    
+                async def no_callback(it: discord.Interaction):
+                    try: await it.response.defer(ephemeral=True)
+                    except: pass
+                    await self.execute_move(it, follow_bot=False)
 
-            yes_btn.callback = yes_callback
-            no_btn.callback = no_callback
-            follow_view.add_item(yes_btn)
-            follow_view.add_item(no_btn)
+                yes_btn.callback = yes_callback
+                no_btn.callback = no_callback
+                follow_view.add_item(yes_btn)
+                follow_view.add_item(no_btn)
 
-            await interaction.response.send_message(f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?", view=follow_view)
-        
-            msg = f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?"
-            await bagley_speak(interaction.guild, msg)
+                await interaction.response.send_message(f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?", view=follow_view)
+            
+                msg = f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?"
+                await bagley_speak(interaction.guild, msg)
+                
+            else:
+                try: 
+                    await interaction.response.defer(ephemeral=True)
+                except: 
+                    pass
+                await self.execute_move(interaction, follow_bot=False)
         
         else:
             await interaction.response.send_message("รบกวนเลือกเพื่อนก่อนเลือกห้องนะเมท!", ephemeral=True)
@@ -878,11 +887,6 @@ class GroupMoveView(ui.View):
                     await member.edit(voice_channel=self.target_channel)
                     success_count += 1
         
-            # 2. ย้ายตัวคนสั่งไปด้วย
-            if interaction.user.voice:
-                await interaction.user.edit(voice_channel=self.target_channel)
-                success_count += 1
-
             # 3. ย้ายแบ็คลี่ตามไป (ถ้าเลือกให้ตาม)
             if follow_bot and interaction.guild.voice_client:
                 await interaction.guild.voice_client.move_to(self.target_channel)
@@ -937,37 +941,42 @@ class PartyCreateView(ui.View):
 
         self.selected_members = self.member_select.values
         
+        if interaction.guild.voice_client:
         # เมื่อเลือกคนเสร็จ ถามต่อเรื่อง Bagley จะตามไปมั้ย
-        follow_view = ui.View()
-        yes_btn = ui.Button(label="พา Bagley ไปด้วย", style=discord.ButtonStyle.green, emoji="🤖")
-        no_btn = ui.Button(label="ไม่ต้องตามมา", style=discord.ButtonStyle.grey)
+            follow_view = ui.View()
+            yes_btn = ui.Button(label="พา Bagley ไปด้วย", style=discord.ButtonStyle.green, emoji="🤖")
+            no_btn = ui.Button(label="ไม่ต้องตามมา", style=discord.ButtonStyle.grey)
 
-        async def yes_callback(it: discord.Interaction):
-            # 1. จองคิวก่อนเลยครับเมท
-            try:
-                await it.response.defer(ephemeral=True)
-            except: pass
-            # 2. ส่ง interaction (it) ไปให้ฟังก์ชันหลักทำงานต่อ
-            await self.execute_party_create(it, follow_bot=True)
+            async def yes_callback(it: discord.Interaction):
+                # 1. จองคิวก่อนเลยครับเมท
+                try:
+                    await it.response.defer(ephemeral=True)
+                except: pass
+                # 2. ส่ง interaction (it) ไปให้ฟังก์ชันหลักทำงานต่อ
+                await self.execute_party_create(it, follow_bot=True)
 
-        async def no_callback(it: discord.Interaction):
-            try:
-                await it.response.defer(ephemeral=True)
-            except: pass
-            await self.execute_party_create(it, follow_bot=False)
+            async def no_callback(it: discord.Interaction):
+                try:
+                    await it.response.defer(ephemeral=True)
+                except: pass
+                await self.execute_party_create(it, follow_bot=False)
 
-        yes_btn.callback = yes_callback
-        no_btn.callback = no_callback
-        follow_view.add_item(yes_btn)
-        follow_view.add_item(no_btn)
+            yes_btn.callback = yes_callback
+            no_btn.callback = no_callback
+            follow_view.add_item(yes_btn)
+            follow_view.add_item(no_btn)
     
-        await interaction.followup.send(
-            content=f"รับทราบครับเมท! ผมจะสร้างห้อง **'{self.party_name}'** ให้ แล้วจะให้ผมตามไปด้วยมั้ย?", 
-            view=follow_view,
-            ephemeral=True
-        )
+            await interaction.followup.send(
+                content=f"รับทราบครับเมท! ผมจะสร้างห้อง **'{self.party_name}'** ให้ แล้วจะให้ผมตามไปด้วยมั้ย?", 
+                view=follow_view,
+                ephemeral=True
+            )
 
-        await bagley_speak(interaction.guild, f"รับทราบครับเมท! ผมจะสร้างห้อง **'{self.party_name}'** ให้ แล้วจะให้ผมตามไปด้วยมั้ย?")
+            await bagley_speak(interaction.guild, f"รับทราบครับเมท! ผมจะสร้างห้อง **'{self.party_name}'** ให้ แล้วจะให้ผมตามไปด้วยมั้ย?")
+
+        else:
+            # 🔴 ถ้าบอทไม่ได้อยู่ในห้องเสียง -> ข้ามขั้นตอนดิ่งไปสร้างห้องด่วนจี๋ทันที!
+            await self.execute_party_create(interaction, follow_bot=False)
 
     async def execute_party_create(self, interaction: discord.Interaction, follow_bot: bool):
         global is_moving_group
@@ -989,11 +998,6 @@ class PartyCreateView(ui.View):
                 if member and member.voice:
                     await member.edit(voice_channel=new_channel)
                     success_count += 1
-        
-            # 3. ย้ายคนสั่ง (ถ้ายังอยู่ในห้องเสียง)
-            if interaction.user.voice:
-                await interaction.user.edit(voice_channel=new_channel)
-                success_count += 1
 
             # 4. ถ้าให้บอทตามไปด้วย
             if follow_bot and interaction.guild.voice_client:
