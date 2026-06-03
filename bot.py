@@ -677,28 +677,47 @@ async def follow_creator_task():
     if not auto_follow_enabled:
         return
 
-    target_channel = None
-    guild_to_join = None
-    found_member = None
+    today = datetime.today().date()
+    active_targets = []
 
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
             member = guild.get_member(user_id)
             if member and member.voice and member.voice.channel:
-                target_channel = member.voice.channel
-                guild_to_join = guild
-                found_member = member
-                break
-        if target_channel:
-            break
+                active_targets.append((member, member.voice.channel, guild))
 
-    if target_channel and guild_to_join and found_member:
+    if not active_targets:
+        return
+
+    target_member = None
+    target_channel = None
+    guild_to_join = None
+    both_present = False
+
+    if len(active_targets) == 1:
+        target_member, target_channel, guild_to_join = active_targets[0]
+    else:
+        if active_targets[0][1] == active_targets[1][1]:
+            target_member, target_channel, guild_to_join = active_targets[0]
+            both_present = True
+        else:
+            un_greeted_targets = [t for t in active_targets if last_greeting_dates.get(t[0].id) != today]
+            
+            if len(un_greeted_targets) == 1:
+                target_member, target_channel, guild_to_join = un_greeted_targets[0]
+                print(f"🎯 [Bagley] ตี้แตกแยกห้อง! เลือกไปห้อง '{target_channel.name}' เพราะ {target_member.display_name} ยังไม่ได้ทักทายวันนี้")
+            else:
+                chaom_target = next((t for t in active_targets if t[0].id == 1133740216822267954), active_targets[0])
+                target_member, target_channel, guild_to_join = chaom_target
+                print(f"🎯 [Bagley] ตี้แตกแยกห้อง (สถานะเท่ากัน) ขอเลือกไปหาคุณชะอมที่ห้อง '{target_channel.name}' ก่อนครับเมท")
+
+    if target_channel and guild_to_join and target_member:
         voice_client = guild_to_join.voice_client
 
         if voice_client and voice_client.channel == target_channel:
             return
 
-        print(f"🔍 [Bagley] เจอ {found_member.display_name} อยู่ที่ห้อง '{target_channel.name}' กำลังตามไปหาครับเมท...")
+        print(f"🔍 [Bagley] เจอ {target_member.display_name} อยู่ที่ห้อง '{target_channel.name}' กำลังตามไปหาครับเมท...")
 
         try:
             if voice_client:
@@ -710,12 +729,7 @@ async def follow_creator_task():
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
             return
 
-        today = datetime.today().date()
-        
-        current_member_ids = [m.id for m in target_channel.members]
-        both_present = all(uid in current_member_ids for uid in ALLOWED_USERS)
-
-        greeting_key = "both_together" if both_present else found_member.id
+        greeting_key = "both_together" if both_present else target_member.id
         
         if last_greeting_dates.get(greeting_key) != today:
             
@@ -738,7 +752,7 @@ async def follow_creator_task():
                     f"{time_greeting} ตรวจพบสัญญาณของคุณชะอมกับคุณชาช่าอยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
                 ]
             else:
-                name_call = "คุณชะอม" if found_member.id == 1133740216822267954 else "คุณชาช่า"
+                name_call = "คุณชะอม" if target_member.id == 1133740216822267954 else "คุณชาช่า"
                 greetings = [
                     f"{time_greeting} {name_call} มาแล้วหรอครับครับเมท ยินดีต้อนรับนะครับ!",
                     f"{time_greeting} {name_call} เพิ่งมาหรอครับเมท ยินดีต้อนรับนะครับ!",
@@ -760,7 +774,6 @@ async def follow_creator_task():
                 vc.play(online_source)
 
                 await asyncio.sleep(1.8) 
-
                 steps = 10
                 for _ in range(steps):
                     if online_source:
