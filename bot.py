@@ -70,6 +70,10 @@ ALLOWED_TEACH_USERS = [
     1073827310026903612    # ลุงกร
 ]
 
+ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกับชาช่า
+auto_follow_enabled = True
+last_greeting_dates = {}
+
 LOG_BUFFER = collections.deque(maxlen=10)
 ORIGINAL_PRINT = print
 
@@ -665,6 +669,62 @@ async def fade_out_source(vc, duration=1.5, steps=15):
         if vc.is_playing():
             vc.stop()
 
+# --- 🔄 1. ระบบ Loop เช็กทุก 10 นาที ---
+@tasks.loop(minutes=10)
+async def follow_creator_task():
+    global last_greeting_dates
+    
+    if not auto_follow_enabled:
+        return
+
+    target_channel = None
+    guild_to_join = None
+    found_member = None
+
+    for guild in bot.guilds:
+        for user_id in ALLOWED_USERS:
+            member = guild.get_member(user_id)
+            # ถ้าเจอตัว และกำลังนั่งเล่นอยู่ในห้องเสียง
+            if member and member.voice and member.voice.channel:
+                target_channel = member.voice.channel
+                guild_to_join = guild
+                found_member = member
+                break
+        if target_channel:
+            break
+
+    if target_channel and guild_to_join and found_member:
+        voice_client = guild_to_join.voice_client
+
+        if voice_client and voice_client.channel == target_channel:
+            return
+
+        if voice_client:
+            await voice_client.move_to(target_channel)
+        else:
+            voice_client = await target_channel.connect()
+
+        today = datetime.date.today()
+        user_id = found_member.id
+        
+        if last_greeting_dates.get(user_id) != today:
+            name_call = "คุณชะอม" if user_id == 1133740216822267954 else "คุณชาช่า"
+            
+            greetings = [
+                f"มาแล้วหรอครับ{name_call} ครับพ้ม!",
+                f"ตื่นแล้วหรอครับ{name_call} ครับเมท!",
+                f"อรุณสวัสดิ์ครับ{name_call} วันนี้มีอะไรให้แบ็คลี่รับใช้มั้ยครับพ้ม!",
+                f"แอบมาส่อง{name_call} ในห้องเสียงครับเมท!"
+            ]
+            msg = random.choice(greetings)
+            
+            await asyncio.sleep(1)
+            await bagley_speak(guild_to_join, msg)
+            
+            last_greeting_dates[user_id] = today
+        else:
+            pass
+
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
     
@@ -1116,6 +1176,10 @@ async def on_ready():
 
     if not check_friend_reminders.is_running():
         check_friend_reminders.start()
+
+    if not follow_creator_task.is_running():
+        follow_creator_task.start()
+    print(f"Bagley พร้อมเป็นเงาติดตามตัวคุณชะอมและคุณชาช่าแล้วครับเมท!")
 
 @bot.event
 async def on_message(message):
@@ -3865,5 +3929,23 @@ async def sys_cleanup(ctx: commands.Context):
         
     if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
         await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับเมท")
+
+@bot.hybrid_command(name="stop_follow", description="[เฉพาะชะอม/ชาช่า] สั่งให้แบ็คลี่หยุดเดินตามห้องเสียงชั่วคราว")
+async def stop_follow(ctx):
+    if ctx.author.id not in ALLOWED_USERS:
+        return await ctx.send("คำสั่งนี้ล็อกสิทธิ์เฉพาะคุณชะอมและคุณชาช่าเท่านั้นครับพ้ม! ❌", ephemeral=True)
+
+    global auto_follow_enabled
+    auto_follow_enabled = False
+    await ctx.send("รับทราบครับเมท! ผมจะหยุดตามเป็นเงาชั่วคราว ขอตัวไปพักผ่อนชาร์จแบตก่อนนะครับพ้ม! 🔋", ephemeral=True)
+
+@bot.hybrid_command(name="start_follow", description="[เฉพาะชะอม/ชาช่า] สั่งให้แบ็คลี่กลับมาเดินตามห้องเสียง")
+async def start_follow(ctx):
+    if ctx.author.id not in ALLOWED_USERS:
+        return await ctx.send("คำสั่งนี้ล็อกสิทธิ์เฉพาะคุณชะอมและคุณชาช่าเท่านั้นครับพ้ม! ❌", ephemeral=True)
+
+    global auto_follow_enabled
+    auto_follow_enabled = True
+    await ctx.send("ระบุพิกัดเรียบร้อย! กลับมาทำหน้าที่บอทติดตามตัวเดอะแก๊งแล้วครับเมท! 🤖⚡", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
