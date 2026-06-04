@@ -678,13 +678,12 @@ async def fade_out_source(vc, duration=1.5, steps=15):
 async def follow_creator_task():
     global last_greeting_dates
     today = datetime.today().date()
-    active_targets = []  # เก็บข้อมูลคนที่เจอในห้องเสียงทั้งหมด
+    active_targets = []
 
     # 🔍 1. สแกนหาทุกคนที่อยู่ในห้องเสียงในทุกเซิฟเวอร์
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
             
-            # 🛑 [จุดเปลี่ยนสำคัญ] เช็กว่าคน ๆ นี้ปิดระบบเดินตามไว้หรือเปล่า? ถ้าปิดให้ skip ข้ามไปเลยครับ!
             if not auto_follow_status.get(user_id, True):
                 continue
                 
@@ -692,11 +691,10 @@ async def follow_creator_task():
             if member and member.voice and member.voice.channel:
                 active_targets.append((member, member.voice.channel, guild))
 
-    # ถ้าไม่มีใครเปิดระบบ หรือไม่มีใครอยู่ห้องเสียงเลย -> สแตนด์บายเงียบ ๆ
     if not active_targets:
         return
 
-    # 🎯 2. ลอจิกการตัดสินใจเลือกห้องที่จะไป (กรณีออนไลน์พร้อมกัน)
+    # 🎯 2. ลอจิกการตัดสินใจเลือกห้องที่จะไป (เวอร์ชันอัปเกรดระบบล็อกความลำเอียง)
     target_member = None
     target_channel = None
     guild_to_join = None
@@ -705,6 +703,11 @@ async def follow_creator_task():
     if len(active_targets) == 1:
         target_member, target_channel, guild_to_join = active_targets[0]
     else:
+        if active_targets[0][2].id == active_targets[1][2].id and active_targets[0][1].id != active_targets[1][1].id:
+            print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เข้าห้องไหนเลยเพื่อความเท่าเทียมครับเมท!")
+            return
+
+        # ลอจิกเดิม: ถ้าสรุปแล้วอยู่ห้องเดียวกันเป๊ะ ๆ (ในเซิร์ฟเดียวกัน)
         if active_targets[0][1] == active_targets[1][1]:
             target_member, target_channel, guild_to_join = active_targets[0]
             both_present = True
