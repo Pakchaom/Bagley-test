@@ -680,7 +680,6 @@ async def follow_creator_task():
     today = datetime.today().date()
     active_targets = []
 
-    # 🔍 1. สแกนหาทุกคนที่อยู่ในห้องเสียงในทุกเซิฟเวอร์
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
             
@@ -694,7 +693,6 @@ async def follow_creator_task():
     if not active_targets:
         return
 
-    # 🎯 2. ลอจิกการตัดสินใจเลือกห้องที่จะไป (เวอร์ชันอัปเกรดระบบล็อกความลำเอียง)
     target_member = None
     target_channel = None
     guild_to_join = None
@@ -707,7 +705,6 @@ async def follow_creator_task():
             print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เข้าห้องไหนเลยเพื่อความเท่าเทียมครับเมท!")
             return
 
-        # ลอจิกเดิม: ถ้าสรุปแล้วอยู่ห้องเดียวกันเป๊ะ ๆ (ในเซิร์ฟเดียวกัน)
         if active_targets[0][1] == active_targets[1][1]:
             target_member, target_channel, guild_to_join = active_targets[0]
             both_present = True
@@ -719,7 +716,6 @@ async def follow_creator_task():
                 chaom_target = next((t for t in active_targets if t[0].id == 1133740216822267954), active_targets[0])
                 target_member, target_channel, guild_to_join = chaom_target
 
-    # 🚀 3. เริ่มกระบวนการเคลื่อนย้ายและส่งเสียงทักทาย (คงเดิมไว้ทั้งหมด)
     if target_channel and guild_to_join and target_member:
         voice_client = guild_to_join.voice_client
 
@@ -735,6 +731,26 @@ async def follow_creator_task():
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
             return
+
+        await asyncio.sleep(1.0)  # หน่วงเวลาให้ระบบเสียงดิสคอร์ดนิ่งก่อนเปิดไมค์พูด/เล่นเสียง
+        try:
+            online_source = discord.PCMVolumeTransformer(
+                discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            )
+            online_source.volume = 0.5
+            vc.play(online_source)
+
+            await asyncio.sleep(1.8) 
+            steps = 10
+            for _ in range(steps):
+                if online_source:
+                    online_source.volume = max(0, online_source.volume - (0.5 / steps))
+                    await asyncio.sleep(1.0 / steps)
+
+            if vc.is_playing():
+                vc.stop()
+        except Exception as e:
+            print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเล่นเสียง Drone เปิดตัว: {e}")
 
         greeting_key = "both_together" if both_present else target_member.id
         
@@ -766,25 +782,8 @@ async def follow_creator_task():
                 ]
                 
             msg = random.choice(greetings)
-            await asyncio.sleep(1.0)
             
             try:
-                online_source = discord.PCMVolumeTransformer(
-                    discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
-                )
-                online_source.volume = 0.5
-                vc.play(online_source)
-
-                await asyncio.sleep(1.8) 
-                steps = 10
-                for _ in range(steps):
-                    if online_source:
-                        online_source.volume = max(0, online_source.volume - (0.5 / steps))
-                        await asyncio.sleep(1.0 / steps)
-
-                if vc.is_playing():
-                    vc.stop()
-
                 await bagley_speak_wait(guild_to_join, msg)
                 last_greeting_dates[greeting_key] = today
                 
@@ -793,7 +792,7 @@ async def follow_creator_task():
                         last_greeting_dates[uid] = today
                 
             except Exception as e:
-                print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนเล่นเสียงหรือทักทาย: {e}")
+                print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
