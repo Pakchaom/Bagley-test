@@ -701,8 +701,19 @@ async def follow_creator_task():
     if len(active_targets) == 1:
         target_member, target_channel, guild_to_join = active_targets[0]
     else:
+        # ⚖️ โหมดไม่ลำเอียง: อยู่เซิร์ฟเดียวกันแต่คนละห้องเสียง แบ็คลี่จะไม่เข้าห้องไหนเลย
         if active_targets[0][2].id == active_targets[1][2].id and active_targets[0][1].id != active_targets[1][1].id:
-            print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เข้าห้องไหนเลยเพื่อความเท่าเทียมครับเมท!")
+            print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เลือกข้างใครครับเมท!")
+            
+            voice_client = active_targets[0][2].guild.voice_client
+            if voice_client:
+                try:
+                    await voice_client.disconnect()
+                    voice_report_status.pop(active_targets[0][2].id, None)
+                    bot_follow_targets[active_targets[0][2].id] = None # ล้างสมุดจดบันทึกการตาม
+                    print(f"DEBUG: ⚖️ ถอนกำลังออกจากห้องเดิมเรียบร้อย เพื่อความเท่าเทียมคัปพ้ม!")
+                except Exception as e:
+                    print(f"❌ เกิดข้อผิดพลาดตอนสั่งบอทถอนกำลังโหมดไม่ลำเอียง: {e}")
             return
 
         if active_targets[0][1] == active_targets[1][1]:
@@ -728,11 +739,17 @@ async def follow_creator_task():
                 vc = voice_client
             else:
                 vc = await target_channel.connect()
+                
+            if both_present:
+                bot_follow_targets[guild_to_join.id] = "both"
+            else:
+                bot_follow_targets[guild_to_join.id] = target_member.id
+                
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
             return
 
-        await asyncio.sleep(1.0)  # หน่วงเวลาให้ระบบเสียงดิสคอร์ดนิ่งก่อนเปิดไมค์พูด/เล่นเสียง
+        await asyncio.sleep(1.0)
         try:
             online_source = discord.PCMVolumeTransformer(
                 discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
