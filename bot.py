@@ -2012,7 +2012,7 @@ async def on_message(message):
                 return
 
             # ==========================================
-            # 🗣️ [ระบบล่ามแปลภาษา / TTS และ ตรวจเช็คระบบ]
+            # 🗣️ [ระบบล่าม / TTS และ ตรวจเช็คระบบ]
             # ==========================================
             elif any(word in lower_content for word in ["ปิดล่าม", "เปิดล่าม", "หยุดพูด", "ไม่ต้องพูด", "พูดให้"]):
                 ctx = await bot.get_context(message)
@@ -2180,50 +2180,47 @@ async def on_message(message):
     # ==========================================
     # 🌐 [ส่วนที่ 12: ระบบแปลภาษาคู่ขนาน และ ระบบแชทอัจฉริยะ]
     # ==========================================
-    if any(word in lower_content for word in ["แปลหน่อย", "แปลให้หน่อย", "แปลเป็นไทย", "translate", "แปลเป็นอังกฤษ"]):
-        if message.guild is not None:
-            bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-            if not any(keyword in lower_content for keyword in bot_keywords):
-                pass # ถ้าไม่เรียกชื่อบอทในเซิร์ฟ ให้หลุดไปทำงานฟังก์ชันอื่นแทนการตัดจบ
-            else:
-                if message.reference:
+    # ดักจับคำสั่งแปลภาษาหลัก ๆ จากทั่วโลก (ไทย, อังกฤษ, เกาหลี, จีน, ญี่ปุ่น)
+    translation_keywords = ["แปล", "translate", "주세요", "번역", "翻", "翻訳"]
+    
+    if any(word in lower_content for word in translation_keywords):
+        is_dm = message.guild is None
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        is_mentioned = any(keyword in lower_content for keyword in bot_keywords)
+        
+        if not is_dm and not is_mentioned:
+            pass 
+        else:
+            if message.reference:
+                try:
                     referenced_msg = await message.channel.fetch_message(message.reference.message_id)
                     text_to_translate = referenced_msg.content
-                    
-                    if "translate" in lower_content or "แปลเป็นอังกฤษ" in lower_content:
-                        target_lang = "English"
-                    else:
-                        target_lang = "Thai"
+                    user_request = message.content
 
-                    prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
+                    prompt = (
+                        "You are Bagley, an expert multilingual translator assistant.\n"
+                        "Your task is to translate the text inside 'Text to Translate' based on the user's input.\n\n"
+                        "INSTRUCTIONS:\n"
+                        "1. Analyze the 'User Request' to detect what language the user is speaking or requesting (e.g., 'แปลหน่อย' -> Thai, 'translate' -> English, '주세요' or '번역' -> Korean, '翻訳' -> Japanese, '翻' -> Chinese).\n"
+                        "2. Translate the entire 'Text to Translate' into that detected target language so the requester can understand it completely.\n"
+                        "3. Respond with ONLY the final translated text. Do not add any introductory phrases, quotes, or explanations.\n\n"
+                        f"User Request: {user_request}\n"
+                        f"Text to Translate: {text_to_translate}"
+                    )
+
                     response = await client.aio.models.generate_content(
                         model="gemini-3.1-flash-lite",
                         contents=prompt
                     )
                     answer = response.text
                     
-                    await message.reply(f"🌐 **Translation Result ({target_lang}):**\n{answer}")
+                    await message.reply(f"🌐 **Translation Result:**\n{answer}")
                     return
-        else:
-            # ทำงานใน DM (Direct Message) แปลได้ทันทีโดยไม่ต้องเรียกชื่อ
-            if message.reference:
-                referenced_msg = await message.channel.fetch_message(message.reference.message_id)
-                text_to_translate = referenced_msg.content
-                
-                if "translate" in lower_content or "แปลเป็นอังกฤษ" in lower_content:
-                    target_lang = "English"
-                else:
-                    target_lang = "Thai"
-
-                prompt = f"Please translate the following text to {target_lang}: '{text_to_translate}'"
-                response = await client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite",
-                    contents=prompt
-                )
-                answer = response.text
-                
-                await message.reply(f"🌐 **Translation Result ({target_lang}):**\n{answer}")
-                return
+                    
+                except discord.NotFound:
+                    print("❌ [Bagley] ไม่พบข้อความที่อ้างอิงถึง อาจถูกลบไปแล้ว")
+                except Exception as e:
+                    print(f"❌ [Bagley] เกิดข้อผิดพลาดในระบบแปลภาษาคู่ขนาน: {e}")
 
     # 💾 [ระบบตรวจสอบความจำที่เคยถูกสอน (Teach Memory) / คุยเล่น Free Chat] ───
     is_sqlite_triggered = False
