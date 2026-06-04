@@ -438,7 +438,7 @@ async def check_queue(ctx):
         left_user_name = pending_exit_after_music.pop(ctx.guild.id, None)
         
         if left_user_name:
-            exit_msg = f"เพลงจบเซ็ตแล้วครับพ้ม! ตอนนี้คุณ {left_user_name} ได้ออกจากห้องเสียงไปแล้ว แบ็คลี่ขออนุญาตเปิดวาร์ปตามไปดูแลต่อก่อนนะครับเมท!"
+            exit_msg = f"เพลงในคิวหมดแล้วครับเมท แต่ตอนนี้คุณ {left_user_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ!"
             await bagley_speak_wait(ctx.guild, exit_msg)
             try:
                 if ctx.voice_client:
