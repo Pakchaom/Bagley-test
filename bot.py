@@ -75,6 +75,7 @@ ALLOWED_TEACH_USERS = [
 ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกับชาช่า
 auto_follow_status = {uid: True for uid in ALLOWED_USERS}
 last_greeting_dates = {}
+pending_exit_after_music = {}
 
 active_alarms = {}
 
@@ -418,7 +419,7 @@ async def play_song(ctx, search):
 
 # ฟังก์ชันเช็คคิวเพื่อเล่นเพลงถัดไป
 async def check_queue(ctx):
-    global is_playing_music
+    global is_playing_music, pending_exit_after_music, bot_follow_targets
     
     if len(song_queue) > 0:
         is_playing_music = True
@@ -428,15 +429,28 @@ async def check_queue(ctx):
             await play_song(ctx, next_search) 
         except Exception as e:
             print(f"❌ [Queue Error]: เล่นเพลง {next_search} ไม่สำเร็จ -> {e}")
-            
             await ctx.channel.send(f"⚠️ หว่าเมท เพลง **{next_search}** มีปัญหา (อาจจะติดลิขสิทธิ์หรือ Error 404) ขอข้ามไปเพลงถัดไปเลยนะครับพ้ม!")
-            
             await check_queue(ctx)
             
     else:
         is_playing_music = False
-        await bagley_speak(ctx.guild, "เพลงในคิวหมดแล้วครับเมท ถ้าอยากฟังต่อก็สั่งเปิดเพลงใหม่ได้เลยนะครับ")
-        print("คิวว่างแล้วครับเมท Bagley พูดรายงานเรียบร้อย")
+        
+        left_user_name = pending_exit_after_music.pop(ctx.guild.id, None)
+        
+        if left_user_name:
+            exit_msg = f"เพลงจบเซ็ตแล้วครับพ้ม! ตอนนี้คุณ {left_user_name} ได้ออกจากห้องเสียงไปแล้ว แบ็คลี่ขออนุญาตเปิดวาร์ปตามไปดูแลต่อก่อนนะครับเมท!"
+            await bagley_speak_wait(ctx.guild, exit_msg)
+            try:
+                if ctx.voice_client:
+                    await ctx.voice_client.disconnect()
+                voice_report_status.pop(ctx.guild.id, None)
+                bot_follow_targets[ctx.guild.id] = None # ล้างสมุดจดบันทึกการตามในลูป 10 นาที
+                print(f"DEBUG: 🎵 เพลงจบเซ็ต -> พบบันทึกเตือนจำ -> แบ็คลี่พูดรายงานคุณ {left_user_name} แล้ววาร์ปออกเรียบร้อย!")
+            except Exception as e:
+                print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายหลังคิวเพลงจบเซ็ต: {e}")
+        else:
+            await bagley_speak(ctx.guild, "เพลงในคิวหมดแล้วครับเมท ถ้าอยากฟังต่อก็สั่งเปิดเพลงใหม่ได้เลยนะครับ")
+            print("คิวว่างแล้วครับเมท Bagley พูดรายงานเรียบร้อย")
 
 # --- YouTube Surveillance System ---
 @tasks.loop(minutes=3)
@@ -2429,6 +2443,8 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
+    global pending_exit_after_music, bot_follow_targets
+    
     if is_moving_group:
         return
 
@@ -2439,31 +2455,49 @@ async def on_voice_state_update(member, before, after):
         print(f"DEBUG: ตัวบอทออกจากห้องเสียงแล้ว ทำการรีเซ็ตสวิตช์รายงานเสียงของกิลด์ {guild_id} กลับเป็น เปิด (True) อัตโนมัติ")
 
     voice_client = member.guild.voice_client
-    
     has_followed_out = False
 
     if voice_client and voice_client.channel:
         bot_channel = voice_client.channel
         followed_leader_id = bot_follow_targets.get(guild_id)
         
-        if followed_leader_id and member.id == followed_leader_id:
-            if before.channel == bot_channel and after.channel != bot_channel:
-                print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง บอทจะพูดบอกลาแล้ววาร์ปออกตามทันที!")
-                
-                bot_follow_targets[guild_id] = None
-                has_followed_out = True # เปิดสวิตช์เปิดทางด่วน ข้ามระบบตรวจจับห้องร้างซ้ำซ้อนด้านล่าง
-                
-                data_memory = load_user_data() 
-                special_info = data_memory.get(str(member.id))
-                if special_info and isinstance(special_info, dict):
-                    calling_name = special_info.get("nickname", member.display_name)
-                elif special_info:
-                    calling_name = special_info
+        is_target_leaving = False
+        if followed_leader_id:
+            if followed_leader_id == "both" and member.id in ALLOWED_USERS:
+                remaining_devs = [m for m in bot_channel.members if m.id in ALLOWED_USERS and m.id != member.id]
+                if not remaining_devs:
+                    is_target_leaving = True
                 else:
-                    calling_name = member.display_name
-                if calling_name == "ยังไม่ระบุ": calling_name = member.display_name
+                    bot_follow_targets[guild_id] = remaining_devs[0].id
+                    print(f"DEBUG: 🔄 หนึ่งในผู้พัฒนาออกจากห้อง แต่ยังเหลืออีกคน แบ็คลี่สลับไปโฟกัสคนที่เหลือคัป!")
+            
+            elif member.id == followed_leader_id:
+                is_target_leaving = True
 
-                exit_msg = f"คุณ {calling_name} ออกไปแล้วครับ เจ้านายผมออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
+        if is_target_leaving and before.channel == bot_channel and after.channel != bot_channel:
+            
+            data_memory = load_user_data() 
+            special_info = data_memory.get(str(member.id))
+            if special_info and isinstance(special_info, dict):
+                calling_name = special_info.get("nickname", member.display_name)
+            elif special_info:
+                calling_name = special_info
+            else:
+                calling_name = member.display_name
+            if calling_name == "ยังไม่ระบุ": calling_name = member.display_name
+
+            if voice_client.is_playing():
+                pending_exit_after_music[guild_id] = calling_name
+                bot_follow_targets[guild_id] = None 
+                has_followed_out = True 
+                print(f"DEBUG: 📌 เจ้านาย {calling_name} ออกจากห้อง แต่แบ็คลี่ติดเปิดเพลงอยู่! แปะโน้ตรอเคลียร์ตอนเพลงจบครับ")
+            
+            else:
+                print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง บอทจะพูดบอกลาแล้ววาร์ปออกตามทันที!")
+                bot_follow_targets[guild_id] = None
+                has_followed_out = True 
+                
+                exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
                 await bagley_speak_wait(member.guild, exit_msg)
                 
                 try:
@@ -2475,7 +2509,6 @@ async def on_voice_state_update(member, before, after):
     # 🧹 [ส่วนที่ 1] จัดการเก็บกวาด "ห้องปาร์ตี้สร้างเอง" (รันเฉพาะตอนไม่ใช่กรณีเจ้านายเดินหนี)
     if not has_followed_out and before.channel is not None:
         channel_to_check = before.channel
-        
         is_empty_or_only_bot = (len(channel_to_check.members) == 0) or \
                                (len(channel_to_check.members) == 1 and bot.user in channel_to_check.members)
 
@@ -2495,7 +2528,6 @@ async def on_voice_state_update(member, before, after):
     # 🚶‍♂️ [ส่วนที่ 2] ออกจาก "ห้องทั่วไป" เมื่อไม่มีคนอยู่กับบอท (Auto-Leave ยามปกติ)
     if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
-        
         if len(bot_channel.members) == 1 and bot.user in bot_channel.members:
             if bot_channel.id in created_party_channels:
                 return
@@ -2514,7 +2546,6 @@ async def on_voice_state_update(member, before, after):
     # 📢 [ส่วนที่ 3] ตรวจสอบและรายงานเสียง คนเข้า-ออกห้องเสียงยามปกติ
     if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
-        
         if voice_client.is_playing():
             return
 
@@ -2570,14 +2601,11 @@ async def on_voice_state_update(member, before, after):
         if join_time:
             duration = time.time() - join_time
             data = load_voice_data()
-            
             if data.get("date") != today_str:
                 data = {"date": today_str, "stats": {}}
-            
             stats = data["stats"]
             if user_id not in stats:
                 stats[user_id] = {"total_time": 0, "name": member.display_name}
-            
             stats[user_id]["total_time"] += duration
             save_voice_data(data)
             print(f"DEBUG: [ประจำวันที่ {today_str}] บันทึกเวลาให้ {member.display_name} แล้วครับ")
