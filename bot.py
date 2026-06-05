@@ -785,7 +785,7 @@ async def follow_creator_task():
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเล่นเสียง Drone เปิดตัว: {e}")
 
         # ==========================================
-        # 🧠 [🧠 ส่วนประมวลผลลอจิกการส่งเสียงพูดสไตล์จาวิส]
+        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด
         # ==========================================
         greeting_key = "both_together" if both_present else target_member.id
         guild_id = guild_to_join.id
@@ -800,50 +800,49 @@ async def follow_creator_task():
             try:
                 data = load_voice_data()
                 today_str = datetime.now().strftime("%Y-%m-%d")
+                guild_id_str = str(guild.id)
                 
+                guild_stats = {}
                 if data and data.get("date") == today_str and data.get("stats"):
-                    stats = data["stats"]
-                    guild_id_str = str(guild.id)
-                    guild_stats = stats.get(guild_id_str, {})
-                    
-                    filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
-                    
-                    sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
-                    
-                    if sorted_stats:
-                        report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
-                        for index, (u_id, info) in enumerate(sorted_stats, 1):
-                            u_name = info['name']
-                            ts = info['total_time']
-                            
-                            if ts >= 3600:
-                                time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
-                            else:
-                                time_speech = f"{max(1, int(ts//60))} นาที"
-                                
-                            report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
-                            
-                            if int(u_id) not in ALLOWED_USERS:
-                                m_obj = guild.get_member(int(u_id))
-                                if m_obj:
-                                    delta = discord.utils.utcnow() - m_obj.created_at
-                                    days = delta.days
-                                    if days >= 365:
-                                        acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
-                                    elif days >= 30:
-                                        acc_age_str = f"{days // 30} เดือน"
-                                    else:
-                                        acc_age_str = f"{days} วัน"
-                                    report_msg += f" มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str}"
-                            report_msg += " ครับพ้ม "
+                    guild_stats = data["stats"].get(guild_id_str, {})
+                
+                filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
+                
+                sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
+                
+                if sorted_stats:
+                    report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
+                    for index, (u_id, info) in enumerate(sorted_stats, 1):
+                        u_name = info['name']
+                        ts = info['total_time']
                         
-                        other_users = [item for item in filtered_stats if int(item[0]) not in ALLOWED_USERS]
-                        if not other_users:
-                            report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
-                    else:
+                        if ts >= 3600:
+                            time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
+                        else:
+                            time_speech = f"{max(1, int(ts//60))} นาที"
+                            
+                        report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
+                        
+                        if int(u_id) not in ALLOWED_USERS:
+                            m_obj = guild.get_member(int(u_id))
+                            if m_obj:
+                                delta = discord.utils.utcnow() - m_obj.created_at
+                                days = delta.days
+                                if days >= 365:
+                                    acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
+                                elif days >= 30:
+                                        acc_age_str = f"{days // 30} เดือน"
+                                else:
+                                    acc_age_str = f"{days} วัน"
+                                report_msg += f" มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str}"
+                        report_msg += " ครับพ้ม "
+                    
+                    other_users = [item for item in filtered_stats if int(item[0]) not in ALLOWED_USERS]
+                    if not other_users:
                         report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
                 else:
-                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
+                    report_msg += " และดูเหมือนว่าในเซิร์ฟเวอร์นี้ พวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติเวลาสะสมบันทึกไว้ และส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
+                    
             except Exception as err:
                 print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
                 report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับพ้ม"
