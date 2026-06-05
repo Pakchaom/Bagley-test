@@ -803,24 +803,24 @@ async def follow_creator_task():
                 
                 if data and data.get("date") == today_str and data.get("stats"):
                     stats = data["stats"]
+                    guild_id_str = str(guild.id)
                     
-                    filtered_stats = [item for item in stats.items() if int(item[0]) != bot.user.id]
+                    guild_stats = stats.get(guild_id_str, {})
                     
-                    sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)
+                    filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
+                    
+                    sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
                     
                     if sorted_stats:
                         report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
-                        
-                        top_5 = sorted_stats[:5]
-                        
-                        for index, (u_id, info) in enumerate(top_5, 1):
+                        for index, (u_id, info) in enumerate(sorted_stats, 1):
                             u_name = info['name']
                             ts = info['total_time']
                             
                             if ts >= 3600:
                                 time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
                             else:
-                                time_speech = f"{max(1, int(ts//60))} นาที" # หากไม่ถึงนาที ให้ปัดเป็น 1 นาทีเพื่อความสวยงามครับ
+                                time_speech = f"{max(1, int(ts//60))} นาที"
                                 
                             report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
                             
@@ -836,10 +836,9 @@ async def follow_creator_task():
                                     else:
                                         acc_age_str = f"{days} วัน"
                                     report_msg += f" มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str}"
-                                    
                             report_msg += " ครับพ้ม "
                     else:
-                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบข้อมูลสถิติของมนุษย์คนอื่นในวันนี้ครับ"
+                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบข้อมูลสถิติของมนุษย์คนอื่นในเซิร์ฟเวอร์นี้วันนี้ครับ"
                 else:
                     report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติบันทึกไว้ครับ"
             except Exception as err:
@@ -1721,13 +1720,14 @@ async def on_message(message):
                 return
 
             stats = data["stats"]
+            guild_id_str = str(message.guild.id)
             
-            filtered_stats = [item for item in stats.items() if int(item[0]) != bot.user.id]
-            
+            guild_stats = stats.get(guild_id_str, {})
+            filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
             sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
             
             if not sorted_stats:
-                await message.reply("วันนี้ยังไม่มีสถิติของมนุษย์บันทึกไว้เลยครับเมท!")
+                await message.reply("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับเมท!")
                 return
             
             report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
@@ -1735,12 +1735,10 @@ async def on_message(message):
             
             for i, (u_id, info) in enumerate(sorted_stats, 1):
                 ts = info['total_time']
-                
                 if ts >= 3600:
                     time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
                 else:
                     time_display = f"{max(1, int(ts//60))}นาที"
-                    
                 report += f"{i}. {info['name']}: {time_display}\n"
 
             await message.reply(report)
@@ -2700,12 +2698,20 @@ async def on_voice_state_update(member, before, after):
             data = load_voice_data()
             if data.get("date") != today_str:
                 data = {"date": today_str, "stats": {}}
+            
             stats = data["stats"]
-            if user_id not in stats:
-                stats[user_id] = {"total_time": 0, "name": member.display_name}
-            stats[user_id]["total_time"] += duration
+            guild_id_str = str(member.guild.id)
+
+            if guild_id_str not in stats:
+                stats[guild_id_str] = {}
+                
+            guild_stats = stats[guild_id_str]
+            if user_id not in guild_stats:
+                guild_stats[user_id] = {"total_time": 0, "name": member.display_name}
+            
+            guild_stats[user_id]["total_time"] += duration
             save_voice_data(data)
-            print(f"DEBUG: [ประจำวันที่ {today_str}] บันทึกเวลาให้ {member.display_name} แล้วครับ")
+            print(f"DEBUG: [ประจำวันที่ {today_str}] บันทึกเวลาให้ {member.display_name} ในเซิร์ฟ {guild_id_str} แล้วครับ")
 
 # --- [CORE COMMANDS] สั่งแล้วพูดด้วย ---
 @bot.hybrid_command(name="move", description="ย้ายสมาชิกไปห้องเสียงอื่น")
