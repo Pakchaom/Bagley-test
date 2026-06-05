@@ -47,6 +47,8 @@ user_join_times = {}
 
 voice_report_status = {}
 
+reported_guilds_today = {}
+
 bot_follow_targets = {}
 
 created_party_channels = []
@@ -690,7 +692,7 @@ async def fade_out_source(vc, duration=1.5, steps=15):
 # --- 🔄 1. ระบบ Loop เช็กทุก 10 นาที ---
 @tasks.loop(minutes=10)
 async def follow_creator_task():
-    global last_greeting_dates
+    global last_greeting_dates, reported_guilds_today
     today = datetime.today().date()
     active_targets = []
 
@@ -782,8 +784,73 @@ async def follow_creator_task():
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเล่นเสียง Drone เปิดตัว: {e}")
 
+        # ==========================================
+        # 🧠 [🧠 ส่วนประมวลผลลอจิกการส่งเสียงพูดสไตล์จาวิส]
+        # ==========================================
         greeting_key = "both_together" if both_present else target_member.id
+        guild_id = guild_to_join.id
         
+        human_count = len([m for m in target_channel.members if not m.bot])
+        
+        should_speak = False
+        msg = ""
+
+        def generate_report_speech(guild):
+            report_msg = ""
+            try:
+                data = load_voice_data()
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                
+                if data and data.get("date") == today_str and data.get("stats"):
+                    stats = data["stats"]
+                    sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)
+                    
+                    if sorted_stats:
+                        top_info = sorted_stats[0][1]
+                        top_name = top_info['name']
+                        ts = top_info['total_time']
+                        
+                        if ts >= 3600:
+                            time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
+                        else:
+                            time_speech = f"{int(ts//60)} นาที {int(ts%60)} วินาที"
+                            
+                        report_msg += f" สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ อันดับหนึ่งในตอนนี้คือคุณ {top_name} คุยนานที่สุด อยู่ที่ {time_speech} ครับ"
+                    
+                    other_users = [item for item in stats.items() if int(item[0]) not in ALLOWED_USERS and int(item[0]) != bot.user.id]
+                    if other_users:
+                        report_msg += " และระบบตรวจพบผู้ใช้รายอื่นที่เข้ามาใช้งานในวันนี้ด้วยครับ คือ "
+                        for u_id, info in other_users:
+                            u_name = info['name']
+                            ts_other = info['total_time']
+                            
+                            if ts_other >= 3600:
+                                time_speech_other = f"{int(ts_other//3600)} ชั่วโมง {int((ts_other%3600)//60)} นาที"
+                            else:
+                                time_speech_other = f"{int(ts_other//60)} นาที {int(ts_other%60)} วินาที"
+                                
+                            m_obj = guild.get_member(int(u_id))
+                            acc_age_str = "ไม่ทราบข้อมูลบัญชี"
+                            if m_obj:
+                                delta = discord.utils.utcnow() - m_obj.created_at
+                                days = delta.days
+                                if days >= 365:
+                                    acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
+                                elif days >= 30:
+                                    acc_age_str = f"{days // 30} เดือน"
+                                else:
+                                    acc_age_str = f"{days} วัน"
+                                    
+                            report_msg += f"คุณ {u_name} มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str} และในวันนี้เข้ามาใช้งานแล้วเป็นเวลา {time_speech_other} ครับ"
+                    else:
+                        report_msg += "ไม่พบผู้ใช้ใหม่เข้ามาครับ"
+                else:
+                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ไม่พบผู้ใช้ใหม่เข้ามาครับ"
+            except Exception as err:
+                print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
+                report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับพ้ม"
+            return report_msg
+
         if last_greeting_dates.get(greeting_key) != today:
             now_hour = datetime.now().hour
             time_greeting = ""
@@ -811,70 +878,31 @@ async def follow_creator_task():
                     f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงแล้วครับ ยินดีต้อนรับนะครับ!"
                 ]
                 
-            msg = random.choice(greetings)
+            msg = random.choice(greetings) + generate_report_speech(guild_to_join)
+            should_speak = True
             
-            try:
-                data = load_voice_data()
-                today_str = datetime.now().strftime("%Y-%m-%d")
-                
-                if data and data.get("date") == today_str and data.get("stats"):
-                    stats = data["stats"]
-                    sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)
-                    
-                    if sorted_stats:
-                        top_info = sorted_stats[0][1]
-                        top_name = top_info['name']
-                        ts = top_info['total_time']
-                        
-                        if ts >= 3600:
-                            time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
-                        else:
-                            time_speech = f"{int(ts//60)} นาที {int(ts%60)} วินาที"
-                            
-                        msg += f" สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ อันดับหนึ่งในตอนนี้คือคุณ {top_name} คุยนานที่สุด อยู่ที่ {time_speech} ครับ"
-                    
-                    other_users = [item for item in stats.items() if int(item[0]) not in ALLOWED_USERS]
-                    
-                    if other_users:
-                        msg += " และผมตรวจพบผู้ใช้รายอื่นที่เข้ามาใช้งานในวันนี้ด้วยครับ คือ "
-                        for u_id, info in other_users:
-                            u_name = info['name']
-                            ts_other = info['total_time']
-                            
-                            if ts_other >= 3600:
-                                time_speech_other = f"{int(ts_other//3600)} ชั่วโมง {int((ts_other%3600)//60)} นาที"
-                            else:
-                                time_speech_other = f"{int(ts_other//60)} นาที {int(ts_other%60)} วินาที"
-                                
-                            m_obj = guild_to_join.get_member(int(u_id))
-                            acc_age_str = "ไม่ทราบข้อมูลบัญชี"
-                            if m_obj:
-                                delta = discord.utils.utcnow() - m_obj.created_at
-                                days = delta.days
-                                if days >= 365:
-                                    acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
-                                elif days >= 30:
-                                    acc_age_str = f"{days // 30} เดือน"
-                                else:
-                                    acc_age_str = f"{days} วัน"
-                                    
-                            msg += f"คุณ {u_name} มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str} และในวันนี้เข้ามาใช้งานแล้วเป็นเวลา {time_speech_other} ครับ"
-                    else:
-                        msg += " กำลังตรวจสอบผู้ใช้ใหม่ ...สำเร็จ ไม่พบผู้ใช้ใหม่เข้ามาครับ"
-                        
-                else:
-                    msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ กำลังตรวจสอบผู้ใช้ใหม่ ...สำเร็จ ไม่พบผู้ใช้ใหม่เข้ามาครับ"
-            except Exception as stats_err:
-                print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะประมวลผลสถิติจาวิส: {stats_err}")
+            last_greeting_dates[greeting_key] = today
+            if both_present:
+                for uid in ALLOWED_USERS:
+                    last_greeting_dates[uid] = today
+            reported_guilds_today[guild_id] = today
 
+        elif reported_guilds_today.get(guild_id) != today:
+            if human_count <= 5:
+                msg = "รับทราบครับเมท ย้ายพิกัดตามมาสแตนด์บายแล้วครับ" + generate_report_speech(guild_to_join)
+                should_speak = True
+                reported_guilds_today[guild_id] = today
+            else:
+                print(f"DEBUG: [Bagley] เซิร์ฟเวอร์ใหม่แต่คนเยอะเกิน 5 คน ({human_count} คน) แบ็คลี่จะเงียบไว้เพื่อไม่ให้รบกวนครับ")
+                should_speak = False
+
+        else:
+            print(f"DEBUG: [Bagley] เซิร์ฟเวอร์นี้เคยรายงานไปแล้วในวันนี้ แบ็คลี่จะเปิดแค่เสียงโดรนคัปพ้ม")
+            should_speak = False
+
+        if should_speak and msg:
             try:
                 await bagley_speak_wait(guild_to_join, msg)
-                last_greeting_dates[greeting_key] = today
-                
-                if both_present:
-                    for uid in ALLOWED_USERS:
-                        last_greeting_dates[uid] = today
-                
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
@@ -2646,8 +2674,16 @@ async def on_voice_state_update(member, before, after):
         else:
             print(f"DEBUG: ข้ามการพูดรายงานในกิลด์ {guild_id} เนื่องจากเมทสั่ง 'ปิดรายงานห้องเสียง' ไว้ชั่วคราว")
 
+    # =========================================================
+    # ⏱️ ระบบบันทึกสถิติเวลา
+    # =========================================================
     user_id = str(member.id)
     today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if before.channel is None and after.channel is not None:
+        if user_id not in user_join_times:
+            user_join_times[user_id] = time.time()
+            print(f"DEBUG: [⏱️ ขาเข้า] เริ่มจับเวลาให้คุณ {member.display_name} เรียบร้อยครับเมท!")
 
     if before.channel is not None and after.channel is None:
         join_time = user_join_times.pop(user_id, None)
