@@ -715,7 +715,6 @@ async def follow_creator_task():
     if len(active_targets) == 1:
         target_member, target_channel, guild_to_join = active_targets[0]
     else:
-        # ⚖️ โหมดไม่ลำเอียง: อยู่เซิร์ฟเดียวกันแต่คนละห้องเสียง แบ็คลี่จะไม่เข้าห้องไหนเลย
         if active_targets[0][2].id == active_targets[1][2].id and active_targets[0][1].id != active_targets[1][1].id:
             print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เลือกข้างใครครับเมท!")
             
@@ -724,7 +723,7 @@ async def follow_creator_task():
                 try:
                     await voice_client.disconnect()
                     voice_report_status.pop(active_targets[0][2].id, None)
-                    bot_follow_targets[active_targets[0][2].id] = None # ล้างสมุดจดบันทึกการตาม
+                    bot_follow_targets[active_targets[0][2].id] = None 
                     print(f"DEBUG: ⚖️ ถอนกำลังออกจากห้องเดิมเรียบร้อย เพื่อความเท่าเทียมคัปพ้ม!")
                 except Exception as e:
                     print(f"❌ เกิดข้อผิดพลาดตอนสั่งบอทถอนกำลังโหมดไม่ลำเอียง: {e}")
@@ -832,11 +831,41 @@ async def follow_creator_task():
                         else:
                             time_speech = f"{int(ts//60)} นาที {int(ts%60)} วินาที"
                             
-                        msg += f" และสำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ อันดับหนึ่งในตอนนี้คือคุณ {top_name} คุยนานที่สุด อยู่ที่ {time_speech} แล้วครับเมท!"
+                        msg += f" สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ อันดับหนึ่งในตอนนี้คือคุณ {top_name} คุยนานที่สุด อยู่ที่ {time_speech} ครับ"
+                    
+                    other_users = [item for item in stats.items() if int(item[0]) not in ALLOWED_USERS]
+                    
+                    if other_users:
+                        msg += " และผมตรวจพบผู้ใช้รายอื่นที่เข้ามาใช้งานในวันนี้ด้วยครับ คือ "
+                        for u_id, info in other_users:
+                            u_name = info['name']
+                            ts_other = info['total_time']
+                            
+                            if ts_other >= 3600:
+                                time_speech_other = f"{int(ts_other//3600)} ชั่วโมง {int((ts_other%3600)//60)} นาที"
+                            else:
+                                time_speech_other = f"{int(ts_other//60)} นาที {int(ts_other%60)} วินาที"
+                                
+                            m_obj = guild_to_join.get_member(int(u_id))
+                            acc_age_str = "ไม่ทราบข้อมูลบัญชี"
+                            if m_obj:
+                                delta = discord.utils.utcnow() - m_obj.created_at
+                                days = delta.days
+                                if days >= 365:
+                                    acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
+                                elif days >= 30:
+                                    acc_age_str = f"{days // 30} เดือน"
+                                else:
+                                    acc_age_str = f"{days} วัน"
+                                    
+                            msg += f"คุณ {u_name} มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str} และในวันนี้เข้ามาใช้งานแล้วเป็นเวลา {time_speech_other} ครับ"
+                    else:
+                        msg += " กำลังตรวจสอบผู้ใช้ใหม่ ...สำเร็จ ไม่พบผู้ใช้ใหม่เข้ามาครับ"
+                        
                 else:
-                    msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับพ้ม!"
+                    msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ กำลังตรวจสอบผู้ใช้ใหม่ ...สำเร็จ ไม่พบผู้ใช้ใหม่เข้ามาครับ"
             except Exception as stats_err:
-                print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะพ่วงลอจิกสรุปสถิติจาวิส: {stats_err}")
+                print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะประมวลผลสถิติจาวิส: {stats_err}")
 
             try:
                 await bagley_speak_wait(guild_to_join, msg)
