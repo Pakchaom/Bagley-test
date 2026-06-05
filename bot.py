@@ -10,7 +10,7 @@ import sqlite3
 import asyncio
 from dotenv import load_dotenv
 from discord import app_commands
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
 from typing import Union, Optional
 import json
 import time
@@ -903,6 +903,44 @@ async def follow_creator_task():
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
+@tasks.loop(time=[dt_time(hour=0, minute=0), dt_time(hour=12, minute=0)])
+async def daily_announcement_task():
+    global last_greeting_dates, reported_guilds_today
+    
+    now = datetime.now()
+    if now.hour not in [0, 12]:
+        print(f"DEBUG: ⏰ ข้ามการแจ้งเตือนเนื่องจากเปิดบอทนอกเวลาเที่ยงคืน/เที่ยงวัน (เวลาปัจจุบัน: {now.strftime('%H:%M')})")
+        return
+
+    for voice_client in bot.voice_clients:
+        if voice_client and voice_client.channel:
+            
+            human_members = [m for m in voice_client.channel.members if not m.bot]
+            
+            if human_members:
+                
+                if now.hour == 0:
+                    quotes = [
+                        "ขณะนี้เวลา ศูนย์นาฬิกาตรงแล้ว เป็นอีกวันแล้วนะครับเมท นั่งยาวเลยน้าค้าบ!",
+                        "ขณะนี้เป็นตอนเช้าของวันใหม่แล้วนะครับ นี่คุณเล่นเกมข้ามวันเลยหรอครับเนี่ย? สุดยอดจริง ๆ เลยครับ!",
+                        "แจ้งเตือนเปลี่ยนระบบวันใหม่ครับพ้ม! เที่ยงคืนตรงเป๊ะ วันใหม่เริ่มขึ้นแล้ว แต่ยังไม่ยอมไปนอนกันเลยนะครับเนี่ย",
+                        "เข้าสู่วันใหม่เรียบร้อยครับเมท! สถิติเวลาของวันเก่าถูกเคลียร์แล้ว ใครอยากประเดิมเป็นที่หนึ่งของวันใหม่ ลุยต่อยาว ๆ เลยครับ"
+                    ]
+                
+                else:
+                    quotes = [
+                        "ขณะนี้เวลา 12 นาฬิกาตรง ได้เวลามื้อเที่ยงแล้วนะครับ อย่าลืมหาอะไรอร่อย ๆ ทานด้วยนะครับ",
+                        "เที่ยงตรงเป๊ะแล้วครับเมท! พักสายตาจากเกมแล้วไปเติมพลังมื้อเที่ยงกันก่อนดีกว่าครับ กองทัพต้องเดินด้วยท้องนะครับ",
+                        "ได้เวลามื้อเที่ยงแล้วนะครับ วางมือจากคีย์บอร์ดสักแป๊บ แล้วไปหาของอร่อย ๆ กินกันเถอะครับ"
+                    ]
+                
+                msg = random.choice(quotes)
+                try:
+                    await bagley_speak_wait(voice_client.guild, msg)
+                    print(f"DEBUG: ⏰ Bagley เปิดไมค์แจ้งเตือนรอบเวลา {now.strftime('%H:%M')} ในเซิร์ฟ {voice_client.guild.id} เรียบร้อยครับ")
+                except Exception as e:
+                    print(f"❌ เกิดข้อผิดพลาดตอนพูดแจ้งเตือนเวลา: {e}")
+
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
     
@@ -1362,6 +1400,10 @@ async def on_ready():
     if not follow_creator_task.is_running():
         follow_creator_task.start()
     print(f"Bagley พร้อมเป็นเงาติดตามตัวคุณชะอมและคุณชาช่าแล้วครับเมท!")
+
+    if not daily_announcement_task.is_running():
+        daily_announcement_task.start()
+    print("⏰ ระบบ daily_announcement_task เริ่มทำงานนับเวลาถอยหลังแล้วครับคัป")
 
 @bot.event
 async def on_message(message):
