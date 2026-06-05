@@ -804,7 +804,6 @@ async def follow_creator_task():
                 if data and data.get("date") == today_str and data.get("stats"):
                     stats = data["stats"]
                     guild_id_str = str(guild.id)
-                    
                     guild_stats = stats.get(guild_id_str, {})
                     
                     filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
@@ -837,10 +836,14 @@ async def follow_creator_task():
                                         acc_age_str = f"{days} วัน"
                                     report_msg += f" มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str}"
                             report_msg += " ครับพ้ม "
+                        
+                        other_users = [item for item in filtered_stats if int(item[0]) not in ALLOWED_USERS]
+                        if not other_users:
+                            report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
                     else:
-                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบข้อมูลสถิติของมนุษย์คนอื่นในเซิร์ฟเวอร์นี้วันนี้ครับ"
+                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
                 else:
-                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติบันทึกไว้ครับ"
+                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับพ้ม"
             except Exception as err:
                 print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
                 report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับพ้ม"
