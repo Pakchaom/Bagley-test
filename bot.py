@@ -803,49 +803,45 @@ async def follow_creator_task():
                 
                 if data and data.get("date") == today_str and data.get("stats"):
                     stats = data["stats"]
-                    sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)
+                    
+                    filtered_stats = [item for item in stats.items() if int(item[0]) != bot.user.id]
+                    
+                    sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)
                     
                     if sorted_stats:
-                        top_info = sorted_stats[0][1]
-                        top_name = top_info['name']
-                        ts = top_info['total_time']
+                        report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
                         
-                        if ts >= 3600:
-                            time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
-                        else:
-                            time_speech = f"{int(ts//60)} นาที {int(ts%60)} วินาที"
-                            
-                        report_msg += f" สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ อันดับหนึ่งในตอนนี้คือคุณ {top_name} คุยนานที่สุด อยู่ที่ {time_speech} ครับ"
-                    
-                    other_users = [item for item in stats.items() if int(item[0]) not in ALLOWED_USERS and int(item[0]) != bot.user.id]
-                    if other_users:
-                        report_msg += " และระบบตรวจพบผู้ใช้รายอื่นที่เข้ามาใช้งานในวันนี้ด้วยครับ คือ "
-                        for u_id, info in other_users:
+                        top_5 = sorted_stats[:5]
+                        
+                        for index, (u_id, info) in enumerate(top_5, 1):
                             u_name = info['name']
-                            ts_other = info['total_time']
+                            ts = info['total_time']
                             
-                            if ts_other >= 3600:
-                                time_speech_other = f"{int(ts_other//3600)} ชั่วโมง {int((ts_other%3600)//60)} นาที"
+                            if ts >= 3600:
+                                time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
                             else:
-                                time_speech_other = f"{int(ts_other//60)} นาที {int(ts_other%60)} วินาที"
+                                time_speech = f"{max(1, int(ts//60))} นาที" # หากไม่ถึงนาที ให้ปัดเป็น 1 นาทีเพื่อความสวยงามครับ
                                 
-                            m_obj = guild.get_member(int(u_id))
-                            acc_age_str = "ไม่ทราบข้อมูลบัญชี"
-                            if m_obj:
-                                delta = discord.utils.utcnow() - m_obj.created_at
-                                days = delta.days
-                                if days >= 365:
-                                    acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
-                                elif days >= 30:
-                                    acc_age_str = f"{days // 30} เดือน"
-                                else:
-                                    acc_age_str = f"{days} วัน"
+                            report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
+                            
+                            if int(u_id) not in ALLOWED_USERS:
+                                m_obj = guild.get_member(int(u_id))
+                                if m_obj:
+                                    delta = discord.utils.utcnow() - m_obj.created_at
+                                    days = delta.days
+                                    if days >= 365:
+                                        acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
+                                    elif days >= 30:
+                                        acc_age_str = f"{days // 30} เดือน"
+                                    else:
+                                        acc_age_str = f"{days} วัน"
+                                    report_msg += f" มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str}"
                                     
-                            report_msg += f"คุณ {u_name} มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str} และในวันนี้เข้ามาใช้งานแล้วเป็นเวลา {time_speech_other} ครับ"
+                            report_msg += " ครับพ้ม "
                     else:
-                        report_msg += "ไม่พบผู้ใช้ที่เข้ามาใหม่ครับ"
+                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบข้อมูลสถิติของมนุษย์คนอื่นในวันนี้ครับ"
                 else:
-                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ไม่พบผู้ใช้ที่เข้ามาใหม่ครับ"
+                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติบันทึกไว้ครับ"
             except Exception as err:
                 print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
                 report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับพ้ม"
@@ -1706,7 +1702,7 @@ async def on_message(message):
                 return
 
     # ==========================================
-    # 🔊 [ส่วนที่ 6: ระบบสรุปสถิติห้องเสียง]
+    # 🔊 [ส่วนที่ 6: ระบบสรุปสถิติห้องเสียง] (เวอร์ชันปรับปรุงเพื่อเมท!)
     # ==========================================
     if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
@@ -1725,14 +1721,26 @@ async def on_message(message):
                 return
 
             stats = data["stats"]
-            sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)[:15]
+            
+            filtered_stats = [item for item in stats.items() if int(item[0]) != bot.user.id]
+            
+            sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
+            
+            if not sorted_stats:
+                await message.reply("วันนี้ยังไม่มีสถิติของมนุษย์บันทึกไว้เลยครับเมท!")
+                return
             
             report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
             top_name = sorted_stats[0][1]['name']
             
             for i, (u_id, info) in enumerate(sorted_stats, 1):
                 ts = info['total_time']
-                time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที" if ts >= 3600 else f"{int(ts//60)}นาที {int(ts%60)}วิ"
+                
+                if ts >= 3600:
+                    time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
+                else:
+                    time_display = f"{max(1, int(ts//60))}นาที"
+                    
                 report += f"{i}. {info['name']}: {time_display}\n"
 
             await message.reply(report)
