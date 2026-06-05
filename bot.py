@@ -699,7 +699,7 @@ async def follow_creator_task():
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
             
-            if not auto_follow_status.get(user_id, True):
+            if not auto_follow_status.get(user_id, False):
                 continue
                 
             member = guild.get_member(user_id)
@@ -843,9 +843,9 @@ async def follow_creator_task():
                                     
                             report_msg += f"คุณ {u_name} มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str} และในวันนี้เข้ามาใช้งานแล้วเป็นเวลา {time_speech_other} ครับ"
                     else:
-                        report_msg += "ไม่พบผู้ใช้ใหม่เข้ามาครับ"
+                        report_msg += "ไม่พบผู้ใช้ที่เข้ามาใหม่ครับ"
                 else:
-                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ไม่พบผู้ใช้ใหม่เข้ามาครับ"
+                    report_msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ไม่พบผู้ใช้ที่เข้ามาใหม่ครับ"
             except Exception as err:
                 print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
                 report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับพ้ม"
@@ -872,10 +872,10 @@ async def follow_creator_task():
             else:
                 name_call = "คุณชะอม" if target_member.id == 1133740216822267954 else "คุณชาช่า"
                 greetings = [
-                    f"{time_greeting} {name_call} มาแล้วหรอครับเมท ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} {name_call} เพิ่งมาหรอครับเมท ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} {name_call} มีอะไรให้รับใช้มั้ยครับเมท ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} แอบมาส่อง {name_call} ในห้องเสียงแล้วครับ ยินดีต้อนรับนะครับ!"
+                    f"{time_greeting} มาแล้วหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} เพิ่งมาหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} {name_call} เจอกันครั้งแรกของวัน ยินดีต้อนรับนะครับ!",
+                    f"{time_greeting} พบสัญญานของ {name_call} แบ็คลี่ตามมาในห้องเสียงนะครับ ยินดีต้อนรับนะครับ!"
                 ]
                 
             msg = random.choice(greetings) + generate_report_speech(guild_to_join)
