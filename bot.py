@@ -815,6 +815,30 @@ async def follow_creator_task():
             msg = random.choice(greetings)
             
             try:
+                data = load_voice_data()
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                
+                if data and data.get("date") == today_str and data.get("stats"):
+                    stats = data["stats"]
+                    sorted_stats = sorted(stats.items(), key=lambda x: x[1]['total_time'], reverse=True)
+                    
+                    if sorted_stats:
+                        top_info = sorted_stats[0][1]
+                        top_name = top_info['name']
+                        ts = top_info['total_time']
+                        
+                        if ts >= 3600:
+                            time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
+                        else:
+                            time_speech = f"{int(ts//60)} นาที {int(ts%60)} วินาที"
+                            
+                        msg += f" และสำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ อันดับหนึ่งในตอนนี้คือคุณ {top_name} คุยนานที่สุด อยู่ที่ {time_speech} แล้วครับเมท!"
+                else:
+                    msg += " และดูเหมือนว่าพวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับพ้ม!"
+            except Exception as stats_err:
+                print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะพ่วงลอจิกสรุปสถิติจาวิส: {stats_err}")
+
+            try:
                 await bagley_speak_wait(guild_to_join, msg)
                 last_greeting_dates[greeting_key] = today
                 
