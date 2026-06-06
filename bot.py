@@ -886,7 +886,7 @@ async def follow_creator_task():
 
         elif reported_guilds_today.get(guild_id) != today:
             if human_count <= 5:
-                msg = "รับทราบครับเมท ย้ายพิกัดตามมาสแตนด์บายแล้วครับ" + generate_report_speech(guild_to_join)
+                msg = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
                 should_speak = True
                 reported_guilds_today[guild_id] = today
             else:
