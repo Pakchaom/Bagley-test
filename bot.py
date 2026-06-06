@@ -848,21 +848,27 @@ async def follow_creator_task():
                     report_msg += " ครับ "
                     
                     # ==========================================
-                    # 🔍 [จุดแก้ไข] ระบบตรวจสอบและขานชื่อคนเข้าดิสมาใหม่
+                    # 🔍 [แก้ไขลอจิก] เจาะลึก ตรวจสอบเฉพาะคนที่ "เข้าเซิฟใหม่ภายในวันนี้" จริงๆ
                     # ==========================================
-                    other_users = [item for item in filtered_stats if int(item[0]) not in ALLOWED_USERS]
+                    new_server_users = []
+                    for u_id, info in filtered_stats:
+                        member = guild.get_member(int(u_id))
+                        if member and member.joined_at:
+                            join_date_str = member.joined_at.astimezone().strftime("%Y-%m-%d")
+                            if join_date_str == today_str:
+                                new_server_users.append(member)
                     
-                    if not other_users:
-                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับ"
+                    if not new_server_users:
+                        report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ในวันนี้ครับ"
                     else:
+                        # 🔴 กรณีที่ 2: มีสมาชิกใหม่ซิงๆ เพิ่งเข้าเซิร์ฟมาวันนี้ และเข้ามาคุยในห้องเสียงด้วย
                         new_user_names = []
-                        for u_id, info in other_users:
-
-                            name_to_call = get_realtime_name(u_id, info['name'])
+                        for member in new_server_users:
+                            name_to_call = get_realtime_name(member.id, member.display_name)
                             new_user_names.append(f"คุณ {name_to_call}")
                         
                         names_str = " และ ".join(new_user_names)
-                        report_msg += f" ส่วนการตรวจสอบผู้ใช้ใหม่ วันนี้มีคุณ {names_str} เข้ามาในเซิฟด้วยนะครับ"
+                        report_msg += f" ส่วนการตรวจสอบผู้ใช้ใหม่ วันนี้พบสมาชิกใหม่ {names_str} ที่เพิ่งเข้าร่วมเซิร์ฟเวอร์ในวันนี้ เข้ามาร่วมแจมในห้องเสียงด้วยนะครับ"
                         
                 else:
                     report_msg += " และดูเหมือนว่าในเซิร์ฟเวอร์นี้ พวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติเวลาสะสมบันทึกไว้ และส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับ"
