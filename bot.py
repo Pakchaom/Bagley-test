@@ -3170,15 +3170,13 @@ async def clear_memory(ctx: commands.Context):
     else:
         await ctx.send(msg)
     
-    # รายงานตัวด้วยเสียงถ้าอยู่ในห้อง
     if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
         await bagley_speak(ctx.guild, "ล้างสมองสะอาดกริ๊บแล้วครับเมท!")
 
-@bot.hybrid_command(name="reg_config", description="ตั้งค่าคำถามเสริมและยศ (ระบบจะถามชื่อเป็นข้อแรกให้เอง)")
+@bot.hybrid_command(name="reg_config", description="ตั้งค่าระบบรับยศลงทะเบียน (ล็อกคำถามชื่อเล่นและวันเกิดให้อัตโนมัติ)")
 @app_commands.checks.has_permissions(administrator=True)
-async def reg_config(ctx: commands.Context, role: discord.Role, other_questions: str):
-    # บังคับเพิ่มคำถามชื่อเข้าไปเป็นข้อแรกใน Database
-    final_questions = "ชื่อเล่นของคุณคืออะไร?|" + other_questions
+async def reg_config(ctx: commands.Context, role: discord.Role):
+    final_questions = "ชื่อเล่นของคุณคืออะไร?|วันเกิดของคุณคือวันที่เท่าไหร่? (วว/ดด)"
     
     global conn
     c = conn.cursor()
@@ -3186,54 +3184,31 @@ async def reg_config(ctx: commands.Context, role: discord.Role, other_questions:
               (ctx.guild.id, final_questions, role.id))
     conn.commit()
     
-    await ctx.send(f"✅ ตั้งค่าระบบลงทะเบียนเรียบร้อย!\n- บอทจะถาม 'ชื่อเล่น' เป็นอย่างแรกเสมอ\n- ตามด้วยคำถามของคุณ: {other_questions.replace('|', ', ')}")
+    await ctx.send(
+        f"✅ **ตั้งค่าระบบลงทะเบียนเรียบร้อยครับแอดมิน!**\n"
+        f"• ยศที่จะมอบให้เมื่อลงทะเบียนสำเร็จ: **{role.name}** ({role.mention})\n"
+        f"• ระบบฟอร์มป๊อปอัปจะล็อกคำถาม 2 ช่องให้สมาชิกอัตโนมัติ:\n"
+        f"  1. ช่องกรอกชื่อเล่น (สำหรับเซฟลงคลังความจำขานชื่อสถิติ)\n"
+        f"  2. ช่องกรอกวันเกิด (วว/ดด)\n\n"
+        f"*(ตอนนี้สมาชิกในเซิร์ฟเวอร์สามารถพิมพ์ `/register` เพื่อเปิดป๊อปอัปกรอกข้อมูลได้ทันทีเลยครับพ้ม!)*"
+    )
 
-@bot.hybrid_command(name="register", description="ลงทะเบียนเข้าสู่ระบบและรับยศ")
+@bot.hybrid_command(name="register", description="ลงทะเบียนเข้าสู่ระบบและรับยศด้วยป๊อปอัปฟอร์ม")
 async def register(ctx: commands.Context):
+    if not ctx.interaction:
+        return await ctx.send("❌ คำสั่งลงทะเบียนเวอร์ชันใหม่ ต้องพิมพ์เรียกใช้งานผ่านสแลชคอมมานด์ `/register` เท่านั้นครับเมท! (พิมพ์ปกติบอทจะเปิดหน้าต่างป๊อปอัปให้ไม่ได้คัปพ้ม)")
+
     global conn
     c = conn.cursor()
-    c.execute('SELECT questions, target_role_id FROM registration_settings WHERE guild_id = ?', (ctx.guild.id,))
+    c.execute('SELECT target_role_id FROM registration_settings WHERE guild_id = ?', (ctx.guild.id,))
     config = c.fetchone()
 
     if not config:
         return await ctx.send("❌ แอดมินยังไม่ได้ตั้งค่าระบบเลยครับ!")
 
-    question_list = config[0].split("|")
-    target_role_id = config[1]
-    answers = []
-
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
-
-    # วนลูปถามคำถามตามที่ตั้งไว้ใน Discord
-    for q_text in question_list:
-        prompt = await ctx.send(f"❓ {q_text}")
-        try:
-            msg = await bot.wait_for('message', timeout=120.0, check=check)
-            answers.append(msg.content)
-            await msg.delete()
-            await prompt.delete()
-        except asyncio.TimeoutError:
-            return await ctx.send("รอนานไปหน่อยนะ ยกเลิกนะครับ!", delete_after=5)
-
-    # มอบยศที่ตั้งค่าไว้
-    if answers:
-        new_nickname = answers[0] # คำตอบแรก (ชื่อเล่น)
-        role = ctx.guild.get_role(target_role_id)
-        
-        try:
-            # เปลี่ยนชื่อเล่น
-            await ctx.author.edit(nick=new_nickname)
-            # มอบยศ
-            if role:
-                await ctx.author.add_roles(role)
-            
-            await ctx.send(f"🎉 ยินดีต้อนรับคุณ **{new_nickname}**! ลงทะเบียนและมอบยศ {role.name if role else ''} เรียบร้อยครับเมท!")
-            await bagley_speak(ctx.guild, f"ยินดีต้อนรับสมาชิกใหม่ คุณ {new_nickname} ครับ")
-        except discord.Forbidden:
-            await ctx.send("❌ ผมเปลี่ยนชื่อหรือให้ยศไม่ได้! (ตรวจสอบลำดับ Role ของผมด้วยครับ)")
-        except Exception as e:
-            await ctx.send(f"⚠️ เกิดข้อผิดพลาด: {e}")
+    target_role_id = config[0]
+    
+    await ctx.interaction.response.send_modal(RegisterModal(target_role_id=target_role_id))
 
 @bot.hybrid_command(name="kick_voice", description="เตะสมาชิกออกจากห้องเสียง")
 async def kick_voice(ctx, member: discord.Member):
@@ -3399,36 +3374,57 @@ class RoleSelectView(discord.ui.View):
 # 📑 [ส่วนเสริม: กล่องข้อความ Modal สำหรับลงทะเบียน]
 # ==========================================
 class RegisterModal(discord.ui.Modal):
-    def __init__(self, questions: list, target_role_id: int):
-        super().__init__(title="ฟอร์มลงทะเบียนรับยศ")
+    def __init__(self, target_role_id: int):
+        super().__init__(title="ฟอร์มลงทะเบียนประวัติกับ Bagley")
         self.target_role_id = target_role_id
-        self.inputs = []
-
-        for i, q_text in enumerate(questions[:5]):
-            label_text = f"❓ {q_text}"[:45]
-            
-            text_input = discord.ui.TextInput(
-                label=label_text,
-                placeholder="กรุณาพิมพ์คำตอบของคุณที่นี่...",
-                required=True,
-                custom_id=f"register_q_{i}"
-            )
-            self.add_item(text_input)
-            self.inputs.append(text_input)
+        
+        self.nickname_input = discord.ui.TextInput(
+            label="ชื่อเล่นของคุณ (สำหรับให้บอทเรียกและบันทึก)",
+            placeholder="กรุณาพิมพ์ชื่อเล่นของคุณที่นี่...",
+            required=True,
+            max_length=20
+        )
+        self.birthday_input = discord.ui.TextInput(
+            label="วันเกิดของคุณ (รูปแบบ วัน/เดือน เช่น 25/12)",
+            placeholder="วว/ดด (เช่น 07/06 หรือ 14/02) หรือเว้นว่างไว้ก็ได้คัป",
+            required=False,
+            max_length=5
+        )
+        
+        self.add_item(self.nickname_input)
+        self.add_item(self.birthday_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
-        answers = [item.value for item in self.inputs]
-        if not answers:
-            await interaction.followup.send("❌ ไม่พบข้อมูลการกรอกคำตอบครับพ้ม", ephemeral=True)
-            return
+        new_nickname = self.nickname_input.value.strip()
+        birthday = self.birthday_input.value.strip() or "ยังไม่ระบุ"
 
-        new_nickname = answers[0]
         guild = interaction.guild
         member = interaction.user
         role = guild.get_role(int(self.target_role_id))
 
+        # ==========================================
+        # 🧠 [เชื่อมระบบ] บันทึกข้อมูลลงคลัง "จำไว้ว่า" เล่มหลัก (JSON)
+        # ==========================================
+        try:
+            data_memory = load_user_data() # เปิดสมุดเล่มเดียวกับคำสั่งจำไว้ว่า
+            user_id = str(member.id)
+            
+            if user_id not in data_memory or not isinstance(data_memory[user_id], dict):
+                data_memory[user_id] = {}
+                
+            data_memory[user_id]["nickname"] = new_nickname
+            data_memory[user_id]["birthday"] = birthday
+            
+            save_user_data(data_memory) # เซฟปิดสมุดลงไฟล์ JSON
+            print(f"DEBUG: [Register] ซิงค์ข้อมูล {new_nickname} และวันเกิด {birthday} ลงคลังหลักเรียบร้อย!")
+        except Exception as e_db:
+            print(f"❌ เกิดข้อผิดพลาดขณะเซฟลงฐานข้อมูลหลัก JSON: {e_db}")
+
+        # ==========================================
+        # 👑 [มอบยศตำแหน่ง + เปลี่ยนชื่อแสดงผลในดิสคอร์ด]
+        # ==========================================
         try:
             await member.edit(nick=new_nickname)
             
@@ -3436,7 +3432,11 @@ class RegisterModal(discord.ui.Modal):
                 await member.add_roles(role)
             
             await interaction.followup.send(
-                f"🎉 ยินดีต้อนรับคุณ **{new_nickname}**! ลงทะเบียนและมอบยศ {role.name if role else ''} เรียบร้อยครับเมท!", 
+                f"🎉 **แบ็คลี่ดำเนินการลงทะเบียนเสร็จสรรพเรียบร้อยครับเมท!**\n"
+                f"• เปลี่ยนชื่อในดิสคอร์ดเป็น: **{new_nickname}**\n"
+                f"• บันทึกวันเกิดลงคลังสมองกล: **{birthday}**\n"
+                f"• มอบยศตำแหน่ง: **{role.name if role else 'ไม่พบยศ'}** เรียบร้อยครับพ้ม!\n\n"
+                f"*(วันหลังหากอยากแก้ไขชื่อเล่นหรือวันเกิด สามารถพิมพ์ `/register` เพื่ออัปเดตใหม่ได้ตลอดเวลาเลยน้า)*", 
                 ephemeral=True
             )
             
