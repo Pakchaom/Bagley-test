@@ -796,13 +796,28 @@ async def follow_creator_task():
         msg = ""
 
         user_memory = load_user_data()
-        def get_realtime_name(uid, default):
-            mem = user_memory.get(str(uid))
-            if mem and isinstance(mem, dict):
-                name = mem.get("nickname", default)
-            else:
-                name = mem if mem else default
-            return default if name == "ยังไม่ระบุ" else name
+        def get_realtime_name(user_id, default_name):
+            """
+            ฟังก์ชันดึงชื่อเล่นตามลำดับความสำคัญ: 
+            1. ชื่อที่คุณชะอมตั้งให้ (admin_nickname) 
+            2. ชื่อที่เจ้าตัวตั้งเอง (nickname) 
+            3. ชื่อดิสคอร์ดปกติ (default_name)
+            """
+            try:
+                user_memory = load_user_data()
+                mem = user_memory.get(str(user_id))
+                
+                if mem and isinstance(mem, dict):
+                    if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
+                        return mem.get("admin_nickname")
+                        
+                    if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
+                        return mem.get("nickname")
+                        
+            except Exception as e:
+                print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
+                
+            return default_name
 
         def generate_report_speech(guild):
             report_msg = ""
@@ -3404,11 +3419,8 @@ class RegisterModal(discord.ui.Modal):
         member = interaction.user
         role = guild.get_role(int(self.target_role_id))
 
-        # ==========================================
-        # 🧠 [เชื่อมระบบ] บันทึกข้อมูลลงคลัง "จำไว้ว่า" เล่มหลัก (JSON)
-        # ==========================================
         try:
-            data_memory = load_user_data() # เปิดสมุดเล่มเดียวกับคำสั่งจำไว้ว่า
+            data_memory = load_user_data() 
             user_id = str(member.id)
             
             if user_id not in data_memory or not isinstance(data_memory[user_id], dict):
@@ -3417,7 +3429,7 @@ class RegisterModal(discord.ui.Modal):
             data_memory[user_id]["nickname"] = new_nickname
             data_memory[user_id]["birthday"] = birthday
             
-            save_user_data(data_memory) # เซฟปิดสมุดลงไฟล์ JSON
+            save_user_data(data_memory) 
             print(f"DEBUG: [Register] ซิงค์ข้อมูล {new_nickname} และวันเกิด {birthday} ลงคลังหลักเรียบร้อย!")
         except Exception as e_db:
             print(f"❌ เกิดข้อผิดพลาดขณะเซฟลงฐานข้อมูลหลัก JSON: {e_db}")
