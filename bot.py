@@ -806,17 +806,13 @@ async def follow_creator_task():
             try:
                 user_memory = load_user_data()
                 mem = user_memory.get(str(user_id))
-                
                 if mem and isinstance(mem, dict):
                     if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
                         return mem.get("admin_nickname")
-                        
                     if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
                         return mem.get("nickname")
-                        
             except Exception as e:
                 print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
-                
             return default_name
 
         def generate_report_speech(guild):
@@ -838,18 +834,13 @@ async def follow_creator_task():
                     for index, (u_id, info) in enumerate(sorted_stats, 1):
                         u_name = get_realtime_name(u_id, info['name'])
                         ts = info['total_time']
-                        
                         if ts >= 3600:
                             time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
                         else:
                             time_speech = f"{max(1, int(ts//60))} นาที"
-                            
                         report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
                     report_msg += " ครับ "
                     
-                    # ==========================================
-                    # 🔍 [แก้ไขลอจิก] เจาะลึก ตรวจสอบเฉพาะคนที่ "เข้าเซิฟใหม่ภายในวันนี้" จริงๆ
-                    # ==========================================
                     new_server_users = []
                     for u_id, info in filtered_stats:
                         member = guild.get_member(int(u_id))
@@ -861,57 +852,22 @@ async def follow_creator_task():
                     if not new_server_users:
                         report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ในวันนี้ครับ"
                     else:
-                        # 🔴 กรณีที่ 2: มีสมาชิกใหม่ซิงๆ เพิ่งเข้าเซิร์ฟมาวันนี้ และเข้ามาคุยในห้องเสียงด้วย
                         new_user_names = []
                         for member in new_server_users:
                             name_to_call = get_realtime_name(member.id, member.display_name)
                             new_user_names.append(f"คุณ {name_to_call}")
-                        
                         names_str = " และ ".join(new_user_names)
                         report_msg += f" ส่วนการตรวจสอบผู้ใช้ใหม่ วันนี้พบสมาชิกใหม่ {names_str} ที่เพิ่งเข้าร่วมเซิร์ฟเวอร์ในวันนี้ เข้ามาร่วมแจมในห้องเสียงด้วยนะครับ"
-                        
                 else:
                     report_msg += " และดูเหมือนว่าในเซิร์ฟเวอร์นี้ พวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติเวลาสะสมบันทึกไว้ และส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับ"
-                    
             except Exception as err:
                 print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
                 report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับ"
             return report_msg
 
-        if last_greeting_dates.get(greeting_key) != today:
-            now_hour = datetime.now().hour
-            time_greeting = ""
-            if 0 <= now_hour < 13:
-                time_greeting = "อรุณสวัสดิ์ครับ "
-            elif 13 <= now_hour < 14:
-                time_greeting = "สวัสดีตอนบ่ายครับ "
-            elif 14 <= now_hour < 19:
-                time_greeting = "สวัสดีตอนเย็นครับ "
-            elif 19 <= now_hour <= 23:
-                time_greeting = "สวัสดีตอนกลางคืนครับ "
-
-            chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
-            
-            other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
-            chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
-
-            if both_present:
-                greetings = [
-                    f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่รายงานตัวค้าบผม!",
-                    f"{time_greeting} แอบมาตั้งตี้คุยอะไรกันสองคนฮะ {chaom_name}กับ{chacha_name} ขอแบ็คลี่ร่วมวงด้วยนะครับ!",
-                    f"{time_greeting} ตรวจพบสัญญาณของ{chaom_name}กับ{chacha_name}อยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
-                ]
-            else:
-                name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
-                greetings = [
-                    f"{time_greeting} มาแล้วหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} เพิ่งมาหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} {name_call} เจอกันครั้งแรกของวัน ยินดีต้อนรับนะครับ!",
-                    f"{time_greeting} พบสัญญานของ {name_call} แบ็คลี่ตามมาในห้องเสียงนะครับ ยินดีต้อนรับนะครับ!"
-                ]
-                
-            msg = random.choice(greetings) + generate_report_speech(guild_to_join)
-            should_speak = True
+        if human_count > 5:
+            print(f"DEBUG: [⚖️ โหมดเซฟโซน] คนเยอะเกิน 5 คน ({human_count} คน) แบ็คลี่จะเล่นแค่เสียงโดรนแล้วเงียบปากไว้ครับคัปพ้ม!")
+            should_speak = False
             
             last_greeting_dates[greeting_key] = today
             if both_present:
@@ -919,18 +875,53 @@ async def follow_creator_task():
                     last_greeting_dates[uid] = today
             reported_guilds_today[guild_id] = today
 
-        elif reported_guilds_today.get(guild_id) != today:
-            if human_count <= 5:
+        else:
+            if last_greeting_dates.get(greeting_key) != today:
+                now_hour = datetime.now().hour
+                time_greeting = ""
+                if 0 <= now_hour < 13:
+                    time_greeting = "อรุณสวัสดิ์ครับ "
+                elif 13 <= now_hour < 14:
+                    time_greeting = "สวัสดีตอนบ่ายครับ "
+                elif 14 <= now_hour < 19:
+                    time_greeting = "สวัสดีตอนเย็นครับ "
+                elif 19 <= now_hour <= 23:
+                    time_greeting = "สวัสดีตอนกลางคืนครับ "
+
+                chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
+                other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
+                chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
+
+                if both_present:
+                    greetings = [
+                        f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่รายงานตัวค้าบผม!",
+                        f"{time_greeting} แอบมาตั้งตี้คุยอะไรกันสองคนฮะ {chaom_name}กับ{chacha_name} ขอแบ็คลี่ร่วมวงด้วยนะครับ!",
+                        f"{time_greeting} ตรวจพบสัญญาณของ{chaom_name}กับ{chacha_name}อยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
+                    ]
+                else:
+                    name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
+                    greetings = [
+                        f"{time_greeting} มาแล้วหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
+                        f"{time_greeting} เพิ่งมาหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
+                        f"{time_greeting} {name_call} เจอกันครั้งแรกของวัน ยินดีต้อนรับนะครับ!",
+                        f"{time_greeting} พบสัญญานของ {name_call} แบ็คลี่ตามมาในห้องเสียงนะครับ ยินดีต้อนรับนะครับ!"
+                    ]
+                    
+                msg = random.choice(greetings) + generate_report_speech(guild_to_join)
+                should_speak = True
+                
+                last_greeting_dates[greeting_key] = today
+                if both_present:
+                    for uid in ALLOWED_USERS:
+                        last_greeting_dates[uid] = today
+                reported_guilds_today[guild_id] = today
+
+            elif reported_guilds_today.get(guild_id) != today:
                 msg = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
                 should_speak = True
                 reported_guilds_today[guild_id] = today
             else:
-                print(f"DEBUG: [Bagley] เซิร์ฟเวอร์ใหม่แต่คนเยอะเกิน 5 คน ({human_count} คน) แบ็คลี่จะเงียบไว้เพื่อไม่ให้รบกวนครับ")
                 should_speak = False
-
-        else:
-            print(f"DEBUG: [Bagley] เซิร์ฟเวอร์นี้เคยรายงานไปแล้วในวันนี้ แบ็คลี่จะเปิดแค่เสียงโดรนคัปพ้ม")
-            should_speak = False
 
         if should_speak and msg:
             try:
