@@ -865,7 +865,7 @@ async def follow_creator_task():
                 report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับ"
             return report_msg
 
-        if human_count > 5:
+        if human_count >= 5:
             print(f"DEBUG: [⚖️ โหมดเซฟโซน] คนเยอะเกิน 5 คน ({human_count} คน) แบ็คลี่จะเล่นแค่เสียงโดรนแล้วเงียบปากไว้ครับคัปพ้ม!")
             should_speak = False
             
@@ -2673,13 +2673,13 @@ async def on_voice_state_update(member, before, after):
                 # ==========================================
                 remaining_humans = len([m for m in bot_channel.members if not m.bot])
                 
-                if remaining_humans <= 5:
+                if remaining_humans <= 4:
                     print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง คนเหลือน้อย ({remaining_humans} คน) แบ็คลี่จะพูดบอกลาก่อนออกคัป")
                     exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
                     await bagley_speak_wait(member.guild, exit_msg)
                 else:
-                    # 🔴 คนเยอะเกิน 5 คน -> ออกไปเฉย ๆ เงียบ ๆ เลย
-                    print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง แต่คนยังอยู่เยอะ ({remaining_humans} คน) แบ็คลี่จะกดตัดสายออกแบบเงียบที่สุดคัปพ้ม")
+                    # 🔴 คนเยอะเกิน 3 คน -> ออกไปเฉย ๆ เงียบ ๆ เลย
+                    print(f"DEBUG: คนยังอยู่กันเยอะ ({remaining_humans} คน) แบ็คลี่จะวาร์ปออกแบบเงียบเชียบครับเมท")
                 
                 try:
                     await voice_client.disconnect()
