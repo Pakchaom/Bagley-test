@@ -604,7 +604,7 @@ async def check_reminders():
                             break
                     
                     if member:
-                        bot.loop.create_task(bagley_alert(member.voice.channel, content))
+                        bot.loop.create_task(bagley_speak(member.voice.channel.guild, content))
                     else:
                         try:
                             await user.send(f"🔔 สวัสดีครับเมท! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
@@ -651,13 +651,13 @@ async def check_friend_reminders():
                     
                     if member:
                         # สั่งให้ Bagley วาร์ปบุกห้องเสียงเพื่อน
-                        bot.loop.create_task(bagley_hijack_alert(member.voice.channel, content))
+                        bot.loop.create_task(bagley_speak(member.voice.channel.guild, content))
                     else:
                         # ส่ง DM ปกติถ้าเพื่อนไม่ได้เข้าห้องเสียงไหนเลย
                         alert_msg = f"⏰ **สวัสดีครับ ผม Bagley ครับ! มาแจ้งเตือนว่า: {content} ตอนเวลา {now}**"
                         await user.send(alert_msg)
                 
-                has_changed = True  # ส่งสัญญาณให้บันทึกไฟล์ใหม่ คัดเอารายการนี้ออกจากฐานข้อมูลเลย
+                has_changed = True
             except Exception as e:
                 print(f"Error sending friend reminder: {e}")
                 updated_reminders.append(rem)  # เกิดข้อผิดพลาด ให้เก็บรายการนี้ไว้ก่อน
@@ -831,12 +831,11 @@ async def follow_creator_task():
                     guild_stats = data["stats"].get(guild_id_str, {})
                 
                 filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
-                sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
+                sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:3]
                 
                 if sorted_stats:
                     report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
                     for index, (u_id, info) in enumerate(sorted_stats, 1):
-                        # 📌 ใช้ชื่อเล่นล่าสุดในการอ่านรายงานเสียง
                         u_name = get_realtime_name(u_id, info['name'])
                         ts = info['total_time']
                         
@@ -846,24 +845,25 @@ async def follow_creator_task():
                             time_speech = f"{max(1, int(ts//60))} นาที"
                             
                         report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
-                        
-                        if int(u_id) not in ALLOWED_USERS:
-                            m_obj = guild.get_member(int(u_id))
-                            if m_obj:
-                                delta = discord.utils.utcnow() - m_obj.created_at
-                                days = delta.days
-                                if days >= 365:
-                                    acc_age_str = f"{days // 365} ปี กับอีก {int((days % 365) // 30)} เดือน"
-                                elif days >= 30:
-                                        acc_age_str = f"{days // 30} เดือน"
-                                else:
-                                    acc_age_str = f"{days} วัน"
-                                report_msg += f" มีอายุการใช้งานดิสคอร์ดมาแล้ว {acc_age_str}"
-                        report_msg += " ครับ "
+                    report_msg += " ครับ "
                     
+                    # ==========================================
+                    # 🔍 [จุดแก้ไข] ระบบตรวจสอบและขานชื่อคนเข้าดิสมาใหม่
+                    # ==========================================
                     other_users = [item for item in filtered_stats if int(item[0]) not in ALLOWED_USERS]
+                    
                     if not other_users:
                         report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับ"
+                    else:
+                        new_user_names = []
+                        for u_id, info in other_users:
+
+                            name_to_call = get_realtime_name(u_id, info['name'])
+                            new_user_names.append(f"คุณ {name_to_call}")
+                        
+                        names_str = " และ ".join(new_user_names)
+                        report_msg += f" ส่วนการตรวจสอบผู้ใช้ใหม่ วันนี้มีคุณ {names_str} เข้ามาในเซิฟด้วยนะครับ"
+                        
                 else:
                     report_msg += " และดูเหมือนว่าในเซิร์ฟเวอร์นี้ พวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติเวลาสะสมบันทึกไว้ และส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับ"
                     
@@ -1777,6 +1777,7 @@ async def on_message(message):
     # 🔊 [ส่วนที่ 6: ระบบสรุปสถิติห้องเสียง] (เวอร์ชันปรับปรุงเพื่อเมท!)
     # ==========================================
     if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
+        # 🟢 ทุกบรรทัดด้านล่างนี้ถูกขยับย่อหน้าเข้ามาอยู่ใต้เงื่อนไข if เรียบร้อยแล้วครับ!
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
         is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
         
@@ -1797,6 +1798,7 @@ async def on_message(message):
             
             guild_stats = stats.get(guild_id_str, {})
             filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
+            
             sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
             
             if not sorted_stats:
@@ -1804,31 +1806,33 @@ async def on_message(message):
                 return
             
             user_memory = load_user_data()
+            
             def get_realtime_name(uid, default):
                 mem = user_memory.get(str(uid))
                 if mem and isinstance(mem, dict):
-                    name = mem.get("nickname", default)
-                else:
-                    name = mem if mem else default
-                return default if name == "ยังไม่ระบุ" else name
+                    if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
+                        return mem.get("admin_nickname")
+                    if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
+                        return mem.get("nickname")
+                return default
 
-            report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
-            top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
+        report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
+        top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
+        
+        for i, (u_id, info) in enumerate(sorted_stats, 1):
+            ts = info['total_time']
+            if ts >= 3600:
+                time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
+            else:
+                time_display = f"{max(1, int(ts//60))}นาที"
             
-            for i, (u_id, info) in enumerate(sorted_stats, 1):
-                ts = info['total_time']
-                if ts >= 3600:
-                    time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
-                else:
-                    time_display = f"{max(1, int(ts//60))}นาที"
-                
-                display_name = get_realtime_name(u_id, info['name'])
-                report += f"{i}. {display_name}: {time_display}\n"
+            display_name = get_realtime_name(u_id, info['name'])
+            report += f"{i}. {display_name}: {time_display}\n"
 
-            await message.reply(report)
-            if message.guild.voice_client:
-                await bagley_speak(message.guild, f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
-            return
+        await message.reply(report)
+        if message.guild.voice_client:
+            await bagley_speak(message.guild, f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
+        return
 
     # ==========================================
     # 🔇 [ส่วนที่ 7: ระบบเปิด/ปิดรายงานห้องเสียง - ปรับปรุงความแม่นยำ]
@@ -3896,7 +3900,7 @@ async def profile_scan(ctx, member: discord.Member):
 - วันเกิดในคลังสมอง: {birthday}
 - ยศสูงสุด (Top Role): {top_role}
 - อายุบัญชีดิสคอร์ด: {account_age_days} วัน
-- ระยะเวลาที่อยู่ในเซิร์ฟนี้: {days_joined_at if 'days_joined_at' in locals() else days_since_joined} วัน
+- ระยะเวลาที่อยู่ในเซิร์ฟนี้: {days_since_joined} วัน
 - กิจกรรมที่กำลังทำ: {current_game}
 - สิ่งที่กำลังทำอื่น ๆ: {', '.join(activities) if activities else 'ใช้ชีวิตลึกลับ ไร้ร่องรอยดิจิทัลค้างคา'}
 
