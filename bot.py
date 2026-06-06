@@ -2674,12 +2674,21 @@ async def on_voice_state_update(member, before, after):
                 print(f"DEBUG: 📌 เจ้านาย {calling_name} ออกจากห้อง แต่แบ็คลี่ติดเปิดเพลงอยู่! แปะโน้ตรอเคลียร์ตอนเพลงจบครับ")
             
             else:
-                print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง บอทจะพูดบอกลาแล้ววาร์ปออกตามทันที!")
                 bot_follow_targets[guild_id] = None
                 has_followed_out = True 
                 
-                exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
-                await bagley_speak_wait(member.guild, exit_msg)
+                # ==========================================
+                # 🔍 [เพิ่มลอจิก] เช็กจำนวนมนุษย์ที่เหลืออยู่ในห้องเสียง (ไม่นับบอท)
+                # ==========================================
+                remaining_humans = len([m for m in bot_channel.members if not m.bot])
+                
+                if remaining_humans <= 5:
+                    print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง คนเหลือน้อย ({remaining_humans} คน) แบ็คลี่จะพูดบอกลาก่อนออกคัป")
+                    exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
+                    await bagley_speak_wait(member.guild, exit_msg)
+                else:
+                    # 🔴 คนเยอะเกิน 5 คน -> ออกไปเฉย ๆ เงียบ ๆ เลย
+                    print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง แต่คนยังอยู่เยอะ ({remaining_humans} คน) แบ็คลี่จะกดตัดสายออกแบบเงียบที่สุดคัปพ้ม")
                 
                 try:
                     await voice_client.disconnect()
@@ -2687,7 +2696,7 @@ async def on_voice_state_update(member, before, after):
                 except Exception as e:
                     print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายตามเจ้านาย: {e}")
 
-    # 🧹 [ส่วนที่ 1] จัดการเก็บกวาด "ห้องปาร์ตี้สร้างเอง" (รันเฉพาะตอนไม่ใช่กรณีเจ้านายเดินหนี)
+    # 🧹 [ส่วนที่ 1] จัดการเก็บกวาด "ห้องปาร์ตี้สร้างเอง"
     if not has_followed_out and before.channel is not None:
         channel_to_check = before.channel
         is_empty_or_only_bot = (len(channel_to_check.members) == 0) or \
@@ -2706,7 +2715,7 @@ async def on_voice_state_update(member, before, after):
             except Exception as e:
                 print(f"❌ ลบห้องไม่ได้: {e}")
 
-    # 🚶‍♂️ [ส่วนที่ 2] ออกจาก "ห้องทั่วไป" เมื่อไม่มีคนอยู่กับบอท (Auto-Leave ยามปกติ)
+    # 🚶‍♂️ [ส่วนที่ 2] ออกจาก "ห้องทั่วไป" เมื่อไม่มีคนอยู่กับบอท
     if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
         if len(bot_channel.members) == 1 and bot.user in bot_channel.members:
@@ -2801,9 +2810,8 @@ async def on_voice_state_update(member, before, after):
                 
             guild_stats = stats[guild_id_str]
             if user_id not in guild_stats:
-                # 🧠 ไปเปิดคลังสมองกลดึงชื่อที่เมทเคยสั่ง "จำไว้ว่า" มาใช้บันทึกในระบบสถิติ
                 data_memory = load_user_data()
-                special_info = data_memory.get(user_id) # user_id เป็น string อยู่แล้วครับ
+                special_info = data_memory.get(user_id)
                 
                 if special_info and isinstance(special_info, dict):
                     saved_name = special_info.get("nickname", member.display_name)
