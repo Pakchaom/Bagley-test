@@ -795,6 +795,15 @@ async def follow_creator_task():
         should_speak = False
         msg = ""
 
+        user_memory = load_user_data()
+        def get_realtime_name(uid, default):
+            mem = user_memory.get(str(uid))
+            if mem and isinstance(mem, dict):
+                name = mem.get("nickname", default)
+            else:
+                name = mem if mem else default
+            return default if name == "ยังไม่ระบุ" else name
+
         def generate_report_speech(guild):
             report_msg = ""
             try:
@@ -807,13 +816,13 @@ async def follow_creator_task():
                     guild_stats = data["stats"].get(guild_id_str, {})
                 
                 filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
-                
                 sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
                 
                 if sorted_stats:
                     report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
                     for index, (u_id, info) in enumerate(sorted_stats, 1):
-                        u_name = info['name']
+                        # 📌 ใช้ชื่อเล่นล่าสุดในการอ่านรายงานเสียง
+                        u_name = get_realtime_name(u_id, info['name'])
                         ts = info['total_time']
                         
                         if ts >= 3600:
@@ -860,14 +869,19 @@ async def follow_creator_task():
             elif 19 <= now_hour <= 23:
                 time_greeting = "สวัสดีตอนกลางคืนครับ "
 
+            chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
+            
+            other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
+            chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
+
             if both_present:
                 greetings = [
-                    f"{time_greeting} คุณชะอมและคุณชาช่า! แบ็คลี่รายงานตัวค้าบผม!",
-                    f"{time_greeting} แอบมาตั้งตี้คุยอะไรกันสองคนฮะ คุณชะอมกับคุณชาช่า ขอแบ็คลี่ร่วมวงด้วยนะครับ!",
-                    f"{time_greeting} ตรวจพบสัญญาณของคุณชะอมกับคุณชาช่าอยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
+                    f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่รายงานตัวค้าบผม!",
+                    f"{time_greeting} แอบมาตั้งตี้คุยอะไรกันสองคนฮะ {chaom_name}กับ{chacha_name} ขอแบ็คลี่ร่วมวงด้วยนะครับ!",
+                    f"{time_greeting} ตรวจพบสัญญาณของ{chaom_name}กับ{chacha_name}อยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
                 ]
             else:
-                name_call = "คุณชะอม" if target_member.id == 1133740216822267954 else "คุณชาช่า"
+                name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
                 greetings = [
                     f"{time_greeting} มาแล้วหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
                     f"{time_greeting} เพิ่งมาหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
@@ -1774,8 +1788,17 @@ async def on_message(message):
                 await message.reply("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับเมท!")
                 return
             
+            user_memory = load_user_data()
+            def get_realtime_name(uid, default):
+                mem = user_memory.get(str(uid))
+                if mem and isinstance(mem, dict):
+                    name = mem.get("nickname", default)
+                else:
+                    name = mem if mem else default
+                return default if name == "ยังไม่ระบุ" else name
+
             report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
-            top_name = sorted_stats[0][1]['name']
+            top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
             
             for i, (u_id, info) in enumerate(sorted_stats, 1):
                 ts = info['total_time']
@@ -1783,7 +1806,9 @@ async def on_message(message):
                     time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
                 else:
                     time_display = f"{max(1, int(ts//60))}นาที"
-                report += f"{i}. {info['name']}: {time_display}\n"
+                
+                display_name = get_realtime_name(u_id, info['name'])
+                report += f"{i}. {display_name}: {time_display}\n"
 
             await message.reply(report)
             if message.guild.voice_client:
@@ -2751,7 +2776,21 @@ async def on_voice_state_update(member, before, after):
                 
             guild_stats = stats[guild_id_str]
             if user_id not in guild_stats:
-                guild_stats[user_id] = {"total_time": 0, "name": member.display_name}
+                # 🧠 ไปเปิดคลังสมองกลดึงชื่อที่เมทเคยสั่ง "จำไว้ว่า" มาใช้บันทึกในระบบสถิติ
+                data_memory = load_user_data()
+                special_info = data_memory.get(user_id) # user_id เป็น string อยู่แล้วครับ
+                
+                if special_info and isinstance(special_info, dict):
+                    saved_name = special_info.get("nickname", member.display_name)
+                elif special_info:
+                    saved_name = special_info
+                else:
+                    saved_name = member.display_name
+                    
+                if saved_name == "ยังไม่ระบุ": 
+                    saved_name = member.display_name
+
+                guild_stats[user_id] = {"total_time": 0, "name": saved_name}
             
             guild_stats[user_id]["total_time"] += duration
             save_voice_data(data)
@@ -3355,6 +3394,58 @@ class RoleSelectView(discord.ui.View):
         super().__init__(timeout=60)
         self.add_item(RoleSelect(author, topic, time)) # เมนูเลือก Role
         self.add_item(MemberSelect(author, topic, time)) # เมนูเลือกเพื่อน
+
+# ==========================================
+# 📑 [ส่วนเสริม: กล่องข้อความ Modal สำหรับลงทะเบียน]
+# ==========================================
+class RegisterModal(discord.ui.Modal):
+    def __init__(self, questions: list, target_role_id: int):
+        super().__init__(title="ฟอร์มลงทะเบียนรับยศ")
+        self.target_role_id = target_role_id
+        self.inputs = []
+
+        for i, q_text in enumerate(questions[:5]):
+            label_text = f"❓ {q_text}"[:45]
+            
+            text_input = discord.ui.TextInput(
+                label=label_text,
+                placeholder="กรุณาพิมพ์คำตอบของคุณที่นี่...",
+                required=True,
+                custom_id=f"register_q_{i}"
+            )
+            self.add_item(text_input)
+            self.inputs.append(text_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        answers = [item.value for item in self.inputs]
+        if not answers:
+            await interaction.followup.send("❌ ไม่พบข้อมูลการกรอกคำตอบครับพ้ม", ephemeral=True)
+            return
+
+        new_nickname = answers[0]
+        guild = interaction.guild
+        member = interaction.user
+        role = guild.get_role(int(self.target_role_id))
+
+        try:
+            await member.edit(nick=new_nickname)
+            
+            if role:
+                await member.add_roles(role)
+            
+            await interaction.followup.send(
+                f"🎉 ยินดีต้อนรับคุณ **{new_nickname}**! ลงทะเบียนและมอบยศ {role.name if role else ''} เรียบร้อยครับเมท!", 
+                ephemeral=True
+            )
+            
+            await bagley_speak(guild, f"ยินดีต้อนรับสมาชิกใหม่ คุณ {new_nickname} ครับ")
+            
+        except discord.Forbidden:
+            await interaction.followup.send("❌ แบ็คลี่เปลี่ยนชื่อหรือให้ยศไม่ได้! (ตรวจสอบลำดับยศของบอทด้วยนะครับเมท)", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ เกิดข้อผิดพลาดในระบบ: {e}", ephemeral=True)
 
 # --- ส่วนคำสั่งหลัก gather ---
 @bot.hybrid_command(name="gather", description="เรียกประชุมพร้อมปุ่มกดตอบรับ")
