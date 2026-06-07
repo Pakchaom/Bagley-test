@@ -689,8 +689,8 @@ async def fade_out_source(vc, duration=1.5, steps=15):
         if vc.is_playing():
             vc.stop()
 
-# --- 🔄 1. ระบบ Loop เช็กทุก 10 นาที ---
-@tasks.loop(minutes=10)
+# --- 🔄 1. ระบบ Loop เช็กทุก 1 นาที ---
+@tasks.loop(minutes=1)
 async def follow_creator_task():
     global last_greeting_dates, reported_guilds_today
     today = datetime.today().date()
@@ -699,7 +699,7 @@ async def follow_creator_task():
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
             
-            if not auto_follow_status.get(user_id, False):
+            if not auto_follow_status.get(user_id, True):
                 continue
                 
             member = guild.get_member(user_id)
