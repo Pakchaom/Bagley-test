@@ -1099,13 +1099,14 @@ async def execute_remember_logic(message):
 
 # 1. คลาสสำหรับหน้าต่างเลือกสมาชิก (ใช้ ui.UserSelect ได้เลยเพราะนำเข้าไว้แล้ว)
 class KickVoiceSelect(ui.UserSelect):
-    def __init__(self, minutes: int):
+    def __init__(self, target_time_str: str, delay_seconds: float):
         super().__init__(
             placeholder="เมท... จิ้มเลือกรายชื่อพวกที่นอนอืดตรงนี้เลยครับ",
             min_values=1,
             max_values=25
         )
-        self.minutes = minutes
+        self.target_time_str = target_time_str
+        self.delay_seconds = delay_seconds
 
     async def callback(self, interaction: discord.Interaction):
         targets = self.values
@@ -1115,17 +1116,19 @@ class KickVoiceSelect(ui.UserSelect):
         member_names = ", ".join([m.display_name for m in targets])
         
         await interaction.response.send_message(
-            f"รับทราบครับเมท! ล็อกเป้าหมายเรียบร้อย เริ่มตั้งเวลาถอยหลัง **{self.minutes} นาที** เพื่อเคลียร์: `{member_names}` ครับผม\n"
+            f"รับทราบครับเมท! ล็อกเป้าหมายเรียบร้อย แบ็คลี่ตั้งนาฬิกาปลุกไว้ที่เวลา **{self.target_time_str}** "
+            f"เพื่อเตรียมเคลียร์: `{member_names}` ครับผม\n"
             f"*(หากต้องการยกเลิกบางคน พิมพ์ `/kickcancel` ได้เลยครับ)*"
         )
 
         async def member_kick_worker(member: discord.Member):
             try:
-                await asyncio.sleep(self.minutes * 60)
+                await asyncio.sleep(self.delay_seconds)
+                
                 if member.voice and member.voice.channel and member.voice.channel.guild.id == guild_id:
                     try:
-                        await member.move_to(None, reason="แบ็คลี่เคลียร์ก๊วนนอนหลับตามเวลาที่ตั้งไว้ครับ")
-                        await interaction.channel.send(f"💥 ดีดคุณ **{member.display_name}** ออกจากห้องเสียงเรียบร้อยครับเมท!")
+                        await member.move_to(None, reason=f"แบ็คลี่เคลียร์ก๊วนนอนหลับเมื่อถึงเวลา {self.target_time_str} ครับ")
+                        await interaction.channel.send(f"💥 ถึงเวลา {self.target_time_str} แล้ว! ดีดคุณ **{member.display_name}** ออกจากห้องเสียงเรียบร้อยครับเมท!")
                     except Exception:
                         pass
             except asyncio.CancelledError:
@@ -1142,10 +1145,11 @@ class KickVoiceSelect(ui.UserSelect):
             task = loop.create_task(member_kick_worker(member))
             active_kick_tasks[(guild_id, member.id)] = task
 
+
 class KickVoiceView(ui.View):
-    def __init__(self, minutes: int):
+    def __init__(self, target_time_str: str, delay_seconds: float):
         super().__init__(timeout=60)
-        self.add_item(KickVoiceSelect(minutes))
+        self.add_item(KickVoiceSelect(target_time_str, delay_seconds))
 
 class CancelVoiceSelect(ui.UserSelect):
     def __init__(self):
@@ -1165,7 +1169,7 @@ class CancelVoiceSelect(ui.UserSelect):
         for member in targets:
             key = (guild_id, member.id)
             if key in active_kick_tasks:
-                active_kick_tasks[key].cancel() # สั่งยกเลิก Task ของคนนี้
+                active_kick_tasks[key].cancel()
                 active_kick_tasks.pop(key, None)
                 cancelled_members.append(member.display_name)
 
@@ -4559,18 +4563,38 @@ async def follow_me(ctx: commands.Context):
     else:
         await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับ!")
 
-@bot.hybrid_command(name="kicktimer", description="ตั้งเวลาดีดพวกนอนหลับคาห้องเสียงผ่านหน้าต่างเลือกสมาชิก")
-@app_commands.describe(minutes="ใส่จำนวนนาทีที่ต้องการให้ถอยหลังก่อนเตะ")
-async def kick_timer(ctx: commands.Context, minutes: int):
+@bot.hybrid_command(name="kicktimer", description="ตั้งเวลาตามหน้าปัดนาฬิกาเพื่อดีดพวกนอนหลับคาห้องเสียง")
+@app_commands.describe(target_time="ระบุเวลาที่ต้องการให้เตะออก เช่น 03:00, 3.00 หรือใส่แค่เลขชั่วโมง เช่น 3")
+async def kick_timer(ctx: commands.Context, target_time: str):
     can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
     if not can_act:
         return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
 
-    if minutes <= 0:
-        return await ctx.send("ตั้งเวลาติดลบไม่ได้ครับเมท ผมไม่ใช่ไทม์แมชชีนนะ", ephemeral=True)
+    cleaned_time = target_time.strip().replace(".", ":")
 
-    view = KickVoiceView(minutes)
-    await ctx.send("ครับเมท! กรุณาเลือกสมาชิกที่คุณต้องการตั้งเวลาเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
+    time_match = regex_lib.match(r"^([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?$", cleaned_time)
+    
+    if not time_match:
+        return await ctx.send(
+            "พิมพ์รูปแบบเวลาผิดครับเมท! กรุณาใส่เป็นรูปแบบเวลาที่ถูกต้อง เช่น `03:00`, `3.00` หรือใส่แค่ชั่วโมงตัวเดียว เช่น `3` ครับ", 
+            ephemeral=True
+        )
+
+    hour_str, minute_str = time_match.groups()
+    hour = int(hour_str)
+    minute = int(minute_str) if minute_str is not None else 0
+    
+    now = datetime.now()
+    target_datetime = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    if target_datetime <= now:
+        target_datetime += timedelta(days=1)
+
+    delay_seconds = (target_datetime - now).total_seconds()
+    target_time_str = target_datetime.strftime("%H:%M น.")
+
+    view = KickVoiceView(target_time_str, delay_seconds)
+    await ctx.send(f"ครับเมท! กรุณาเลือกสมาชิกที่คุณต้องการดีดออก ณ เวลา **{target_time_str}** :", view=view)
 
 @bot.hybrid_command(name="kickcancel",description="เลือกยกเลิกรายชื่อคนที่ตั้งเวลาเตะไว้ในเซิร์ฟเวอร์นี้")
 async def kick_cancel(ctx: commands.Context):
@@ -4579,7 +4603,6 @@ async def kick_cancel(ctx: commands.Context):
         return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
 
     guild_id = ctx.guild.id
-    
     has_active_task = any(key[0] == guild_id for key in active_kick_tasks.keys())
     
     if has_active_task:
