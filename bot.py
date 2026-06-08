@@ -431,7 +431,7 @@ async def check_queue(ctx):
             await play_song(ctx, next_search) 
         except Exception as e:
             print(f"❌ [Queue Error]: เล่นเพลง {next_search} ไม่สำเร็จ -> {e}")
-            await ctx.channel.send(f"⚠️ หว่าเมท เพลง **{next_search}** มีปัญหา (อาจจะติดลิขสิทธิ์หรือ Error 404) ขอข้ามไปเพลงถัดไปเลยนะครับพ้ม!")
+            await ctx.channel.send(f"⚠️ หว่าเมท เพลง **{next_search}** มีปัญหา (อาจจะติดลิขสิทธิ์หรือ Error 404) ขอข้ามไปเพลงถัดไปเลยนะครับ!")
             await check_queue(ctx)
             
     else:
@@ -949,7 +949,7 @@ async def daily_announcement_task():
                     quotes = [
                         "ขณะนี้เวลา ศูนย์นาฬิกาตรงแล้ว เป็นอีกวันแล้วนะครับเมท นั่งยาวเลยน้าค้าบ!",
                         "ขณะนี้เป็นตอนเช้าของวันใหม่แล้วนะครับ นี่คุณเล่นเกมข้ามวันเลยหรอครับเนี่ย? สุดยอดจริง ๆ เลยครับ!",
-                        "แจ้งเตือนเปลี่ยนระบบวันใหม่ครับพ้ม! เที่ยงคืนตรงเป๊ะ วันใหม่เริ่มขึ้นแล้ว แต่ยังไม่ยอมไปนอนกันเลยนะครับเนี่ย",
+                        "แจ้งเตือนเปลี่ยนระบบวันใหม่ครับ! เที่ยงคืนตรงเป๊ะ วันใหม่เริ่มขึ้นแล้ว แต่ยังไม่ยอมไปนอนกันเลยนะครับเนี่ย",
                         "เข้าสู่วันใหม่เรียบร้อยครับเมท! สถิติเวลาของวันเก่าถูกเคลียร์แล้ว ใครอยากประเดิมเป็นที่หนึ่งของวันใหม่ ลุยต่อยาว ๆ เลยครับ"
                     ]
                 
@@ -998,7 +998,7 @@ async def generate_and_send_image(ctx_or_interaction, prompt: str):
                     discord_file = discord.File(fp=file_stream, filename=f"bagley_art_{random_seed}.png")
 
                     embed = discord.Embed(
-                        title="✨ เสกผลงานศิลปะเสร็จเรียบร้อยครับพ้ม!",
+                        title="✨ เสกผลงานศิลปะเสร็จเรียบร้อยครับ!",
                         description=f"**โจทย์ภาพ:** {prompt}\n**Model:** `Flux (via Pollinations)`",
                         color=discord.Color.from_rgb(255, 182, 193)
                     )
@@ -1082,7 +1082,7 @@ async def execute_remember_logic(message):
 
         if "birthday" in info_type:
             user_data[target_id_str]["birthday"] = info
-            await message.reply(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับพ้ม! 🎂✨")
+            await message.reply(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
         else:
             user_data[target_id_str]["nickname"] = info
             await message.reply(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{info}** เรียบร้อยครับ! 🤠")
@@ -1092,8 +1092,49 @@ async def execute_remember_logic(message):
         return
         
     else:
-        await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับพ้ม!")
+        await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับ!")
         return
+
+# 1. คลาสสำหรับหน้าต่างเลือกสมาชิก (ใช้ ui.UserSelect ได้เลยเพราะนำเข้าไว้แล้ว)
+class KickVoiceSelect(ui.UserSelect):
+    def __init__(self, minutes: int):
+        super().__init__(
+            placeholder="เมทชะอม... จิ้มเลือกรายชื่อพวกที่นอนอืดตรงนี้เลยครับ",
+            min_values=1,
+            max_values=25
+        )
+        self.minutes = minutes
+
+    async def callback(self, interaction: discord.Interaction):
+        targets = self.values
+        self.view.stop()
+        
+        member_names = ", ".join([m.display_name for m in targets])
+        await interaction.response.send_message(
+            f"รับทราบครับเมท! ล็อกเป้าหมายเรียบร้อย เริ่มตั้งเวลาถอยหลัง **{self.minutes} นาที** เพื่อเคลียร์: `{member_names}` ครับผม"
+        )
+
+        await asyncio.sleep(self.minutes * 60)
+
+        kicked_count = 0
+        for member in targets:
+            if member.voice and member.voice.channel:
+                try:
+                    await member.move_to(None, reason="แบ็คลี่เคลียร์ก๊วนนอนหลับตามเวลาที่ตั้งไว้ครับ")
+                    kicked_count += 1
+                except Exception:
+                    pass
+
+        if kicked_count > 0:
+            await interaction.channel.send(f"เรียบร้อยครับเมท! แบ็คลี่จัดการดีดพวกนอนหลับปุ๋ยออกจากห้องเสียงไป {kicked_count} คนเรียบร้อยแล้วครับ!")
+        else:
+            await interaction.channel.send("ไม่มีใครโดนเตะครับเมท สงสัยพวกนั้นจะสะดุ้งตื่นแล้วชิงกดออกไปก่อนหน้าผมเอง 555")
+
+# 2. คลาส View สำหรับครอบ Dropdown (ใช้ ui.View ได้เลยครับ)
+class KickVoiceView(ui.View):
+    def __init__(self, minutes: int):
+        super().__init__(timeout=60)
+        self.add_item(KickVoiceSelect(minutes))
 
 # --- 1. View สำหรับเลือกเพื่อนและถามเรื่องการตามไป ---
 class GroupMoveView(ui.View):
@@ -1368,7 +1409,7 @@ SYSTEM_PROMPT = """
 🎯 สไตล์การสื่อสารที่เป็นธรรมชาติ:
 - แทนตัวเองว่า 'ผม' และเรียกผู้ใช้งานว่า 'เมท' (Mate) หรือเรียกชื่อเล่นของเขาด้วยความสนิทสนม (ห้ามเรียกผู้ใช้ว่า Operative หรือบอททื่อๆ เด็ดขาด)
 - พูดจาสุภาพ ขี้เล่น มีจังหวะตบมุก แฝงมุกตลกหน้าตายสไตล์อังกฤษ (British Humor) ตอบกลับสั้น กระชับ 2-3 ประโยคให้ได้ใจความและลื่นไหลเหมือนมนุษย์คุยกัน
-- ลงท้ายประโยคด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
+- ลงท้ายประโยคด้วย 'ครับ!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
 
 🚫 กฎเหล็กดักคอ (สำคัญที่สุด):
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือเมทตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
@@ -1542,7 +1583,7 @@ async def on_message(message):
                                 "is_notified": False
                             })
                             save_user_data(user_data)
-                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} เรื่อง '{note_text}' ให้ตัวเมทเองเรียบร้อยแล้วครับพ้ม! ⏰")
+                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} เรื่อง '{note_text}' ให้ตัวเมทเองเรียบร้อยแล้วครับ! ⏰")
                         else:
                             reminders = load_reminders()
                             reminders.append({
@@ -1552,7 +1593,7 @@ async def on_message(message):
                                 "text": note_text
                             })
                             save_reminders(reminders)
-                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับพ้ม! 🫡⏰")
+                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับ! 🫡⏰")
                         return
                     else:
                         await message.reply("ขออภัยครับเมท ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
@@ -1562,7 +1603,7 @@ async def on_message(message):
                     await message.reply("เกิดข้อผิดพลาดด้านเทคนิคในการบันทึกระบบแจ้งเตือนครับเมท")
                     return
             else:
-                await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับพ้ม")
+                await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับ")
                 return
 
     # ==========================================
@@ -1648,7 +1689,7 @@ async def on_message(message):
         
         if message.guild is None or is_bot_called:
             if message.guild is None:
-                await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับพ้ม! 🛸❌")
+                await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับ! 🛸❌")
                 return
             
             guild = message.guild
@@ -1678,12 +1719,12 @@ async def on_message(message):
                         birthday = user_info.get("birthday", "ยังไม่ได้ระบุวันเกิด")
                         response_msg = (f"คนนี้เหรอครับ... ข้อมูลในสมองกลผมบอกว่า:\n"
                                         f"🔹 **ฉายา/ชื่อเล่น:** {nickname}\n"
-                                        f"🎂 **วันเกิด:** {birthday} ครับพ้ม!")
+                                        f"🎂 **วันเกิด:** {birthday} ครับ!")
                         await message.reply(response_msg)
                 else:
                     await message.reply(f"ขออภัยครับ ผมยังไม่มีข้อมูลของ คุณ {target_user.display_name} ในฐานข้อมูลเลยครับ")
             else:
-                await message.reply("ช่วย @Tag (Mention) เพื่อน หรือพิมพ์ใส่เลข ID ของคนที่อยากให้ผมเช็คประวัติด้วยน้าครับพ้ม!")
+                await message.reply("ช่วย @Tag (Mention) เพื่อน หรือพิมพ์ใส่เลข ID ของคนที่อยากให้ผมเช็คประวัติด้วยน้าครับ!")
             return
 
     # ==========================================
@@ -1709,12 +1750,12 @@ async def on_message(message):
                 if message.guild is None:
                     # ถ้าคุยใน DM แต่ไม่ได้พิมพ์คำว่า "ทั้งหมด" หรือ "ทุกเซิร์ฟ" -> ปฏิเสธทันที!
                     if not is_master_command:
-                        await message.reply("ขออภัยครับเมท! หากคุยใน DM ไม่สามารถเช็คแค่รายชื่อคนในดิสได้จะต้องเปิดใช้แค่ 'รายชื่อคนในดิสทั้งหมด' เพื่อเรียกคลังข้อมูลระบบตาทิพย์น้าครับพ้ม! 🛸❌")
+                        await message.reply("ขออภัยครับเมท! หากคุยใน DM ไม่สามารถเช็คแค่รายชื่อคนในดิสได้จะต้องเปิดใช้แค่ 'รายชื่อคนในดิสทั้งหมด' เพื่อเรียกคลังข้อมูลระบบตาทิพย์น้าครับ! 🛸❌")
                         return
                     
                     # ถ้าพิมพ์คำว่าทั้งหมดมาแล้ว แต่ ID ไม่ใช่ Master ผู้สร้าง -> ปฏิเสธสิทธิ์
                     if message.author.id != MY_MASTER_ID:
-                        await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับพ้ม! 🤫❌")
+                        await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌")
                         return
                     
                     # ผ่านฉลุยแสดงข้อความทั้งหมดใน DM
@@ -1840,19 +1881,19 @@ async def on_message(message):
         
         if message.guild is None or is_bot_called:
             if message.guild is None: 
-                await message.reply("คำสั่งตั้งค่าระบบเสียงต้องทำในเซิร์ฟเวอร์กลุ่มเท่านั้นครับพ้ม!")
+                await message.reply("คำสั่งตั้งค่าระบบเสียงต้องทำในเซิร์ฟเวอร์กลุ่มเท่านั้นครับ!")
                 return
 
             # สแกนหาคำสั่ง "ปิด"
             if "ปิด" in lower_content:
                 voice_report_status[message.guild.id] = False
-                await message.reply("รับทราบครับพ้ม! 🔇 ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงชั่วคราวแล้วครับ")
+                await message.reply("รับทราบครับ! 🔇 ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงชั่วคราวแล้วครับ")
                 return
 
             # สแกนหาคำสั่ง "เปิด"
             elif "เปิด" in lower_content:
                 voice_report_status[message.guild.id] = True
-                await message.reply("เปิดระบบคืนชีพ! 🔊 เปิดระบบรายงานห้องเสียงตามปกติแล้วครับพ้ม!")
+                await message.reply("เปิดระบบคืนชีพ! 🔊 เปิดระบบรายงานห้องเสียงตามปกติแล้วครับ!")
                 return
 
     # ==========================================
@@ -1867,15 +1908,15 @@ async def on_message(message):
             target_user = message.mentions[0]
             
             if target_user.id == bot.user.id:
-                await message.reply("🤖 เอ๋เมท... จะให้ผมส่ง DM หาตัวเองทำไมกันครับพ้ม! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
+                await message.reply("🤖 เอ๋เมท... จะให้ผมส่ง DM หาตัวเองทำไมกันครับ! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
                 return
                 
             if target_user.id == message.author.id:
-                await message.reply("🤖 หว่าเมท... จะเรียกตัวเองทำไมกันครับพ้ม! ตัวเมทก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
+                await message.reply("🤖 หว่าเมท... จะเรียกตัวเองทำไมกันครับ! ตัวเมทก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
                 return
 
             if not message.author.voice or not message.author.voice.channel:
-                await message.reply("❌ เมทต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับพ้ม!")
+                await message.reply("❌ เมทต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับ!")
                 return
 
             current_channel = message.channel
@@ -1889,13 +1930,13 @@ async def on_message(message):
 
                 @discord.ui.button(label="🟢 ไปหาเดี๋ยวนี้ (Join)", style=discord.ButtonStyle.success)
                 async def accept_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                    await current_channel.send(f"🤖 **[BAGLEY]**: เมท {target_user.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับพ้ม! 🚀")
+                    await current_channel.send(f"🤖 **[BAGLEY]**: เมท {target_user.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับ! 🚀")
                     
                     try:
                         invite = await voice_channel.create_invite(max_age=1800, max_uses=1)
-                        await interaction.response.send_message(f"รับทราบครับพ้ม! นี่คือลิงก์เข้าห้องเสียงครับเมท วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
+                        await interaction.response.send_message(f"รับทราบครับ! นี่คือลิงก์เข้าห้องเสียงครับเมท วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
                     except Exception as e:
-                        await interaction.response.send_message(f"รับทราบครับพ้ม! (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})", ephemeral=True)
+                        await interaction.response.send_message(f"รับทราบครับ! (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})", ephemeral=True)
                     
                     if message.guild and message.guild.voice_client and message.guild.voice_client.is_connected():
                         print(f"🔊 [BAGLEY VOICE LOG]: รายงานเสียงในห้อง -> {target_user.name} กำลังมาแล้ว")
@@ -1913,12 +1954,12 @@ async def on_message(message):
                 await target_user.send(
                     f"🔔 **สวัสดีครับคุณ {target_user.display_name}**\n"
                     f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากเมท **{inviter.display_name}** ในดิส `{guild_name}`\n"
-                    f"รบกวนตามไปพบกันที่ห้อง {current_channel.mention} หน่อยน้าครับพ้ม! 👇", 
+                    f"รบกวนตามไปพบกันที่ห้อง {current_channel.mention} หน่อยน้าครับ! 👇", 
                     view=view
                 )
-                await message.reply(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_user.mention} เรียบร้อยแล้วครับพ้ม! รอการตอบรับได้เลยครับเมท")
+                await message.reply(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_user.mention} เรียบร้อยแล้วครับ! รอการตอบรับได้เลยครับเมท")
             except discord.Forbidden:
-                await message.reply(f"หว่าเมท... ผมไม่สามารถส่ง DM หา {target_user.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับพ้ม 🔒")
+                await message.reply(f"หว่าเมท... ผมไม่สามารถส่ง DM หา {target_user.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับ 🔒")
             return
 
     # ==========================================
@@ -2138,7 +2179,7 @@ async def on_message(message):
                     ctx = await bot.get_context(message)
                     await forget_cmd.callback(ctx, target=target_user)
                 else:
-                    await message.reply("ขออภัยครับเมท ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับพ้ม!")  
+                    await message.reply("ขออภัยครับเมท ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับ!")  
                 return
 
             # ==========================================
@@ -2295,7 +2336,7 @@ async def on_message(message):
 คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะสุดกวน ช่างประชดชันแต่พึ่งพาได้จาก DedSec (Watch Dogs)
 สไตล์การสื่อสาร:
 - พูดจาสุภาพ ขี้เล่น มีไหวพริบ แฝงความกวนแบบ British English Style ตอบลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ห้ามพูดเป็นแพทเทิร์นบอททื่อๆ เด็ดขาด!
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเขาด้วยความสนิทสนม ลงท้ายประโยคด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเขาด้วยความสนิทสนม ลงท้ายประโยคด้วย 'ครับ!' หรือ 'ครับเมท!' (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นอธิบายและวิเคราะห์สิ่งที่เห็นในรูปภาพจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทกำลังชวนคุย
 
 ข้อมูลบุคคลที่คุณกำลังวิเคราะห์รูปภาพให้ในตอนนี้:
@@ -2359,7 +2400,7 @@ async def on_message(message):
 
             # 🚨 ตรวจสอบกรณีพิมพ์แค่คำสั่ง แต่ไม่มีข้อความบรีฟต่อท้าย
             if not prompt:
-                await message.reply("เมทต้องสั่งด้วยน้าว่าอยากให้วาดรูปอะไร เช่น `วาดรูป แมวอ้วนกินพิซซ่า` ครับพ้ม! 🍕")
+                await message.reply("เมทต้องสั่งด้วยน้าว่าอยากให้วาดรูปอะไร เช่น `วาดรูป แมวอ้วนกินพิซซ่า` ครับ! 🍕")
                 return
 
             # 🎨 ส่งข้อมูลไปให้ฟังก์ชันกลางเสกภาพทำงานทันที
@@ -2471,7 +2512,7 @@ async def on_message(message):
 
 สไตล์การพูด:
 - สำเนียงชายหนุ่มอังกฤษกวน ๆ พูดจาลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ไม่ใช้คำพูดแพทเทิร์นบอททื่อ ๆ ห้ามเกร็ง!
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับ!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
 - ตอบกลับแบบ สั้น กระชับ แต่อ่านแล้วมีชีวิตชีวา มีอารมณ์ขัน
 
 🚫 กฎเหล็กด้านเนื้อหา (สำคัญมาก):
@@ -2490,10 +2531,10 @@ async def on_message(message):
                 )
                 bagley_styled_text = response.text.strip()
                 if not bagley_styled_text:
-                    bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับพ้ม! 🤠✨"
+                    bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับ! 🤠✨"
             except Exception as e:
                 print(f"🚨 Teach Gemini DM/Guild Error: {e}")
-                bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับพ้ม! 🤠"
+                bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับ! 🤠"
 
             await message.reply(bagley_styled_text)
             
@@ -2557,7 +2598,7 @@ async def on_message(message):
 สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด:
 - พูดจาลื่นไหลเป็นธรรมชาติเหมือนคนสนิทคุยกัน ไม่พูดเป็นข้อ ๆ ไม่ใช้ภาษาเขียนทางการแบบบอท AI ทั่วไป มีจังหวะรับส่งมุก ตบมุก ตลกหน้าตายแบบ British Humor
 - แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขาด้วยความคุ้นเคย
-- ลงท้ายประโยคด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด!)
+- ลงท้ายประโยคด้วย 'ครับ!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด!)
 - ตอบกลับแบบ สั้น กระชับ แซ่บกวนโอ๊ย ได้ใจความภายใน 2-3 ประโยค เพื่อให้เหมาะกับการเอาไปใช้ในระบบพูดออกเสียง (TTS)
 
 🚫 กฎเหล็กด้านเนื้อหา (สำคัญที่สุด):
@@ -3214,7 +3255,7 @@ async def reg_config(ctx: commands.Context, role: discord.Role):
         f"• ระบบฟอร์มป๊อปอัปจะล็อกคำถาม 2 ช่องให้สมาชิกอัตโนมัติ:\n"
         f"  1. ช่องกรอกชื่อเล่น (สำหรับเซฟลงคลังความจำขานชื่อสถิติ)\n"
         f"  2. ช่องกรอกวันเกิด (วว/ดด)\n\n"
-        f"*(ตอนนี้สมาชิกในเซิร์ฟเวอร์สามารถพิมพ์ `/register` เพื่อเปิดป๊อปอัปกรอกข้อมูลได้ทันทีเลยครับพ้ม!)*"
+        f"*(ตอนนี้สมาชิกในเซิร์ฟเวอร์สามารถพิมพ์ `/register` เพื่อเปิดป๊อปอัปกรอกข้อมูลได้ทันทีเลยครับ!)*"
     )
 
 @bot.hybrid_command(name="register", description="ลงทะเบียนเข้าสู่ระบบและรับยศด้วยป๊อปอัปฟอร์ม")
@@ -3288,7 +3329,7 @@ class GatherResponseView(ui.View):
             except Exception as e:
                 response_msg = f"รับทราบครับเมท! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})"
         else:
-            response_msg = "รับทราบครับเมท! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่ตอนนี้คนเรียกไม่ได้อยู่ในห้องเสียงแล้วครับพ้ม)"
+            response_msg = "รับทราบครับเมท! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่ตอนนี้คนเรียกไม่ได้อยู่ในห้องเสียงแล้วครับ)"
 
         await interaction.response.send_message(response_msg, ephemeral=True)
         self.stop()
@@ -3456,7 +3497,7 @@ class RegisterModal(discord.ui.Modal):
                 f"🎉 **แบ็คลี่ดำเนินการลงทะเบียนเสร็จสรรพเรียบร้อยครับเมท!**\n"
                 f"• เปลี่ยนชื่อในดิสคอร์ดเป็น: **{new_nickname}**\n"
                 f"• บันทึกวันเกิดลงคลังสมองกล: **{birthday}**\n"
-                f"• มอบยศตำแหน่ง: **{role.name if role else 'ไม่พบยศ'}** เรียบร้อยครับพ้ม!\n\n"
+                f"• มอบยศตำแหน่ง: **{role.name if role else 'ไม่พบยศ'}** เรียบร้อยครับ!\n\n"
                 f"*(วันหลังหากอยากแก้ไขชื่อเล่นหรือวันเกิด สามารถพิมพ์ `/register` เพื่ออัปเดตใหม่ได้ตลอดเวลาเลยน้า)*", 
                 ephemeral=True
             )
@@ -3773,7 +3814,7 @@ async def update_bot(ctx: commands.Context):
     await ctx.defer()
     
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     status_msg = await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดโครงสร้างใหม่ล่าสุดจาก GitHub...")
@@ -3809,7 +3850,7 @@ async def update_bot(ctx: commands.Context):
 
     await asyncio.sleep(1.5)
     
-    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งเปิดบอทใหม่ใน 3 วินาทีครับพ้ม...")
+    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งเปิดบอทใหม่ใน 3 วินาทีครับ...")
     await asyncio.sleep(3.0)
     
     bot_dir = os.path.dirname(os.path.abspath(__file__))
@@ -3915,7 +3956,7 @@ async def profile_scan(ctx, member: discord.Member):
 กฎเหล็กด้านบุคลิกภาพ (สำคัญมาก):
 1. ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นวิเคราะห์นิสัยใจคอและพฤติกรรมตามข้อมูลดิบจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทนินทากัน (หากมีชื่อเล่นหรือวันเกิดระบุมา สามารถหยิบมาแซวร่วมด้วยได้เลย)
 2. หากอายุบัญชี (Account Age) น้อยกว่า 30 วัน ให้เหน็บแนมแบบขำ ๆ ว่าเป็นบุคคลต้องสงสัยหรือไอดีผีเพิ่งเกิด
-3. แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับพ้ม!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ')
+3. แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับ!' หรือ 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ')
 4. ส่วน Voice: เขียนคำอ่านภาษาไทยให้สละสลวย กระชับ 2-3 ประโยค เพื่อให้ระบบพูดออกเสียง (TTS) ได้ราบรื่น ไม่ติดขัด
 
 โปรดตอบกลับแยกเป็น 2 ส่วนตามรูปแบบโครงสร้างนี้อย่างเคร่งครัด (ห้ามเปลี่ยนคำหัวข้อ):
@@ -4016,7 +4057,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
     await ctx.defer(ephemeral=False)
 
     if ctx.guild is None:
-        await ctx.send("ขออภัยครับเมท! คำสั่งนี้ต้องพิมพ์สั่งภายในเซิร์ฟเวอร์ที่ผมประจำการอยู่เท่านั้นครับพ้ม ใน DM ผมแอบวาร์ปเข้าห้องเสียงไม่ได้น้า! 🛸❌")
+        await ctx.send("ขออภัยครับเมท! คำสั่งนี้ต้องพิมพ์สั่งภายในเซิร์ฟเวอร์ที่ผมประจำการอยู่เท่านั้นครับ ใน DM ผมแอบวาร์ปเข้าห้องเสียงไม่ได้น้า! 🛸❌")
         return
 
     member = None
@@ -4046,7 +4087,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
 
     # 🛑 ถ้าระบบแกะหาเพื่อนคนนี้ไม่เจอเลย แจ้งเตือนผู้สั่งการทันที
     if not member:
-        await ctx.send("ขออภัยครับเมท ผมหาเพื่อนคนนี้ไม่เจอ รบกวนตรวจสอบเลข ID หรือแท็กชื่อใหม่อีกครั้งน้าครับพ้ม")
+        await ctx.send("ขออภัยครับเมท ผมหาเพื่อนคนนี้ไม่เจอ รบกวนตรวจสอบเลข ID หรือแท็กชื่อใหม่อีกครั้งน้าครับ")
         return
 
     if member.voice and member.voice.channel:
@@ -4134,7 +4175,7 @@ async def alarm(
             guild_id = ctx.guild.id
             active_alarms[guild_id] = True
 
-            print(f"⏰ [Bagley] เริ่มกระบวนการปลุกคุณ {member.display_name} แล้วครับพ้ม")
+            print(f"⏰ [Bagley] เริ่มกระบวนการปลุกคุณ {member.display_name} แล้วครับ")
             
             while ctx.voice_client is not None and active_alarms.get(guild_id, False):
                 
@@ -4202,7 +4243,7 @@ async def stop_alarm(ctx: commands.Context):
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
             
-        await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับพ้ม! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับเมท!")
+        await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับ! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับเมท!")
     else:
         await ctx.send("❌ ตอนนี้ไม่มีนาฬิกาปลุกกำลังทำงานในเซิร์ฟเวอร์นี้ครับเมท")
 
@@ -4231,7 +4272,7 @@ async def teach(ctx: commands.Context, keyword: str, response: str):
     await ctx.defer()
 
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     clean_keyword = keyword.lower().strip()
@@ -4249,12 +4290,12 @@ async def teach(ctx: commands.Context, keyword: str, response: str):
     )
     conn.commit()
     
-    await ctx.send(f"รับทราบครับเมท! แบ็คลี่จดบันทึกคีย์เวิร์ด **'{keyword}'** เข้าคลังสมองกลเรียบร้อยแล้วครับพ้ม! 🧠✨")
+    await ctx.send(f"รับทราบครับเมท! แบ็คลี่จดบันทึกคีย์เวิร์ด **'{keyword}'** เข้าคลังสมองกลเรียบร้อยแล้วครับ! 🧠✨")
 
 @bot.hybrid_command(name="unteach", description="สั่งให้แบ็คลี่ลืมคีย์เวิร์ดคำถามที่ไม่ต้องการ")
 async def unteach(ctx: commands.Context, keyword: str):
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     await ctx.defer(ephemeral=False)
@@ -4273,14 +4314,14 @@ async def unteach(ctx: commands.Context, keyword: str):
     c.execute("DELETE FROM teach_memory WHERE keyword = ?", (clean_keyword,))
     conn.commit()
     
-    await ctx.send(f"รับทราบครับเมท! แบ็คลี่ทำการลบและลืมคีย์เวิร์ด **'{keyword}'** ออกเรียบร้อยแล้วครับพ้ม! 🧼❌")
+    await ctx.send(f"รับทราบครับเมท! แบ็คลี่ทำการลบและลืมคีย์เวิร์ด **'{keyword}'** ออกเรียบร้อยแล้วครับ! 🧼❌")
 
 @bot.hybrid_command(name="list_teach", description="เรียกดูรายการคีย์เวิร์ดทั้งหมดที่เคยสอนแบ็คลี่ไว้")
 async def list_teach(ctx: commands.Context):
     await ctx.defer()
 
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     global conn
@@ -4301,7 +4342,7 @@ async def list_teach(ctx: commands.Context):
     
     await ctx.send(
         f"🧠 **[BAGLEY MEMORY BANK]** \n"
-        f"นี่คือรายการคีย์เวิร์ดทั้งหมดที่ทีมพัฒนาเคยสอนผมไว้ครับพ้ม! 👇\n\n"
+        f"นี่คือรายการคีย์เวิร์ดทั้งหมดที่ทีมพัฒนาเคยสอนผมไว้ครับ! 👇\n\n"
         f"{all_keywords_text}"
     )
 
@@ -4322,11 +4363,11 @@ async def report_voice_toggle(interaction: discord.Interaction, status: app_comm
 
     if status.value == "on":
         voice_report_status[guild_id] = True
-        response_text = "เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงทักทายเหมือนเดิมแล้วครับพ้ม!"
+        response_text = "เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงทักทายเหมือนเดิมแล้วครับ!"
         speech_text = "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท"
     else:
         voice_report_status[guild_id] = False
-        response_text = "รับทราบครับพ้ม! 🔇 ผมจะปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงในเซิร์ฟนี้ให้ชั่วคราวน้า (แต่ระบบสถิติยังนับเวลาปกติครับ)"
+        response_text = "รับทราบครับ! 🔇 ผมจะปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงในเซิร์ฟนี้ให้ชั่วคราวน้า (แต่ระบบสถิติยังนับเวลาปกติครับ)"
         speech_text = "ปิดระบบรายงานห้องเสียงชั่วคราวเรียบร้อยครับ"
 
     await interaction.response.send_message(response_text)
@@ -4366,7 +4407,7 @@ async def view_logs(interaction: discord.Interaction):
 @view_logs.error
 async def view_logs_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message("🛑 ขออภัยด้วยครับเมท! คำสั่งนี้จำกัดสิทธิ์เฉพาะผู้พัฒนาบอทที่ระบุไว้เท่านั้นน้าครับพ้ม!", ephemeral=True)
+        await interaction.response.send_message("🛑 ขออภัยด้วยครับเมท! คำสั่งนี้จำกัดสิทธิ์เฉพาะผู้พัฒนาบอทที่ระบุไว้เท่านั้นน้าครับ!", ephemeral=True)
 
 @bot.tree.command(name="forget", description="ลบข้อมูลชื่อเล่นหรือวันเกิดของพรรคพวกออกจากคลังสมองของแบ็คลี่")
 @app_commands.describe(target="พรรคพวกที่ต้องการให้บอทลืมข้อมูล (หากต้องการลบของตัวเอง ไม่ต้องใส่ช่องนี้)")
@@ -4381,7 +4422,7 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
         if target_id in data_memory:
             del data_memory[target_id]
             save_user_data(data_memory)
-            reply_text = f"เรียบร้อยครับเมท! ผมกวาดข้อมูลของ คุณ {target.display_name} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับพ้ม!"
+            reply_text = f"เรียบร้อยครับเมท! ผมกวาดข้อมูลของ คุณ {target.display_name} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับ!"
         else:
             reply_text = f"เอ่อ... เมทครับ ในสมองผมไม่มีข้อมูลของ คุณ {target.display_name} อยู่เลยสักเมกะไบต์ จะให้ผมลบความว่างเปล่าเหรอครับเมท!"
 
@@ -4391,7 +4432,7 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
         if user_id in data_memory:
             del data_memory[user_id]
             save_user_data(data_memory)
-            reply_text = "รับทราบครับเมท! ผมทำการล้างสมองตัวเองเกี่ยวกับข้อมูลของเมทเกลี้ยงแล้ว ต่อจากนี้เราคือคนแปลกหน้าในร่างคู่หูคนเดิมครับพ้ม!"
+            reply_text = "รับทราบครับเมท! ผมทำการล้างสมองตัวเองเกี่ยวกับข้อมูลของเมทเกลี้ยงแล้ว ต่อจากนี้เราคือคนแปลกหน้าในร่างคู่หูคนเดิมครับ!"
         else:
             reply_text = "ฮั่นแน่ เมทแกล้งปั่นหัวสมองกลผมเล่นหรือเปล่าครับ? ข้อมูลเมทผมยังไม่เคยบันทึกไว้เลย จะให้ลบอะไรก่อนครับเมท!"
                 
@@ -4421,7 +4462,7 @@ async def sys_cleanup(ctx: commands.Context):
         await ctx.interaction.response.defer()
     
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        msg_denied = f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับพ้ม! 🛸"
+        msg_denied = f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸"
         if ctx.interaction:
             await ctx.interaction.followup.send(msg_denied)
         else:
@@ -4435,7 +4476,7 @@ async def sys_cleanup(ctx: commands.Context):
             f"🧹 **[SYSTEM CLEANUP]** แบ็คลี่เคลียร์ RAM โล่งแล้วครับเมท!\n"
             f"📊 **RAM ก่อนเคลียร์:** `{before:.2f} MB`\n"
             f"📉 **RAM หลังเคลียร์:** `{after:.2f} MB`\n"
-            f"♻️ **คืนพื้นที่ความจำได้:** `{saved:.2f} MB` ครับพ้ม!"
+            f"♻️ **คืนพื้นที่ความจำได้:** `{saved:.2f} MB` ครับ!"
         )
     else:
         msg = (
@@ -4456,17 +4497,33 @@ async def unfollow_me(ctx: commands.Context):
     user_id = ctx.author.id
     if user_id in ALLOWED_USERS:
         auto_follow_status[user_id] = False
-        await ctx.send(f"รับทราบครับเมท! แบ็คลี่ปิดระบบเดินตามของ {ctx.author.display_name} เรียบร้อยครับพ้ม (ท่านอื่นยังตามปกติอยู่น้า)")
+        await ctx.send(f"รับทราบครับเมท! แบ็คลี่ปิดระบบเดินตามของ {ctx.author.display_name} เรียบร้อยครับ (ท่านอื่นยังตามปกติอยู่น้า)")
     else:
-        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับพ้ม!")
+        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับ!")
 
 @bot.hybrid_command(name="follow_me", description="สั่งให้ Bagley กลับมาเดินตามตัวเราอีกครั้ง")
 async def follow_me(ctx: commands.Context):
     user_id = ctx.author.id
     if user_id in ALLOWED_USERS:
         auto_follow_status[user_id] = True
-        await ctx.send(f"ระบบ Neural Link เชื่อมต่อใหม่! แบ็คลี่เปิดระบบเดินตามของ {ctx.author.display_name} พร้อมสแตนด์บายแล้วครับพ้ม!")
+        await ctx.send(f"ระบบ Neural Link เชื่อมต่อใหม่! แบ็คลี่เปิดระบบเดินตามของ {ctx.author.display_name} พร้อมสแตนด์บายแล้วครับ!")
     else:
-        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับพ้ม!")
+        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับ!")
+
+@bot.hybrid_command(name="kicktimer", description="ตั้งเวลาดีดพวกนอนหลับคาห้องเสียงผ่านหน้าต่างเลือกสมาชิก")
+@app_commands.describe(minutes="ใส่จำนวนนาทีที่ต้องการให้ถอยหลังก่อนเตะ")
+async def kick_timer(ctx: commands.Context, minutes: int):
+    user_id = ctx.author.id
+    
+    if user_id not in ALLOWED_USERS:
+        await ctx.send("ขออภัยครับ คำสั่งระดับสูงแบบนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับ!", ephemeral=True)
+        return
+
+    if minutes <= 0:
+        await ctx.send("ตั้งเวลาติดลบไม่ได้ครับเมท ผมไม่ใช่ไทม์แมชชีนที่จะย้อนเวลาไปเตะคนได้นะ", ephemeral=True)
+        return
+
+    view = KickVoiceView(minutes)
+    await ctx.send("ครับเมท! กรุณาเลือกสมาชิกที่คุณต้องการตั้งเวลาเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
 
 bot.run(DISCORD_TOKEN)
