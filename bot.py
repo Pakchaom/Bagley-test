@@ -1237,6 +1237,18 @@ class IdentityListPaginator(ui.View):
             self.update_buttons()
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
+    async def on_timeout(self):
+        """เมื่อปล่อยปุ่มทิ้งไว้จนหมดเวลา ให้เปลี่ยนปุ่มเป็นสีเทาและกดไม่ได้คัปเมท"""
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True  # สั่งล็อกปุ่ม
+                item.style = discord.ButtonStyle.gray
+        
+        try:
+            await self.message.edit(view=self)
+        except Exception:
+            pass
+
 # --- 1. View สำหรับเลือกเพื่อนและถามเรื่องการตามไป ---
 class GroupMoveView(ui.View):
     def __init__(self, author, members, voice_channels):
@@ -4709,7 +4721,7 @@ async def member_list(ctx: commands.Context, scope: str = "current"):
             return await ctx.send("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
 
         view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
-        await ctx.send(embed=view.create_embed(), view=view)
+        view.message = await ctx.send(embed=view.create_embed(), view=view)
 
     except Exception as e:
         print(f"🚨 ERROR ระบบรายชื่อใหม่: {e}")
