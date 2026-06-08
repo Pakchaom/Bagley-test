@@ -1189,6 +1189,54 @@ class CancelVoiceView(ui.View):
         super().__init__(timeout=60)
         self.add_item(CancelVoiceSelect())
 
+class IdentityListPaginator(ui.View):
+    def __init__(self, title_text: str, data_list: list, per_page: int = 10):
+        super().__init__(timeout=120)  # เปิดให้ปุ่มทำงาน 2 นาทีเพื่อเซฟแรม
+        self.title_text = title_text
+        self.data_list = data_list
+        self.per_page = per_page
+        self.current_page = 0
+        self.total_pages = (len(data_list) - 1) // per_page + 1
+        self.update_buttons()
+
+    def create_embed(self) -> discord.Embed:
+        start_idx = self.current_page * self.per_page
+        end_idx = start_idx + self.per_page
+        page_data = self.data_list[start_idx:end_idx]
+        
+        description_text = ""
+        for idx, item in enumerate(page_data, start=start_idx + 1):
+            description_text += f"**{idx}.** {item}\n"
+            
+        if not description_text:
+            description_text = "*ไม่มีข้อมูลในหน้านี้ครับเมท*"
+
+        embed = discord.Embed(
+            title=self.title_text,
+            description=description_text,
+            color=discord.Color.teal()
+        )
+        embed.set_footer(text=f"หน้า {self.current_page + 1} / {self.total_pages} (ทั้งหมด {len(self.data_list)} รายชื่อ)")
+        return embed
+
+    def update_buttons(self):
+        self.prev_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page == self.total_pages - 1
+
+    @ui.button(label="◀ ย้อนกลับ", style=discord.ButtonStyle.blurple)
+    async def prev_button(self, interaction: discord.Interaction, button: ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @ui.button(label="ถัดไป ▶", style=discord.ButtonStyle.blurple)
+    async def next_button(self, interaction: discord.Interaction, button: ui.Button):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
 # --- 1. View สำหรับเลือกเพื่อนและถามเรื่องการตามไป ---
 class GroupMoveView(ui.View):
     def __init__(self, author, members, voice_channels):
@@ -4610,5 +4658,117 @@ async def kick_cancel(ctx: commands.Context):
         await ctx.send("ครับเมท! กรุณาเลือกรายชื่อคนที่ต้องการยกเลิกคิวเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
     else:
         await ctx.send("ไม่มีรายชื่อใครกำลังติดคิวตั้งเวลาเตะในเซิร์ฟนี้เลยครับเมท!", ephemeral=True)
+
+@bot.hybrid_command(name="memberlist", description="เปิดสมุดคลังความจำดูรายชื่อพรรคพวกในดิสคอร์ด")
+@app_commands.describe(scope="เลือกขอบเขต: 'current' ดูเฉพาะเซิร์ฟนี้, 'all' ดูทุกเซิร์ฟเวอร์ (สิทธิ์มาสเตอร์)")
+@app_commands.choices(scope=[
+    app_commands.Choice(name="ดูเฉพาะเซิร์ฟเวอร์นี้", value="current"),
+    app_commands.Choice(name="ระบบตาทิพย์ ดูทุกเซิร์ฟเวอร์ (เฉพาะผู้สร้าง)", value="all")
+])
+async def member_list(ctx: commands.Context, scope: str = "current"):
+    try:
+        MY_MASTER_ID = 1133740216822267954
+        user_data = load_user_data()
+
+        if not user_data:
+            return await ctx.send("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
+
+        formatted_list = []
+
+        if scope == "all" or ctx.guild is None:
+            if ctx.author.id != MY_MASTER_ID:
+                return await ctx.send("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌", ephemeral=True)
+            
+            title_text = "👁️ คลังระบบตาทิพย์: รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟ"
+            
+            for user_id_str, data in user_data.items():
+                if user_id_str == "reminders": continue
+                nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
+                birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
+                formatted_list.append(f"<@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})")
+
+        else:
+            guild = ctx.guild
+            title_text = f"📊 รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้"
+            
+            for user_id_str, data in user_data.items():
+                if user_id_str == "reminders": continue
+                
+                member = guild.get_member(int(user_id_str))
+                if not member: continue
+                
+                nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
+                birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
+                
+                if birthday != "ยังไม่ได้ระบุ":
+                    formatted_list.append(f"<@{user_id_str}>: {nickname} (วันเกิด: {birthday})")
+                else:
+                    formatted_list.append(f"<@{user_id_str}>: {nickname}")
+
+        if not formatted_list:
+            return await ctx.send("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+
+        view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
+        await ctx.send(embed=view.create_embed(), view=view)
+
+    except Exception as e:
+        print(f"🚨 ERROR ระบบรายชื่อใหม่: {e}")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท")
+
+@bot.hybrid_command(name="voicestats", description="ดูสรุปสถิติห้องเสียงของวันนี้ว่าใครคุยนานที่สุด")
+async def voice_stats(ctx: commands.Context):
+    try:
+        if ctx.guild is None:
+            return await ctx.send("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า 🛸❌", ephemeral=True)
+
+        data = load_voice_data()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        if not data or data.get("date") != today_str or not data.get("stats"):
+            return await ctx.send("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับเมท!")
+
+        stats = data["stats"]
+        guild_id_str = str(ctx.guild.id)
+        
+        guild_stats = stats.get(guild_id_str, {})
+        filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
+        
+        sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
+        
+        if not sorted_stats:
+            return await ctx.send("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับเมท!")
+        
+        user_memory = load_user_data()
+        
+        def get_realtime_name(uid, default):
+            mem = user_memory.get(str(uid))
+            if mem and isinstance(mem, dict):
+                if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
+                    return mem.get("admin_nickname")
+                if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
+                    return mem.get("nickname")
+            return default
+
+        report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
+        top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
+        
+        for i, (u_id, info) in enumerate(sorted_stats, 1):
+            ts = info['total_time']
+            if ts >= 3600:
+                time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
+            else:
+                time_display = f"{max(1, int(ts//60))}นาที"
+            
+            display_name = get_realtime_name(u_id, info['name'])
+            report += f"**{i}.** {display_name}: {time_display}\n"
+
+        await ctx.send(report)
+        
+        if ctx.guild.voice_client:
+            await bagley_speak(ctx.guild, f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
+
+    except Exception as e:
+        print(f"🚨 ERROR ระบบสรุปสถิติห้องเสียง: {e}")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลสถิติครับเมท")
 
 bot.run(DISCORD_TOKEN)
