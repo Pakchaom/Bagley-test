@@ -1111,47 +1111,79 @@ class KickVoiceSelect(ui.UserSelect):
         targets = self.values
         self.view.stop()
         
-        channel_id = interaction.channel_id
+        guild_id = interaction.guild_id
         member_names = ", ".join([m.display_name for m in targets])
         
         await interaction.response.send_message(
             f"รับทราบครับเมท! ล็อกเป้าหมายเรียบร้อย เริ่มตั้งเวลาถอยหลัง **{self.minutes} นาที** เพื่อเคลียร์: `{member_names}` ครับผม\n"
-            f"*(หากต้องการยกเลิก พิมพ์ `/kickcancel` ได้เลยครับ)*"
+            f"*(หากต้องการยกเลิกบางคน พิมพ์ `/kickcancel` ได้เลยครับ)*"
         )
 
-        async def kick_worker():
+        async def member_kick_worker(member: discord.Member):
             try:
                 await asyncio.sleep(self.minutes * 60)
-                
-                kicked_count = 0
-                for member in targets:
-                    if member.voice and member.voice.channel:
-                        try:
-                            await member.move_to(None, reason="แบ็คลี่เคลียร์ก๊วนนอนหลับตามเวลาที่ตั้งไว้ครับ")
-                            kicked_count += 1
-                        except Exception:
-                            pass
-
-                if kicked_count > 0:
-                    await interaction.channel.send(f"เรียบร้อยครับเมท! แบ็คลี่จัดการดีดพวกนอนหลับปุ๋ยออกจากห้องเสียงไป {kicked_count} คนเรียบร้อยแล้วครับ!")
-                else:
-                    await interaction.channel.send("ไม่มีใครโดนเตะครับเมท สงสัยพวกนั้นจะสะดุ้งตื่นแล้วชิงกดออกไปก่อนหน้าผมเอง 555")
-            
+                if member.voice and member.voice.channel and member.voice.channel.guild.id == guild_id:
+                    try:
+                        await member.move_to(None, reason="แบ็คลี่เคลียร์ก๊วนนอนหลับตามเวลาที่ตั้งไว้ครับ")
+                        await interaction.channel.send(f"💥 ดีดคุณ **{member.display_name}** ออกจากห้องเสียงเรียบร้อยครับเมท!")
+                    except Exception:
+                        pass
             except asyncio.CancelledError:
-                await interaction.channel.send("ภารกิจถูกยกเลิกแล้วครับเมท! ปล่อยให้พวกนั้นนอนอืดต่อเซฟๆ ครับ")
+                pass
             finally:
-                if active_kick_tasks.get(channel_id) == asyncio.current_task():
-                    active_kick_tasks.pop(channel_id, None)
+                active_kick_tasks.pop((guild_id, member.id), None)
 
         loop = asyncio.get_running_loop()
-        task = loop.create_task(kick_worker())
-        active_kick_tasks[channel_id] = task
+        for member in targets:
+            old_task = active_kick_tasks.get((guild_id, member.id))
+            if old_task:
+                old_task.cancel()
+                
+            task = loop.create_task(member_kick_worker(member))
+            active_kick_tasks[(guild_id, member.id)] = task
 
-# 2. คลาส View สำหรับครอบ Dropdown
 class KickVoiceView(ui.View):
     def __init__(self, minutes: int):
         super().__init__(timeout=60)
         self.add_item(KickVoiceSelect(minutes))
+
+class CancelVoiceSelect(ui.UserSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="จิ้มเลือกรายชื่อเมทที่ต้องการให้ 'รอด' จากคิวเตะครับ...",
+            min_values=1,
+            max_values=25
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        targets = self.values
+        self.view.stop()
+        
+        guild_id = interaction.guild_id
+        cancelled_members = []
+
+        for member in targets:
+            key = (guild_id, member.id)
+            if key in active_kick_tasks:
+                active_kick_tasks[key].cancel() # สั่งยกเลิก Task ของคนนี้
+                active_kick_tasks.pop(key, None)
+                cancelled_members.append(member.display_name)
+
+        if cancelled_members:
+            names = ", ".join(cancelled_members)
+            await interaction.response.send_message(
+                f"รับทราบครับเมท! ดึงปลั๊กเรียบร้อย แบ็คลี่ยกเลิกคิวเตะให้: `{names}` ให้อยู่ต่อยาวๆ แล้วครับ!"
+            )
+        else:
+            await interaction.response.send_message(
+                "ไม่มีใครโดนยกเลิกครับเมท รายชื่อที่เลือกมาน่าจะไม่ได้อยู่ในคิวเตะของเซิร์ฟนี้อยู่แล้วครับ", 
+                ephemeral=True
+            )
+
+class CancelVoiceView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+        self.add_item(CancelVoiceSelect())
 
 # --- 1. View สำหรับเลือกเพื่อนและถามเรื่องการตามไป ---
 class GroupMoveView(ui.View):
@@ -4535,23 +4567,25 @@ async def kick_timer(ctx: commands.Context, minutes: int):
         return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
 
     if minutes <= 0:
-        return await ctx.send("ตั้งเวลาติดลบไม่ได้ครับเมท ผมไม่ใช่ไทม์แมชชีนที่จะย้อนเวลาไปเตะคนได้นะ", ephemeral=True)
+        return await ctx.send("ตั้งเวลาติดลบไม่ได้ครับเมท ผมไม่ใช่ไทม์แมชชีนนะ", ephemeral=True)
 
     view = KickVoiceView(minutes)
     await ctx.send("ครับเมท! กรุณาเลือกสมาชิกที่คุณต้องการตั้งเวลาเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
 
-@bot.hybrid_command(name="kickcancel",description="ยกเลิกคำสั่งตั้งเวลาเตะในห้องแชทนี้ทันที")
+@bot.hybrid_command(name="kickcancel",description="เลือกยกเลิกรายชื่อคนที่ตั้งเวลาเตะไว้ในเซิร์ฟเวอร์นี้")
 async def kick_cancel(ctx: commands.Context):
     can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
     if not can_act:
         return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
 
-    channel_id = ctx.channel.id
+    guild_id = ctx.guild.id
     
-    if channel_id in active_kick_tasks:
-        active_kick_tasks[channel_id].cancel()
-        await ctx.send("กำลังระงับสัญญาณระบบตั้งเวลาเตะ... กรุณารอสักครู่ครับเมท")
+    has_active_task = any(key[0] == guild_id for key in active_kick_tasks.keys())
+    
+    if has_active_task:
+        view = CancelVoiceView()
+        await ctx.send("ครับเมท! กรุณาเลือกรายชื่อคนที่ต้องการยกเลิกคิวเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
     else:
-        await ctx.send("ไม่มีระบบตั้งเวลาเตะกำลังทำงานอยู่ในห้องนี้ครับเมท พิมพ์สั่งเล่นๆ ผมไม่ตลกด้วยนะ 555", ephemeral=True)
+        await ctx.send("ไม่มีรายชื่อใครกำลังติดคิวตั้งเวลาเตะในเซิร์ฟนี้เลยครับเมท!", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
