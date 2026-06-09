@@ -125,6 +125,28 @@ def load_user_data():
             return json.load(f)
     except FileNotFoundError:
         return {}
+
+def make_gradle_bar(percent: int, status_text: str, start_time: float) -> str:
+    total_blocks = 15
+    # คำนวณจำนวนเครื่องหมาย = ตามเปอร์เซ็นต์
+    filled_blocks = int((percent / 100) * total_blocks)
+    empty_blocks = total_blocks - filled_blocks
+    
+    # วาดหน้าตาหลอด: <====--------->
+    bar_str = f"<{FillGreen(filled_blocks)}{FillDash(empty_blocks)}>"
+    
+    # คำนวณเวลาที่ใช้ไป (วินาที)
+    elapsed_time = int(time.time() - start_time)
+    
+    # ประกอบร่างออกมาเป็นฟอร์แมต Gradle คลีน ๆ คัปเมท
+    return f"```text\n{bar_str} {percent}% {status_text} [{elapsed_time}s]\n
+```"
+
+def FillGreen(count):
+    return "=" * count if count > 0 else ""
+
+def FillDash(count):
+    return "-" * count if count > 0 else ""
     
 #  ฟังก์ชันกลางสำหรับลบข้อมูล (ทำหน้าที่ลบอย่างเดียว)
 def เคลียร์ข้อมูลพรรคพวก(user_id: str):
@@ -3930,24 +3952,34 @@ async def update_bot(ctx: commands.Context):
         await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
-    status_msg = await ctx.send("📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ดโครงสร้างใหม่ล่าสุดจาก GitHub...")
+    start_time = time.time()
+    
+    status_msg = await ctx.send(
+        "📡 **[SYSTEM UPDATE]** กำลังเริ่มกระบวนการดึงโค้ด...\n" + 
+        make_gradle_bar(0, "STARTING", start_time)
+    )
+    await asyncio.sleep(1.0)
     
     try:
+        await status_msg.edit(content="📡 **[SYSTEM UPDATE]** กำลังสั่ง Git Fetch...\n" + make_gradle_bar(20, "EXECUTING :gitFetch", start_time))
         fetch_output = subprocess.check_output(
             ["git", "fetch", "--all"], 
             stderr=subprocess.STDOUT, 
             text=True
         )
+        await asyncio.sleep(0.8)
         
+        await status_msg.edit(content="📡 **[SYSTEM UPDATE]** กำลังสั่ง Git Reset Hard...\n" + make_gradle_bar(50, "EXECUTING :gitReset", start_time))
         reset_output = subprocess.check_output(
             ["git", "reset", "--hard", "origin/main"], 
             stderr=subprocess.STDOUT, 
             text=True
         )
-        
         print(f"🤠 [Git Force Sync Success]:\n{fetch_output}\n{reset_output}")
+        await asyncio.sleep(0.8)
         
-        await status_msg.edit(content="✅ **[GIT FORCE SYNC SUCCESS]** ซิงค์โค้ดจักรวาลใหม่ล่าสุดตรงปกเรียบร้อยครับเมท!")
+        await status_msg.edit(content="✅ **[GIT FORCE SYNC SUCCESS]** ซิงค์โค้ดจักรวาลใหม่ตรงปกแล้วครับ!\n" + make_gradle_bar(75, "EXECUTING :prepareRestart", start_time))
+        await asyncio.sleep(1.5)
         
     except subprocess.CalledProcessError as e:
         error_git = f"❌ **[GIT SYNC FAILED]** สั่งซิงค์โค้ดล้มเหลวเนื่องจาก:\n```\n{e.output}\n```"
@@ -3961,10 +3993,8 @@ async def update_bot(ctx: commands.Context):
         await status_msg.edit(content=error_system)
         return
 
+    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งสลับสคริปต์...\n" + make_gradle_bar(90, "EXECUTING :runBatScript", start_time))
     await asyncio.sleep(1.5)
-    
-    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งเปิดบอทใหม่ใน 3 วินาทีครับ...")
-    await asyncio.sleep(3.0)
     
     bot_dir = os.path.dirname(os.path.abspath(__file__))
     bat_file = os.path.join(bot_dir, "start_hidden.bat")
@@ -3980,7 +4010,7 @@ async def update_bot(ctx: commands.Context):
         
         print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
         
-        await status_msg.edit(content="✅ **[RESTARTING]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!")
+        await status_msg.edit(content="✅ **[BUILD SUCCESSFUL]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!\n" + make_gradle_bar(100, "SUCCESSFUL", start_time))
         
         try:
             global conn
