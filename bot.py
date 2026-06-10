@@ -128,19 +128,16 @@ def load_user_data():
 
 def make_gradle_bar(percent: int, status_text: str, start_time: float) -> str:
     total_blocks = 15
-    # คำนวณจำนวนเครื่องหมาย = ตามเปอร์เซ็นต์
     filled_blocks = int((percent / 100) * total_blocks)
     empty_blocks = total_blocks - filled_blocks
     
-    # วาดหน้าตาหลอด: <====--------->
     bar_str = f"<{FillGreen(filled_blocks)}{FillDash(empty_blocks)}>"
     
-    # คำนวณเวลาที่ใช้ไป (วินาที)
     elapsed_time = int(time.time() - start_time)
     
-    # ประกอบร่างออกมาเป็นฟอร์แมต Gradle คลีน ๆ คัปเมท
-    return f"```text\n{bar_str} {percent}% {status_text} [{elapsed_time}s]\n
-```"
+    return f"""```text
+{bar_str} {percent}% {status_text} [{elapsed_time}s]
+```"""
 
 def FillGreen(count):
     return "=" * count if count > 0 else ""
