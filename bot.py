@@ -1276,10 +1276,16 @@ class GroupMoveView(ui.View):
         self.selected_members = []
         self.target_channel = None
 
+        # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัปเมท)
         member_options = [
             discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
             for m in members if not m.bot
-        ]
+        ][:25]
+        
+        # 🛡️ เซฟตี้ดักจับ: ถ้าไม่มีตัวเลือกเลย ให้ใส่ตัวเลือกหลอกไว้ 1 อันไม่ให้บอทเอ๋อ
+        if not member_options:
+            member_options.append(discord.SelectOption(label="ไม่มีเพื่อนให้เลือกคัป", value="none"))
+
         self.member_select = ui.Select(
             placeholder="เลือกเพื่อนที่จะพาไปด้วย (เลือกได้หลายคน)...",
             min_values=1,
@@ -1289,10 +1295,16 @@ class GroupMoveView(ui.View):
         self.member_select.callback = self.member_callback
         self.add_item(self.member_select)
 
+        # 🏠 ดึงรายชื่อห้องเสียง (ตัดเอาไม่เกิน 25 ห้องคัปพ้ม)
         channel_options = [
             discord.SelectOption(label=c.name, value=str(c.id), emoji="🏠")
             for c in voice_channels
-        ]
+        ][:25]
+        
+        # 🛡️ เซฟตี้ดักจับ: ถ้าไม่มีห้องอื่นให้เลือกเลย ยัดตัวเลือกหลอกกันบอทพัง
+        if not channel_options:
+            channel_options.append(discord.SelectOption(label="ไม่มีห้องอื่นให้ย้ายไปคัป", value="none"))
+
         self.channel_select = ui.Select(
             placeholder="เลือกห้องที่จะย้ายไป...",
             options=channel_options
@@ -1301,6 +1313,9 @@ class GroupMoveView(ui.View):
         self.add_item(self.channel_select)
 
     async def member_callback(self, interaction: discord.Interaction):
+        if self.member_select.values[0] == "none":
+            return await interaction.response.send_message("ไม่มีรายชื่อเพื่อนที่ใช้งานได้คัปเมท!", ephemeral=True)
+            
         try:
             await interaction.response.defer(ephemeral=True) 
         except Exception as e:
@@ -1310,10 +1325,12 @@ class GroupMoveView(ui.View):
         self.selected_members = self.member_select.values
 
     async def channel_callback(self, interaction: discord.Interaction):
+        if self.channel_select.values[0] == "none":
+            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายไปได้คัปเมท!", ephemeral=True)
+
         self.target_channel = interaction.guild.get_channel(int(self.channel_select.values[0]))
         
         if self.selected_members:
-            
             if interaction.guild.voice_client:
                 follow_view = ui.View()
                 yes_btn = ui.Button(label="พา Bagley ไปด้วย", style=discord.ButtonStyle.green)
@@ -1345,34 +1362,30 @@ class GroupMoveView(ui.View):
                 except: 
                     pass
                 await self.execute_move(interaction, follow_bot=False)
-        
         else:
             await interaction.response.send_message("รบกวนเลือกเพื่อนก่อนเลือกห้องนะเมท!", ephemeral=True)
 
     async def execute_move(self, interaction: discord.Interaction, follow_bot: bool):
         global is_moving_group
-        is_moving_group = True  # 🔒 เริ่มการย้าย ห้ามแบ็คลี่พูดทักทายแทรก
+        is_moving_group = True
     
         try:
             success_count = 0
-            # 1. ย้ายพรรคพวกที่เลือก
             for m_id in self.selected_members:
+                if m_id == "none": continue
                 member = interaction.guild.get_member(int(m_id))
                 if member and member.voice:
                     await member.edit(voice_channel=self.target_channel)
                     success_count += 1
         
-            # 3. ย้ายแบ็คลี่ตามไป (ถ้าเลือกให้ตาม)
             if follow_bot and interaction.guild.voice_client:
                 await interaction.guild.voice_client.move_to(self.target_channel)
 
         finally:
-            # รอให้ระบบ Discord อัปเดตสถานะคนเข้า/ออกให้เสร็จก่อน 1 วินาที
             await asyncio.sleep(1) 
-            is_moving_group = False  # ย้ายเสร็จเรียบร้อย ปลดล็อคให้แบ็คลี่กลับมาพูดได้ตามปกติ
+            is_moving_group = False
 
         try:
-            # ใช้ edit_original_response
             await interaction.edit_original_response(
                 content=f"🚀 ย้ายพรรคพวก {success_count} คนเรียบร้อยแล้วครับเมท!", 
                 view=None
@@ -3816,6 +3829,10 @@ async def group_move(ctx):
         members = ctx.author.voice.channel.members
         voice_channels = [c for c in ctx.guild.voice_channels if c != ctx.author.voice.channel]
         
+        # 🛡️ [จุดเซฟตี้หลัก] เช็กก่อนเลยว่าในดิสคอร์ดมีห้องอื่นให้ย้ายไปไหม
+        if not voice_channels:
+            return await ctx.send("❌ ในเซิร์ฟเวอร์ไม่มีห้องเสียงอื่นให้ย้ายไปเลยครับเมท!")
+            
         if len([m for m in members if not m.bot]) <= 1:
             return await ctx.send("ไม่มีใครให้ย้ายไปพร้อมกันเลยครับเมท")
 
