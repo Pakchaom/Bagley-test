@@ -2352,7 +2352,7 @@ async def on_message(message):
                 guild_id = message.guild.id if message.guild else None
                 
                 if guild_id:
-                    global room_guard_status # 💡 เอาบรรทัด global ตัวนี้สลับขึ้นมาไว้บนสุดก่อนเลยคัปพ้ม!
+                    global room_guard_status # ✨ เอา global ขึ้นมารับแขกบรรทัดแรกสุดของ if เลยคัป!
                     
                     # รีเซ็ตสถานะกลับเป็น False (เลิกเฝ้า)
                     room_guard_status[guild_id] = False 
