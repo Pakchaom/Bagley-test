@@ -55,6 +55,8 @@ created_party_channels = []
 
 active_kick_tasks = {}
 
+room_guard_status = {}
+
 is_playing_music = False
 
 is_tts_enabled = False
@@ -2326,6 +2328,24 @@ async def on_message(message):
                 else:
                     await message.reply("ขออภัยครับเมท ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับ!")  
                 return
+            
+            elif any(k in lower_content for k in ["เฝ้าห้องนี้ไว้นะ", "รออยู่นี่นะ"]) and "แบ็คลี่" in lower_content:
+                guild_id = message.guild.id if message.guild else None
+                
+                if guild_id:
+                    # 🔍 เช็กก่อนว่าบอทเชื่อมต่ออยู่ในห้องเสียงของเซิร์ฟนี้จริง ๆ หรือไม่
+                    if message.guild.voice_client:
+                        global room_guard_status
+                        room_guard_status[guild_id] = True # 🔒 สับสวิตช์เปิดโหมดเฝ้าห้องถาวร!
+                        
+                        reply_text = "🛡️ รับทราบครับเมท! ผมจะปักหลักเฝ้าห้องเสียงนี้รออยู่ตรงนี้ ไม่หนีออกไปไหนแน่นอนคัปพ้ม!"
+                        await message.reply(reply_text)
+                        
+                        # สั่งให้ลุงนิวัฒน์พ่นคำพูดรายงานตัวในห้องเสียงด้วยคัป
+                        await bagley_speak(message.guild, "รับทราบครับเมท ผมจะอยู่เฝ้าห้องรอตรงนี้ให้นะครับ")
+                    else:
+                        await message.reply("เมทคัป! ต้องอัญเชิญแบ็คลี่เข้าห้องเสียงก่อนน้า (ใช้คำสั่ง /join) ถึงจะสั่งให้ผมอยู่เฝ้าห้องได้คัปพ้ม! 🔊")
+                return
 
             # ==========================================
             # 🎵 [ระบบมิวสิกบอท และ การควบคุมห้องเสียง]
@@ -2801,7 +2821,7 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    global pending_exit_after_music, bot_follow_targets
+    global pending_exit_after_music, bot_follow_targets, room_guard_status
     
     if is_moving_group:
         return
@@ -2810,7 +2830,8 @@ async def on_voice_state_update(member, before, after):
 
     if member.id == bot.user.id and after.channel is None:
         voice_report_status.pop(guild_id, None)
-        print(f"DEBUG: ตัวบอทออกจากห้องเสียงแล้ว ทำการรีเซ็ตสวิตช์รายงานเสียงของกิลด์ {guild_id} กลับเป็น เปิด (True) อัตโนมัติ")
+        room_guard_status.pop(guild_id, None) # รีเซ็ตโหมดเฝ้าห้องคัปพ้ม
+        print(f"DEBUG: ตัวบอทออกจากห้องเสียงแล้ว ทำการรีเซ็ตสวิตช์รายงานเสียงและโหมดเฝ้าห้องของกิลด์ {guild_id}")
 
     voice_client = member.guild.voice_client
     has_followed_out = False
@@ -2859,19 +2880,23 @@ async def on_voice_state_update(member, before, after):
                 # ==========================================
                 remaining_humans = len([m for m in bot_channel.members if not m.bot])
                 
-                if remaining_humans <= 4:
-                    print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง คนเหลือน้อย ({remaining_humans} คน) แบ็คลี่จะพูดบอกลาก่อนออกคัป")
-                    exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
-                    await bagley_speak_wait(member.guild, exit_msg)
+                if room_guard_status.get(guild_id, False):
+                    print(f"DEBUG: เจ้านายออกไปแล้ว แต่กิลด์ {guild_id} เปิดโหมดเฝ้าห้องไว้ แบ็คลี่จะอยู่รอที่นี่คัปพ้ม!")
+                    guard_msg = "รับทราบครับเมท เจ้านายออกไปแล้ว แต่ผมจะอยู่เฝ้าห้องนี้รอไว้ให้นะคัปพ้ม!"
+                    await bagley_speak_wait(member.guild, guard_msg)
                 else:
-                    # 🔴 คนเยอะเกิน 3 คน -> ออกไปเฉย ๆ เงียบ ๆ เลย
-                    print(f"DEBUG: คนยังอยู่กันเยอะ ({remaining_humans} คน) แบ็คลี่จะวาร์ปออกแบบเงียบเชียบครับเมท")
+                    if remaining_humans <= 4:
+                        print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง คนเหลือน้อย ({remaining_humans} คน) แบ็คลี่จะพูดบอกลาก่อนออกคัป")
+                        exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
+                        await bagley_speak_wait(member.guild, exit_msg)
+                    else:
+                        print(f"DEBUG: คนยังอยู่กันเยอะ ({remaining_humans} คน) แบ็คลี่จะวาร์ปออกแบบเงียบเชียบครับเมท")
                 
-                try:
-                    await voice_client.disconnect()
-                    voice_report_status.pop(guild_id, None)
-                except Exception as e:
-                    print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายตามเจ้านาย: {e}")
+                    try:
+                        await voice_client.disconnect()
+                        voice_report_status.pop(guild_id, None)
+                    except Exception as e:
+                        print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายตามเจ้านาย: {e}")
 
     # 🧹 [ส่วนที่ 1] จัดการเก็บกวาด "ห้องปาร์ตี้สร้างเอง"
     if not has_followed_out and before.channel is not None:
@@ -2880,17 +2905,20 @@ async def on_voice_state_update(member, before, after):
                                (len(channel_to_check.members) == 1 and bot.user in channel_to_check.members)
 
         if channel_to_check.id in created_party_channels and is_empty_or_only_bot:
-            try:
-                if voice_client and voice_client.channel == channel_to_check:
-                    await voice_client.disconnect()
-                    voice_report_status.pop(guild_id, None)
+            if room_guard_status.get(guild_id, False):
+                print(f"DEBUG: ห้องปาร์ตี้ '{channel_to_check.name}' ว่าง แต่เปิดโหมดเฝ้าห้องไว้ จึงไม่ลบคัป")
+            else:
+                try:
+                    if voice_client and voice_client.channel == channel_to_check:
+                        await voice_client.disconnect()
+                        voice_report_status.pop(guild_id, None)
 
-                await channel_to_check.delete(reason="ห้องปาร์ตี้ร้าง - Bagley ลบให้อัตโนมัติ")
-                created_party_channels.remove(channel_to_check.id)
-                print(f"🗑️ เก็บกวาดห้อง '{channel_to_check.name}' เรียบร้อยครับเมท")
-                return
-            except Exception as e:
-                print(f"❌ ลบห้องไม่ได้: {e}")
+                    await channel_to_check.delete(reason="ห้องปาร์ตี้ร้าง - Bagley ลบให้อัตโนมัติ")
+                    created_party_channels.remove(channel_to_check.id)
+                    print(f"🗑️ เก็บกวาดห้อง '{channel_to_check.name}' เรียบร้อยครับเมท")
+                    return
+                except Exception as e:
+                    print(f"❌ ลบห้องไม่ได้: {e}")
 
     # 🚶‍♂️ [ส่วนที่ 2] ออกจาก "ห้องทั่วไป" เมื่อไม่มีคนอยู่กับบอท
     if not has_followed_out and voice_client and voice_client.channel:
@@ -2899,16 +2927,20 @@ async def on_voice_state_update(member, before, after):
             if bot_channel.id in created_party_channels:
                 return
 
-            print(f"DEBUG: ห้องทั่วไป '{bot_channel.name}' ร้างแล้ว แบ็คลี่เตรียมถอนกำลัง...")
-            await asyncio.sleep(1.5)
-            
-            if len(bot_channel.members) == 1 and bot.user in bot_channel.members:
-                try:
-                    await voice_client.disconnect()
-                    voice_report_status.pop(guild_id, None)
-                    print(f"DEBUG: แบ็คลี่กดออกจากห้องร้าง '{bot_channel.name}' เรียบร้อยครับเมท")
-                except Exception as e:
-                    print(f"❌ เกิดข้อผิดพลาดในการสั่ง Auto-Leave ห้องทั่วไป: {e}")
+            if room_guard_status.get(guild_id, False):
+                # ปล่อยให้บอทอยู่คนเดียวเงียบ ๆ ไม่ต้องหนีไปไหนคัป
+                pass
+            else:
+                print(f"DEBUG: ห้องทั่วไป '{bot_channel.name}' ร้างแล้ว แบ็คลี่เตรียมถอนกำลัง...")
+                await asyncio.sleep(1.5)
+                
+                if len(bot_channel.members) == 1 and bot.user in bot_channel.members:
+                    try:
+                        await voice_client.disconnect()
+                        voice_report_status.pop(guild_id, None)
+                        print(f"DEBUG: แบ็คลี่กดออกจากห้องร้าง '{bot_channel.name}' เรียบร้อยครับเมท")
+                    except Exception as e:
+                        print(f"❌ เกิดข้อผิดพลาดในการสั่ง Auto-Leave ห้องทั่วไป: {e}")
 
     # 📢 [ส่วนที่ 3] ตรวจสอบและรายงานเสียง คนเข้า-ออกห้องเสียงยามปกติ
     if not has_followed_out and voice_client and voice_client.channel:
@@ -3653,6 +3685,68 @@ class RegisterModal(discord.ui.Modal):
             await interaction.followup.send("❌ แบ็คลี่เปลี่ยนชื่อหรือให้ยศไม่ได้! (ตรวจสอบลำดับยศของบอทด้วยนะครับเมท)", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"⚠️ เกิดข้อผิดพลาดในระบบ: {e}", ephemeral=True)
+
+class PullRoomView(ui.View):
+    def __init__(self, author, voice_channels, target_channel):
+        super().__init__(timeout=60)
+        self.author = author
+        self.target_channel = target_channel # ห้องที่เมทชะอมนั่งอยู่คัป
+
+        # 🏠 สร้าง Dropdown รวมห้องเสียงอื่น ๆ ในเซิร์ฟ (จำกัดไม่เกิน 25 ห้องตามกฎเซฟตี้)
+        channel_options = [
+            discord.SelectOption(label=c.name, value=str(c.id), emoji="🚪")
+            for c in voice_channels
+        ][:25]
+
+        if not channel_options:
+            channel_options.append(discord.SelectOption(label="ไม่มีห้องอื่นให้เลือกคัป", value="none"))
+
+        self.channel_select = ui.Select(
+            placeholder="เลือกห้องต้นทางที่จะดึงคนมา...",
+            options=channel_options
+        )
+        self.channel_select.callback = self.channel_callback
+        self.add_item(self.channel_select)
+
+    async def channel_callback(self, interaction: discord.Interaction):
+        # เช็กสิทธิ์คนกด ต้องเป็นคนใช้คำสั่งเท่านั้นคัป
+        if interaction.user.id != self.author.id:
+            return await interaction.response.send_message("เมทท่านอื่นห้ามกดเล่นน้าคัป!", ephemeral=True)
+
+        if self.channel_select.values[0] == "none":
+            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายได้คัปเมท!", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+        
+        # ดึงห้องต้นทางที่เลือกมา
+        source_channel = interaction.guild.get_channel(int(self.channel_select.values[0]))
+        
+        if source_channel and isinstance(source_channel, discord.VoiceChannel):
+            members_to_move = [m for m in source_channel.members if not m.bot]
+            
+            if not members_to_move:
+                return await interaction.followup.send(f"❌ ห้อง **{source_channel.name}** ไม่มีคนอยู่เลยคัปเมท!", ephemeral=True)
+
+            success_count = 0
+            # 🚀 ทำการเหมาเข่งย้ายห้อง!
+            for member in members_to_move:
+                try:
+                    await member.edit(voice_channel=self.target_channel)
+                    success_count += 1
+                except:
+                    pass
+
+            # อัปเดตข้อความเดิมเมื่อทำงานเสร็จ
+            await interaction.edit_original_response(
+                content=f"🚀 วาร์ปเพื่อน ๆ จากห้อง **{source_channel.name}** มาที่ห้อง **{self.target_channel.name}** ทั้งหมด {success_count} คน เรียบร้อยคัปพ้ม!",
+                view=None
+            )
+            
+            # แบ็คลี่รายงานส่งเสียงในห้องหลัก
+            msg = f"ย้ายปาร์ตี้จากห้อง {source_channel.name} กลับมารวมกันเรียบร้อยแล้วครับเมท"
+            await bagley_speak(interaction.guild, msg)
+        else:
+            await interaction.followup.send("หาห้องเสียงดังกล่าวไม่เจอครับเมท!", ephemeral=True)
 
 # --- ส่วนคำสั่งหลัก gather ---
 @bot.hybrid_command(name="gather", description="เรียกประชุมพร้อมปุ่มกดตอบรับ")
@@ -4826,5 +4920,86 @@ async def voice_stats(ctx: commands.Context):
     except Exception as e:
         print(f"🚨 ERROR ระบบสรุปสถิติห้องเสียง: {e}")
         await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลสถิติครับเมท")
+
+@bot.hybrid_command(name="guard_room", description="สั่งให้แบ็คลี่เปิด-ปิดโหมดเฝ้าห้องเสียงนี้ไว้ ไม่ให้บอทออกจากห้องเวลาร้าง")
+async def guard_room(ctx: commands.Context):
+    global room_guard_status
+    if not ctx.guild.voice_client:
+        return await ctx.send("❌ แบ็คลี่ต้องอยู่ในห้องเสียงก่อนถึงจะสั่งเฝ้าห้องได้ครับเมท!")
+
+    guild_id = ctx.guild.id
+    # ทำการสลับสถานะ (Toggle) True <-> False
+    current_status = room_guard_status.get(guild_id, False)
+    room_guard_status[guild_id] = not current_status
+
+    if room_guard_status[guild_id]:
+        msg = "🛡️ เปิดโหมดสายตรวจแล้วครับเมท! แบ็คลี่จะปักหลักเฝ้าห้องเสียงนี้ไว้ให้เอง ไม่หนีไปไหนแน่นอนคัปพ้ม!"
+        await ctx.send(msg)
+        await bagley_speak(ctx.guild, "เปิดโหมดสายตรวจแล้วครับเมท ผมจะเฝ้าห้องนี้ไว้ให้เองครับ")
+    else:
+        msg = "🔓 ปิดโหมดสายตรวจแล้วคัปพ้ม ต่อจากนี้ถ้าห้องร้าง แบ็คลี่จะถอนกำลังออกตามปกติถ้าร้างนะเมท!"
+        await ctx.send(msg)
+        await bagley_speak(ctx.guild, "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัปเมท")
+
+@bot.hybrid_command(name="party_recall", description="ดึงทุกคนในห้องปาร์ตี้ล่าสุดที่เราสร้าง กลับมาที่ห้องเสียงปัจจุบันของเรา")
+async def party_recall(ctx: commands.Context):
+    # 🔍 เช็กก่อนว่าเมทชะอมอยู่ในห้องเสียงไหม (เพราะเราจะดึงคนมาหาห้องที่เรานั่งอยู่คัป)
+    if not ctx.author.voice:
+        return await ctx.send("❌ เมทต้องอยู่ในห้องเสียงปลายทางก่อนนะครับ ถึงจะเรียกเพื่อนกลับมาได้!")
+        
+    target_channel = ctx.author.voice.channel
+    guild_id = ctx.guild.id
+
+    # 🔍 หาห้องปาร์ตี้ล่าสุดที่ระบบสร้างขึ้น (ดูจากตัวแปรลิสต์ห้องปาร์ตี้ของกิลด์นี้)
+    # สมมติว่าเมทเก็บ ID ไว้ในลิสต์ global ชื่อ created_party_channels
+    if not created_party_channels:
+        return await ctx.send("❌ แบ็คลี่หาประวัติห้องปาร์ตี้ที่สร้างไว้ไม่เจอเลยครับเมท!")
+
+    # ดึง ID ห้องล่าสุดที่เพิ่งสร้างขึ้นมา
+    last_party_id = created_party_channels[-1]
+    source_channel = ctx.guild.get_channel(last_party_id)
+
+    if not source_channel or not isinstance(source_channel, discord.VoiceChannel):
+        return await ctx.send("❌ ดูเหมือนห้องปาร์ตี้ล่าสุดจะโดนลบ หรือหาไม่เจอแล้วครับเมท")
+
+    # 👥 นับจำนวนคนในห้องปาร์ตี้นั้น (ไม่นับบอท)
+    members_to_move = [m for m in source_channel.members if not m.bot]
+
+    if not members_to_move:
+        return await ctx.send(f"ห้อง **{source_channel.name}** ไม่มีเพื่อน ๆ นั่งอยู่เลยครับเมท ว่างเปล่าเลยคัป!")
+
+    await ctx.defer() # ป้องกันอินเตอร์แอกชันหมดอายุเวลาคนเยอะคัปพ้ม
+
+    success_count = 0
+    # 🚀 เริ่มปฏิบัติการดึงพรรคพวกกลับบ้าน!
+    for member in members_to_move:
+        try:
+            await member.edit(voice_channel=target_channel)
+            success_count += 1
+        except Exception as e:
+            print(f"❌ ดึงตัว {member.display_name} พัง: {e}")
+
+    # ย้ายแบ็คลี่ตามมาด้วยถ้าบอทเคยหลงไปอยู่ในนั้น
+    if ctx.guild.voice_client and ctx.guild.voice_client.channel == source_channel:
+        await ctx.guild.voice_client.move_to(target_channel)
+
+    msg = f"🛸 ดึงพรรคพวกจากห้อง {source_channel.name} กลับมารวมกันที่ห้อง {target_channel.name} จำนวน {success_count} คน เรียบร้อยแล้วครับเมท!"
+    await ctx.send(msg)
+    await bagley_speak(ctx.guild, f"ดึงเพื่อน ๆ กลับห้องหลักเรียบร้อยแล้วครับเมท การแข่งขันจบลงแล้วสินะครับ")
+
+@bot.hybrid_command(name="pull_room", description="เลือกดึงสมาชิกทั้งหมดจากห้องอื่น ย้ายมาที่ห้องเสียงปัจจุบันของเรา")
+async def pull_room(ctx: commands.Context):
+    if ctx.author.voice:
+        current_channel = ctx.author.voice.channel
+        # ดึงห้องเสียงอื่น ๆ ทั้งหมดในเซิร์ฟ ยกเว้นห้องที่เรานั่งอยู่คัปเมท
+        other_channels = [c for c in ctx.guild.voice_channels if c != current_channel]
+        
+        if not other_channels:
+            return await ctx.send("❌ ในเซิร์ฟเวอร์ไม่มีห้องเสียงอื่นเลยครับเมท!")
+
+        view = PullRoomView(ctx.author, other_channels, current_channel)
+        await ctx.send("🔮 เมทต้องการดึงคนทั้งหมดจากห้องไหน มารวมกันที่ห้องนี้ดีครับ?", view=view)
+    else:
+        await ctx.send("เมทต้องเข้ามานั่งในห้องเสียงหลักก่อนนะครับ แบ็คลี่ถึงจะรู้ว่าจะให้ดึงคนมาไว้ที่ห้องไหนคัปพ้ม!")
 
 bot.run(DISCORD_TOKEN)
