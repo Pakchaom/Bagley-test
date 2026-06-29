@@ -53,6 +53,8 @@ bot_follow_targets = {}
 
 created_party_channels = []
 
+guard_room_status = {}
+
 active_kick_tasks = {}
 
 room_guard_status = {}
