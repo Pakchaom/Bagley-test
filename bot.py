@@ -10,7 +10,7 @@ import sqlite3
 import asyncio
 from dotenv import load_dotenv
 from discord import app_commands
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, time as dt_time, timezone
 from typing import Union, Optional
 import json
 import time
@@ -721,7 +721,6 @@ async def follow_creator_task():
 
     for guild in bot.guilds:
         for user_id in ALLOWED_USERS:
-            
             if not auto_follow_status.get(user_id, True):
                 continue
                 
@@ -808,24 +807,20 @@ async def follow_creator_task():
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเล่นเสียง Drone เปิดตัว: {e}")
 
         # ==========================================
-        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด
+        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด (คลีนลอจิกซ้ำซ้อนเรียบร้อย)
         # ==========================================
         greeting_key = "both_together" if both_present else target_member.id
         guild_id = guild_to_join.id
         
-        human_count = len([m for m in target_channel.members if not m.bot])
+        # 👥 คัดกรองนับเฉพาะมนุษย์ในห้องเสียงนั้น
+        all_humans_in_room = [m for m in target_channel.members if not m.bot]
+        human_count = len(all_humans_in_room)
         
         should_speak = False
         msg = ""
 
         user_memory = load_user_data()
         def get_realtime_name(user_id, default_name):
-            """
-            ฟังก์ชันดึงชื่อเล่นตามลำดับความสำคัญ: 
-            1. ชื่อที่คุณชะอมตั้งให้ (admin_nickname) 
-            2. ชื่อที่เจ้าตัวตั้งเอง (nickname) 
-            3. ชื่อดิสคอร์ดปกติ (default_name)
-            """
             try:
                 user_memory = load_user_data()
                 mem = user_memory.get(str(user_id))
@@ -903,34 +898,69 @@ async def follow_creator_task():
                 now_hour = datetime.now().hour
                 time_greeting = ""
                 if 0 <= now_hour < 13:
-                    time_greeting = "อรุณสวัสดิ์ครับ "
+                    time_greeting = "อรุณสวัสดิ์ครับ"
                 elif 13 <= now_hour < 14:
-                    time_greeting = "สวัสดีตอนบ่ายครับ "
+                    time_greeting = "สวัสดีตอนบ่ายครับ"
                 elif 14 <= now_hour < 19:
-                    time_greeting = "สวัสดีตอนเย็นครับ "
+                    time_greeting = "สวัสดีตอนเย็นครับ"
                 elif 19 <= now_hour <= 23:
-                    time_greeting = "สวัสดีตอนกลางคืนครับ "
+                    time_greeting = "สวัสดีตอนกลางคืนครับ"
 
                 chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
                 other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
                 chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
 
+                # 1. ทักทายผู้พัฒนาหลัก/คู่คัปพ้ม
                 if both_present:
-                    greetings = [
-                        f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่รายงานตัวค้าบผม!",
-                        f"{time_greeting} แอบมาตั้งตี้คุยอะไรกันสองคนฮะ {chaom_name}กับ{chacha_name} ขอแบ็คลี่ร่วมวงด้วยนะครับ!",
-                        f"{time_greeting} ตรวจพบสัญญาณของ{chaom_name}กับ{chacha_name}อยู่ด้วยกัน วันนี้มีอะไรให้รับใช้ไหมครับเมท!"
-                    ]
+                    creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาในห้องเสียงแล้วนะครับ"
                 else:
                     name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
-                    greetings = [
-                        f"{time_greeting} มาแล้วหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
-                        f"{time_greeting} เพิ่งมาหรอครับ {name_call} ยินดีต้อนรับนะครับ!",
-                        f"{time_greeting} {name_call} เจอกันครั้งแรกของวัน ยินดีต้อนรับนะครับ!",
-                        f"{time_greeting} พบสัญญานของ {name_call} แบ็คลี่ตามมาในห้องเสียงนะครับ ยินดีต้อนรับนะครับ!"
+                    creator_greet = f"{time_greeting} เพิ่งมาหรอครับคุณ {name_call} ยินดีต้อนรับนะครับ"
+
+                # 2. 🔍 ระบบส่องทักทายเพื่อนร่วมห้องคนอื่นแบบสมูท (เมื่อคนรวมกันไม่เกิน 3 คน)
+                other_friends_greet = ""
+                if human_count <= 3:
+                    friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
+                    if friends:
+                        friend_names = []
+                        for f in friends:
+                            f_real_name = get_realtime_name(f.id, f.display_name)
+                            friend_names.append(f"คุณ {f_real_name}")
+                        
+                        friends_str = " ".join(friend_names)
+                        other_friends_greet = f" สวัสดี {friends_str} ด้วยนะครับ"
+
+                # 🎮 🔍 ลอจิกส่องคนเล่นเกมเกิน 3 ชั่วโมง (สุ่มทักเตือนสติ 1 คนที่เข้าเงื่อนไข)
+                gaming_warning_greet = ""
+                gamers_over_3h = []
+
+                for m in all_humans_in_room:
+                    for activity in m.activities:
+                        if activity.type == discord.ActivityType.playing and activity.start:
+                            elapsed = datetime.now(timezone.utc) - activity.start.replace(tzinfo=timezone.utc)
+                            hours_played = elapsed.total_seconds() / 3600
+                            
+                            if hours_played >= 3.0:
+                                m_real_name = get_realtime_name(m.id, m.display_name)
+                                game_name = activity.name
+                                gamers_over_3h.append({
+                                    "name": m_real_name,
+                                    "game": game_name,
+                                    "hours": int(hours_played)
+                                })
+                                break
+
+                if gamers_over_3h:
+                    target_gamer = random.choice(gamers_over_3h)
+                    warning_quotes = [
+                        f" อ๋อ แล้วก็ คุณ{target_gamer['name']} ครับ เล่นเกม {target_gamer['game']} มา {target_gamer['hours']} ชั่วโมงแล้วนะครับ พักสายตาไปกินน้ำบ้างน้าค้าบเป็นห่วงนะเมท!",
+                        f" ว่าแต่คุณ{target_gamer['name']} เนี่ย เล่น {target_gamer['game']} ลากยาวมา {target_gamer['hours']} ชั่วโมงแล้วหรอครับเนี่ย! สุดยอดจริง ๆ แต่อย่าลืมลุกไปยืดเส้นยืดสายบ้างนะครับ",
+                        f" แบ็คลี่แอบส่องมา แอบเห็นคุณ{target_gamer['name']} นั่งจมอยู่กับเกม {target_gamer['game']} มาตั้ง {target_gamer['hours']} ชั่วโมงแน่ะ พักผ่อนเติมน้ำเข้าร่างกายสักนิดก็ดีนะครับเมท"
                     ]
-                    
-                msg = random.choice(greetings) + generate_report_speech(guild_to_join)
+                    gaming_warning_greet = random.choice(warning_quotes)
+
+                # 3. มัดรวมคำพูดทั้งหมด
+                msg = creator_greet + other_friends_greet + gaming_warning_greet + generate_report_speech(guild_to_join)
                 should_speak = True
                 
                 last_greeting_dates[greeting_key] = today
@@ -2329,33 +2359,18 @@ async def on_message(message):
                     await message.reply("ขออภัยครับเมท ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับ!")  
                 return
             
-            elif any(k in lower_content for k in ["เฝ้าห้องนี้ไว้นะ", "รออยู่นี่นะ"]) and "แบ็คลี่" in lower_content:
-                guild_id = message.guild.id if message.guild else None
+            elif any(word in lower_content for word in ["เฝ้าห้อง", "เลิกเฝ้า", "หยุดเฝ้า", "ฝากเฝ้า"]):
+                ctx = await bot.get_context(message)
+                mode_input = None
                 
-                if guild_id:
-                    # 🔍 เช็กก่อนว่าบอทเชื่อมต่ออยู่ในห้องเสียงของเซิร์ฟนี้จริง ๆ หรือไม่
-                    if message.guild.voice_client:
-                        room_guard_status[guild_id] = True # 🔒 สับสวิตช์เปิดโหมดเฝ้าห้องถาวร! (ไม่ต้องใช้ global คัปพ้ม)
-                        
-                        reply_text = "🛡️ รับทราบครับเมท! ผมจะปักหลักเฝ้าห้องเสียงนี้รออยู่ตรงนี้ ไม่หนีออกไปไหนแน่นอนคัปพ้ม!"
-                        await message.reply(reply_text)
-                        
-                        # สั่งให้ลุงนิวัฒน์พ่นคำพูดรายงานตัวในห้องเสียงด้วยคัป
-                        await bagley_speak(message.guild, "รับทราบครับเมท ผมจะอยู่เฝ้าห้องรอตรงนี้ให้นะครับ")
-                    else:
-                        await message.reply("เมทคัป! ต้องอัญเชิญแบ็คลี่เข้าห้องเสียงก่อนน้า (ใช้คำสั่ง /join) ถึงจะสั่งให้ผมอยู่เฝ้าห้องได้คัปพ้ม! 🔊")
-                return
-
-            elif any(k in lower_content for k in ["เลิกเฝ้าได้เลย", "กลับมาได้เลย", "ไม่ต้องเฝ้าแล้ว"]) and "แบ็คลี่" in lower_content:
-                guild_id = message.guild.id if message.guild else None
-                
-                if guild_id:
-                    # รีเซ็ตสถานะกลับเป็น False (เลิกเฝ้า) (เอาคำว่า global ออกเรียบร้อยคัป)
-                    room_guard_status[guild_id] = False 
+                if any(k in lower_content for k in ["เฝ้าห้อง", "ฝากเฝ้า"]):
+                    mode_input = "on"
+                elif any(k in lower_content for k in ["เลิกเฝ้า", "หยุดเฝ้า"]):
+                    mode_input = "off"
                     
-                    reply_text = "🔓 รับทราบครับเมท! ปิดโหมดสายตรวจแล้วคัป ต่อจากนี้ถ้าห้องร้างผมจะถอนกำลังตามปกตินะครับ"
-                    await message.reply(reply_text)
-                    await bagley_speak(message.guild, "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัปเมท")
+                guard_command = bot.get_command('guard_room')
+                if guard_command:
+                    await ctx.invoke(guard_command, mode=mode_input)
                 return
 
             # ==========================================
@@ -4928,24 +4943,49 @@ async def voice_stats(ctx: commands.Context):
         await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลสถิติครับเมท")
 
 @bot.hybrid_command(name="guard_room", description="สั่งให้แบ็คลี่เปิด-ปิดโหมดเฝ้าห้องเสียงนี้ไว้ ไม่ให้บอทออกจากห้องเวลาร้าง")
-async def guard_room(ctx: commands.Context):
-    global room_guard_status
+@app_commands.choices(mode=[
+    app_commands.Choice(name="เปิดระบบ (On)", value="on"),
+    app_commands.Choice(name="ปิดระบบ (Off)", value="off")
+])
+async def guard_room(ctx: commands.Context, mode: str = None):
+    global room_guard_status, is_playing_music
+    
     if not ctx.guild.voice_client:
         return await ctx.send("❌ แบ็คลี่ต้องอยู่ในห้องเสียงก่อนถึงจะสั่งเฝ้าห้องได้ครับเมท!")
 
     guild_id = ctx.guild.id
-    # ทำการสลับสถานะ (Toggle) True <-> False
     current_status = room_guard_status.get(guild_id, False)
-    room_guard_status[guild_id] = not current_status
 
-    if room_guard_status[guild_id]:
-        msg = "🛡️ เปิดโหมดสายตรวจแล้วครับเมท! แบ็คลี่จะปักหลักเฝ้าห้องเสียงนี้ไว้ให้เอง ไม่หนีไปไหนแน่นอนคัปพ้ม!"
-        await ctx.send(msg)
-        await bagley_speak(ctx.guild, "เปิดโหมดสายตรวจแล้วครับเมท ผมจะเฝ้าห้องนี้ไว้ให้เองครับ")
+    # 1. จัดการสถานะตามเงื่อนไขอัจฉริยะ (Toggle หรือ On/Off)
+    if mode is None:
+        # ถ้าพิมพ์ /guard_room เปล่า ๆ หรือดักคำพูดทั่วไป ให้สลับสถานะ
+        new_status = not current_status
     else:
-        msg = "🔓 ปิดโหมดสายตรวจแล้วคัปพ้ม ต่อจากนี้ถ้าห้องร้าง แบ็คลี่จะถอนกำลังออกตามปกติถ้าร้างนะเมท!"
-        await ctx.send(msg)
-        await bagley_speak(ctx.guild, "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัปเมท")
+        # ถ้าเลือกช้อยส์หรือมาจากระบบคัดกรองคำพูด
+        if mode.lower() in ["on", "เปิด", "start"]:
+            new_status = True
+        elif mode.lower() in ["off", "ปิด", "stop"]:
+            new_status = False
+
+    room_guard_status[guild_id] = new_status
+
+    # 2. ทำงานตามสถานะใหม่ที่เซ็ตไว้
+    if room_guard_status[guild_id]:
+        text_msg = "🛡️ เปิดโหมดสายตรวจแล้วครับเมท! แบ็คลี่จะปักหลักเฝ้าห้องเสียงนี้ไว้ให้เอง ไม่หนีไปไหนแน่นอนคัปพ้ม!"
+        voice_msg = "เปิดโหมดสายตรวจแล้วครับเมท ผมจะเฝ้าห้องนี้ไว้ให้เองครับ"
+    else:
+        text_msg = "🔓 ปิดโหมดสายตรวจแล้วคัปพ้ม ต่อจากนี้ถ้าห้องร้าง แบ็คลี่จะถอนกำลังออกตามปกติถ้าร้างนะเมท!"
+        voice_msg = "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัปเมท"
+
+    # 3. ส่งข้อความในแชท
+    await ctx.send(text_msg)
+    
+    # 4. สั่งให้บอทพูดออกไมค์ (ถ้าไม่ได้เปิดเพลงแช่อยู่)
+    if not is_playing_music:
+        try:
+            await bagley_speak(ctx.guild, voice_msg)
+        except Exception as e:
+            print(f"Guard Room Speech Error: {e}")
 
 @bot.hybrid_command(name="party_recall", description="ดึงทุกคนในห้องปาร์ตี้ล่าสุดที่เราสร้าง กลับมาที่ห้องเสียงปัจจุบันของเรา")
 async def party_recall(ctx: commands.Context):
