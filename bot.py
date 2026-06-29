@@ -2347,6 +2347,19 @@ async def on_message(message):
                         await message.reply("เมทคัป! ต้องอัญเชิญแบ็คลี่เข้าห้องเสียงก่อนน้า (ใช้คำสั่ง /join) ถึงจะสั่งให้ผมอยู่เฝ้าห้องได้คัปพ้ม! 🔊")
                 return
 
+            elif any(k in lower_content for k in ["เลิกเฝ้าได้เลย", "กลับมาได้เลย", "ไม่ต้องเฝ้าแล้ว"]) and "แบ็คลี่" in lower_content:
+                guild_id = message.guild.id if message.guild else None
+                
+                if guild_id:
+                    global room_guard_status
+                    # รีเซ็ตสถานะกลับเป็น False (เลิกเฝ้า)
+                    room_guard_status[guild_id] = False 
+                    
+                    reply_text = "🔓 รับทราบครับเมท! ปิดโหมดสายตรวจแล้วคัป ต่อจากนี้ถ้าห้องร้างผมจะถอนกำลังตามปกตินะครับ"
+                    await message.reply(reply_text)
+                    await bagley_speak(message.guild, "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัปเมท")
+                return
+
             # ==========================================
             # 🎵 [ระบบมิวสิกบอท และ การควบคุมห้องเสียง]
             # ==========================================
@@ -3687,40 +3700,35 @@ class RegisterModal(discord.ui.Modal):
             await interaction.followup.send(f"⚠️ เกิดข้อผิดพลาดในระบบ: {e}", ephemeral=True)
 
 class PullRoomView(ui.View):
-    def __init__(self, author, voice_channels, target_channel):
+    def __init__(self, author, target_channel):
         super().__init__(timeout=60)
         self.author = author
-        self.target_channel = target_channel # ห้องที่เมทชะอมนั่งอยู่คัป
+        self.target_channel = target_channel # ห้องหลักที่เมทชะอมนั่งอยู่คัป
 
-        # 🏠 สร้าง Dropdown รวมห้องเสียงอื่น ๆ ในเซิร์ฟ (จำกัดไม่เกิน 25 ห้องตามกฎเซฟตี้)
-        channel_options = [
-            discord.SelectOption(label=c.name, value=str(c.id), emoji="🚪")
-            for c in voice_channels
-        ][:25]
-
-        if not channel_options:
-            channel_options.append(discord.SelectOption(label="ไม่มีห้องอื่นให้เลือกคัป", value="none"))
-
-        self.channel_select = ui.Select(
-            placeholder="เลือกห้องต้นทางที่จะดึงคนมา...",
-            options=channel_options
+        # 🔮 เปลี่ยนมาใช้ ChannelSelect ดึงเฉพาะห้องเสียง (Voice) ทั้งหมดในเซิร์ฟเวอร์แบบ Auto
+        # ไม่โดนจำกัดที่ 25 ห้องแบบเดิม และสามารถพิมพ์ค้นหาชื่อห้องได้ด้วยคัปพ้ม!
+        self.channel_select = ui.ChannelSelect(
+            placeholder="พิมพ์ค้นหา หรือเลือกห้องต้นทางที่จะดึงคนมา...",
+            channel_types=[discord.ChannelType.voice] # กรองให้เห็นเฉพาะห้องเสียงเท่านั้นคัป
         )
         self.channel_select.callback = self.channel_callback
         self.add_item(self.channel_select)
 
     async def channel_callback(self, interaction: discord.Interaction):
-        # เช็กสิทธิ์คนกด ต้องเป็นคนใช้คำสั่งเท่านั้นคัป
+        # 🔒 เช็กสิทธิ์คนกด ต้องเป็นคนใช้คำสั่งเท่านั้นคัปพ้ม
         if interaction.user.id != self.author.id:
             return await interaction.response.send_message("เมทท่านอื่นห้ามกดเล่นน้าคัป!", ephemeral=True)
 
-        if self.channel_select.values[0] == "none":
-            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายได้คัปเมท!", ephemeral=True)
+        # 🚪 ดึงข้อมูลห้องต้นทางที่เมทเลือกคลิกมาจาก Dropdown อัจฉริยะ
+        source_channel = self.channel_select.values[0]
+        
+        # 🚨 ดักเซฟตี้: กันเมทเลือกห้องเสียงเดียวกับที่ตัวเองนั่งอยู่คัป 5555
+        if source_channel.id == self.target_channel.id:
+            return await interaction.response.send_message("❌ เมทจะดึงคนจากห้องเดียวกันมาหาตัวเองไม่ได้น้าคัปพ้ม!", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
         
-        # ดึงห้องต้นทางที่เลือกมา
-        source_channel = interaction.guild.get_channel(int(self.channel_select.values[0]))
-        
+        # 👥 คัดกรองมนุษย์ในห้องนั้น (ไม่นับบอทตามลอจิกเดิมของเมทเป๊ะ ๆ)
         if source_channel and isinstance(source_channel, discord.VoiceChannel):
             members_to_move = [m for m in source_channel.members if not m.bot]
             
@@ -3728,7 +3736,7 @@ class PullRoomView(ui.View):
                 return await interaction.followup.send(f"❌ ห้อง **{source_channel.name}** ไม่มีคนอยู่เลยคัปเมท!", ephemeral=True)
 
             success_count = 0
-            # 🚀 ทำการเหมาเข่งย้ายห้อง!
+            # 🚀 ทำการเหมาเข่งย้ายห้องตามลอจิกเดิมของเมทคัปพ้ม!
             for member in members_to_move:
                 try:
                     await member.edit(voice_channel=self.target_channel)
@@ -3736,13 +3744,13 @@ class PullRoomView(ui.View):
                 except:
                     pass
 
-            # อัปเดตข้อความเดิมเมื่อทำงานเสร็จ
+            # 🎉 อัปเดตข้อความเดิมเมื่อทำงานเสร็จสิ้น
             await interaction.edit_original_response(
                 content=f"🚀 วาร์ปเพื่อน ๆ จากห้อง **{source_channel.name}** มาที่ห้อง **{self.target_channel.name}** ทั้งหมด {success_count} คน เรียบร้อยคัปพ้ม!",
                 view=None
             )
             
-            # แบ็คลี่รายงานส่งเสียงในห้องหลัก
+            # 🔊 แบ็คลี่ (ลุงนิวัฒน์) รายงานส่งเสียงในห้องเสียงหลักคัป
             msg = f"ย้ายปาร์ตี้จากห้อง {source_channel.name} กลับมารวมกันเรียบร้อยแล้วครับเมท"
             await bagley_speak(interaction.guild, msg)
         else:
@@ -4989,15 +4997,12 @@ async def party_recall(ctx: commands.Context):
 
 @bot.hybrid_command(name="pull_room", description="เลือกดึงสมาชิกทั้งหมดจากห้องอื่น ย้ายมาที่ห้องเสียงปัจจุบันของเรา")
 async def pull_room(ctx: commands.Context):
+    # 🔍 เช็กว่าคนใช้คำสั่งนั่งอยู่ในห้องเสียงปลายทางก่อนไหมคัป
     if ctx.author.voice:
         current_channel = ctx.author.voice.channel
-        # ดึงห้องเสียงอื่น ๆ ทั้งหมดในเซิร์ฟ ยกเว้นห้องที่เรานั่งอยู่คัปเมท
-        other_channels = [c for c in ctx.guild.voice_channels if c != current_channel]
         
-        if not other_channels:
-            return await ctx.send("❌ ในเซิร์ฟเวอร์ไม่มีห้องเสียงอื่นเลยครับเมท!")
-
-        view = PullRoomView(ctx.author, other_channels, current_channel)
+        # 💡 ส่งแค่ ctx.author กับห้องปัจจุบัน (current_channel) เข้าไปใน View คัปพ้ม คลีนขึ้นเยอะเลย!
+        view = PullRoomView(ctx.author, current_channel)
         await ctx.send("🔮 เมทต้องการดึงคนทั้งหมดจากห้องไหน มารวมกันที่ห้องนี้ดีครับ?", view=view)
     else:
         await ctx.send("เมทต้องเข้ามานั่งในห้องเสียงหลักก่อนนะครับ แบ็คลี่ถึงจะรู้ว่าจะให้ดึงคนมาไว้ที่ห้องไหนคัปพ้ม!")
