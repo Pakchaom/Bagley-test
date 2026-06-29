@@ -2333,11 +2333,9 @@ async def on_message(message):
                 guild_id = message.guild.id if message.guild else None
                 
                 if guild_id:
-                    global room_guard_status # 💡 [แก้ไข] ย้ายประกาศ global ขึ้นมารอไว้บนสุดของบล็อกนี้คัปพ้ม!
-                    
                     # 🔍 เช็กก่อนว่าบอทเชื่อมต่ออยู่ในห้องเสียงของเซิร์ฟนี้จริง ๆ หรือไม่
                     if message.guild.voice_client:
-                        room_guard_status[guild_id] = True # 🔒 สับสวิตช์เปิดโหมดเฝ้าห้องถาวร!
+                        room_guard_status[guild_id] = True # 🔒 สับสวิตช์เปิดโหมดเฝ้าห้องถาวร! (ไม่ต้องใช้ global คัปพ้ม)
                         
                         reply_text = "🛡️ รับทราบครับเมท! ผมจะปักหลักเฝ้าห้องเสียงนี้รออยู่ตรงนี้ ไม่หนีออกไปไหนแน่นอนคัปพ้ม!"
                         await message.reply(reply_text)
@@ -2352,9 +2350,7 @@ async def on_message(message):
                 guild_id = message.guild.id if message.guild else None
                 
                 if guild_id:
-                    global room_guard_status # ✨ เอา global ขึ้นมารับแขกบรรทัดแรกสุดของ if เลยคัป!
-                    
-                    # รีเซ็ตสถานะกลับเป็น False (เลิกเฝ้า)
+                    # รีเซ็ตสถานะกลับเป็น False (เลิกเฝ้า) (เอาคำว่า global ออกเรียบร้อยคัป)
                     room_guard_status[guild_id] = False 
                     
                     reply_text = "🔓 รับทราบครับเมท! ปิดโหมดสายตรวจแล้วคัป ต่อจากนี้ถ้าห้องร้างผมจะถอนกำลังตามปกตินะครับ"
