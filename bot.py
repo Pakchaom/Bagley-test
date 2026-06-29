@@ -2333,9 +2333,10 @@ async def on_message(message):
                 guild_id = message.guild.id if message.guild else None
                 
                 if guild_id:
+                    global room_guard_status # 💡 [แก้ไข] ย้ายประกาศ global ขึ้นมารอไว้บนสุดของบล็อกนี้คัปพ้ม!
+                    
                     # 🔍 เช็กก่อนว่าบอทเชื่อมต่ออยู่ในห้องเสียงของเซิร์ฟนี้จริง ๆ หรือไม่
                     if message.guild.voice_client:
-                        global room_guard_status
                         room_guard_status[guild_id] = True # 🔒 สับสวิตช์เปิดโหมดเฝ้าห้องถาวร!
                         
                         reply_text = "🛡️ รับทราบครับเมท! ผมจะปักหลักเฝ้าห้องเสียงนี้รออยู่ตรงนี้ ไม่หนีออกไปไหนแน่นอนคัปพ้ม!"
@@ -2351,7 +2352,8 @@ async def on_message(message):
                 guild_id = message.guild.id if message.guild else None
                 
                 if guild_id:
-                    global room_guard_status
+                    global room_guard_status # 💡 เอาบรรทัด global ตัวนี้สลับขึ้นมาไว้บนสุดก่อนเลยคัปพ้ม!
+                    
                     # รีเซ็ตสถานะกลับเป็น False (เลิกเฝ้า)
                     room_guard_status[guild_id] = False 
                     
