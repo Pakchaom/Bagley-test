@@ -2847,6 +2847,41 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+def parse_birthday(bday_string):
+    if not bday_string or bday_string == "ยังไม่ระบุ":
+        return None
+
+    months_th = [
+        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ]
+    months_th_short = [
+        "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+        "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ]
+    clean_str = bday_string.strip()
+
+    try:
+        # 1. เช็กกรณีมีเดือนภาษาไทยเต็มหรือย่อ
+        for i, month_name in enumerate(months_th, 1):
+            if month_name in clean_str:
+                day_part = clean_str.replace(month_name, "").strip()
+                return int(day_part), i
+        for i, month_name in enumerate(months_th_short, 1):
+            if month_name in clean_str:
+                day_part = clean_str.replace(month_name, "").strip()
+                return int(day_part), i
+
+        # 2. เช็กกรณีสัญลักษณ์คั่น เช่น วัน/เดือน, วัน-เดือน
+        for splitter in ["/", "-", ".", " "]:
+            if splitter in clean_str:
+                parts = clean_str.split(splitter)
+                if len(parts) >= 2:
+                    return int(parts[0].strip()), int(parts[1].strip())
+    except Exception as e:
+        print(f"❌ [Bagley] แปลงวันเกิด '{bday_string}' ไม่สำเร็จ: {e}")
+    return None
+
 @bot.event
 async def on_voice_state_update(member, before, after):
     global pending_exit_after_music, bot_follow_targets, room_guard_status
@@ -2904,7 +2939,7 @@ async def on_voice_state_update(member, before, after):
                 has_followed_out = True 
                 
                 # ==========================================
-                # 🔍 [เพิ่มลอจิก] เช็กจำนวนมนุษย์ที่เหลืออยู่ในห้องเสียง (ไม่นับบอท)
+                # 🔍 เช็กจำนวนมนุษย์ที่เหลืออยู่ในห้องเสียง (ไม่นับบอท)
                 # ==========================================
                 remaining_humans = len([m for m in bot_channel.members if not m.bot])
                 
@@ -2956,7 +2991,6 @@ async def on_voice_state_update(member, before, after):
                 return
 
             if room_guard_status.get(guild_id, False):
-                # ปล่อยให้บอทอยู่คนเดียวเงียบ ๆ ไม่ต้องหนีไปไหนคัป
                 pass
             else:
                 print(f"DEBUG: ห้องทั่วไป '{bot_channel.name}' ร้างแล้ว แบ็คลี่เตรียมถอนกำลัง...")
@@ -2994,14 +3028,23 @@ async def on_voice_state_update(member, before, after):
                 birthday = "ยังไม่ระบุ"
 
             calling_name = nickname if (nickname and nickname != "ยังไม่ระบุ") else member.display_name
-            today = datetime.now().strftime("%d/%m")
+            
+            # ⏱️ ดึงวันและเดือนปัจจุบันเพื่อตรวจสอบแบบสากล
+            now_time = datetime.now()
+            today_day = now_time.day
+            today_month = now_time.month
 
             # 🚪 1. กรณีคน "เข้า" ห้องเสียง
             if before.channel != bot_channel and after.channel == bot_channel:
                 if member.id != bot.user.id:
                     await asyncio.sleep(1.0)
-                    if birthday and birthday != "ยังไม่ระบุ" and today in birthday:
-                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้วันที่ {today} เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ!"
+                    
+                    # 🎂 🔍 แปลงและตรวจสอบเงื่อนไขวันเกิดผ่านฟังก์ชันอัจฉริยะ
+                    parsed_bday = parse_birthday(birthday)
+                    is_birthday_today = parsed_bday and parsed_bday[0] == today_day and parsed_bday[1] == today_month
+                    
+                    if is_birthday_today:
+                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ ขอให้มีความสุขมาก ๆ เล่นเกมชนะรัว ๆ เลยนะเมท!"
                     else:
                         report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ"
                     
