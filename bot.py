@@ -11,6 +11,7 @@ import asyncio
 from dotenv import load_dotenv
 from discord import app_commands
 from datetime import datetime, timedelta, time as dt_time, timezone
+import zoneinfo
 from typing import Union, Optional
 import json
 import time
@@ -49,11 +50,17 @@ voice_report_status = {}
 
 reported_guilds_today = {}
 
+last_party_invites = {}
+
 bot_follow_targets = {}
 
 created_party_channels = []
 
 guard_room_status = {}
+
+bangkok_tz = zoneinfo.ZoneInfo("Asia/Bangkok")
+
+last_gaming_warnings = {}
 
 active_kick_tasks = {}
 
@@ -232,6 +239,19 @@ def load_reminders():
 def save_reminders(reminders):
     with open('check_friend_reminders.json', 'w', encoding='utf-8') as f:
         json.dump(reminders, f, ensure_ascii=False, indent=4)
+
+def get_realtime_name(user_id, default_name):
+    try:
+        user_memory = load_user_data()
+        mem = user_memory.get(str(user_id))
+        if mem and isinstance(mem, dict):
+            if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
+                return mem.get("admin_nickname")
+            if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
+                return mem.get("nickname")
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
+    return default_name
 
 async def bagley_speak_wait(guild, text, filename=None):
     if not guild: return
@@ -857,19 +877,6 @@ async def follow_creator_task():
         msg = ""
 
         user_memory = load_user_data()
-        def get_realtime_name(user_id, default_name):
-            try:
-                user_memory = load_user_data()
-                mem = user_memory.get(str(user_id))
-                if mem and isinstance(mem, dict):
-                    if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
-                        return mem.get("admin_nickname")
-                    if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
-                        return mem.get("nickname")
-            except Exception as e:
-                print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
-            return default_name
-
         def generate_report_speech(guild):
             report_msg = ""
             try:
@@ -967,37 +974,8 @@ async def follow_creator_task():
                         friends_str = " ".join(friend_names)
                         other_friends_greet = f" สวัสดี {friends_str} ด้วยนะครับ"
 
-                # 🎮 🔍 ลอจิกส่องคนเล่นเกมเกิน 3 ชั่วโมง (สุ่มทักเตือนสติ 1 คนที่เข้าเงื่อนไข)
-                gaming_warning_greet = ""
-                gamers_over_3h = []
-
-                for m in all_humans_in_room:
-                    for activity in m.activities:
-                        if activity.type == discord.ActivityType.playing and activity.start:
-                            elapsed = datetime.now(timezone.utc) - activity.start.replace(tzinfo=timezone.utc)
-                            hours_played = elapsed.total_seconds() / 3600
-                            
-                            if hours_played >= 3.0:
-                                m_real_name = get_realtime_name(m.id, m.display_name)
-                                game_name = activity.name
-                                gamers_over_3h.append({
-                                    "name": m_real_name,
-                                    "game": game_name,
-                                    "hours": int(hours_played)
-                                })
-                                break
-
-                if gamers_over_3h:
-                    target_gamer = random.choice(gamers_over_3h)
-                    warning_quotes = [
-                        f" อ๋อ แล้วก็ คุณ{target_gamer['name']} ครับ เล่นเกม {target_gamer['game']} มา {target_gamer['hours']} ชั่วโมงแล้วนะครับ พักสายตาไปกินน้ำบ้างน้าค้าบเป็นห่วงนะเมท!",
-                        f" ว่าแต่คุณ{target_gamer['name']} เนี่ย เล่น {target_gamer['game']} ลากยาวมา {target_gamer['hours']} ชั่วโมงแล้วหรอครับเนี่ย! สุดยอดจริง ๆ แต่อย่าลืมลุกไปยืดเส้นยืดสายบ้างนะครับ",
-                        f" แบ็คลี่แอบส่องมา แอบเห็นคุณ{target_gamer['name']} นั่งจมอยู่กับเกม {target_gamer['game']} มาตั้ง {target_gamer['hours']} ชั่วโมงแน่ะ พักผ่อนเติมน้ำเข้าร่างกายสักนิดก็ดีนะครับเมท"
-                    ]
-                    gaming_warning_greet = random.choice(warning_quotes)
-
                 # 3. มัดรวมคำพูดทั้งหมด
-                msg = creator_greet + other_friends_greet + gaming_warning_greet + generate_report_speech(guild_to_join)
+                msg = creator_greet + other_friends_greet + generate_report_speech(guild_to_join)
                 should_speak = True
                 
                 last_greeting_dates[greeting_key] = today
@@ -1019,22 +997,179 @@ async def follow_creator_task():
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
-@tasks.loop(time=[dt_time(hour=0, minute=0), dt_time(hour=12, minute=0)])
+        # 🎮 ลอจิก 1: คอยตรวจเช็กและเตือนสติคนเล่นเกมลากยาว 3, 6, 9 ชม.
+        await check_and_warn_gamers(guild_to_join)
+
+        # 🚀 ลอจิก 2: ใส่ตัวนี้เพิ่มเข้าไปต่อท้ายเลยครับเมทชะอม! 
+        # คอยส่องหาคนนอกห้องที่เข้าเกมตรงกัน แล้วเปิดไมค์เสนอตัวชวนตี้ทันทีคัปพ้ม!
+        await check_and_invite_party(guild_to_join)
+
+async def check_and_warn_gamers(guild):
+    global last_gaming_warnings
+    if not guild or not guild.voice_client:
+        return
+
+    vc = guild.voice_client
+    target_channel = vc.channel
+    today = datetime.today().date()
+    
+    # ดึงรายชื่อมนุษย์ทุกคนในห้องเสียงปัจจุบันที่บอทสถิตอยู่
+    all_humans_in_room = [m for m in target_channel.members if not m.bot]
+    
+    for m in all_humans_in_room:
+        for activity in m.activities:
+            if activity.type == discord.ActivityType.playing and activity.start:
+                # คำนวณเวลาที่เล่นไปแล้ว
+                elapsed = datetime.now(timezone.utc) - activity.start.replace(tzinfo=timezone.utc)
+                hours_played = elapsed.total_seconds() / 3600
+                
+                # เช็กหาหลักชั่วโมงตึงๆ (3, 6, 9 ชั่วโมง)
+                milestone = None
+                if hours_played >= 9.0:
+                    milestone = 9
+                elif hours_played >= 6.0:
+                    milestone = 6
+                elif hours_played >= 3.0:
+                    milestone = 3
+                
+                if milestone:
+                    # สร้างกุญแจสำหรับตรวจสอบว่าเคยเตือนคนนี้ในหลักชั่วโมงนี้ไปหรือยังคัปพ้ม
+                    warning_key = (m.id, activity.name, milestone)
+                    
+                    if last_gaming_warnings.get(warning_key) != today:
+                        # ✨ เรียกใช้ตรงๆ ได้เลยคัปพ้ม ตา Pylance เลิกงอแงแน่นอน!
+                        m_real_name = get_realtime_name(m.id, m.display_name)
+                        game_name = activity.name
+                        
+                        # สร้างประโยคเตือนสติแบ่งตามระดับความตึงของชั่วโมงคัปเมท!
+                        if milestone == 3:
+                            quotes = [
+                                f"คุณ {m_real_name} ครับ เล่นเกม {game_name} มา {milestone} ชั่วโมงเต็มแล้วนะครับ พักสายตาไปดื่มน้ำบ้างน้าค้าบ เป็นห่วงนะเมท!",
+                                f"แอบส่องมา แอบเห็นคุณ {m_real_name} นั่งจมกับเกม {game_name} มาตั้ง {milestone} ชั่วโมงแน่ะ ลุกไปยืดเส้นยืดสายสักนิดก็ดีนะครับ"
+                            ]
+                        elif milestone == 6:
+                            quotes = [
+                                f"อูหู คุณ {m_real_name} ครับ! นี่กดลากยาว {game_name} มา {milestone} ชั่วโมงแล้วหรอครับเนี่ย! ร่างกายไม่ใช่เครื่องจักรนะค้าบ พักเติมพลังหาอะไรทานด่วนเลยเมท!",
+                                f"แจ้งเตือนระดับสองครับคุณ {m_real_name} เล่นเกม {game_name} ทะลุ {milestone} ชั่วโมงแล้วครับ ปล่อยจอยสักสิบนาทีไปพักผ่อนก่อนเร็วครับ"
+                            ]
+                        else:  # 9 ชั่วโมง ตึงขั้นสุด!
+                            quotes = [
+                                f"คุณพระช่วย! คุณ {m_real_name} เล่นเกม {game_name} มารวดเดียว {milestone} ชั่วโมงแล้วนะครับ! แบ็คลี่ขอร้องล่ะเมท ลุกไปนอนพักผ่อนหรือพักสายตายาวๆ ก่อนเถอะครับ เป็นห่วงสุขภาพมากๆ เลยนะคัปพ้ม"
+                            ]
+                        
+                        warn_msg = random.choice(quotes)
+                        
+                        # บันทึกสถานะทันทีกันบอทพ่นซ้ำซ้อน
+                        last_gaming_warnings[warning_key] = today
+                        
+                        # สั่งให้ลุงนิวัฒน์เอ่ยปากเตือนสติในห้องเสียงทันทีคัปพ้ม!
+                        try:
+                            print(f"🎮 [Gaming Warning]: สั่งเตือนสติคุณ {m_real_name} เล่นเกม {game_name} ครบ {milestone} ชม.")
+                            await bagley_speak_wait(guild, warn_msg)
+                            return  # เตือนทีละ 1 คนต่อนาทีเพื่อความสมูท ไม่พูดแทรกกันเองคัป
+                        except Exception as e:
+                            print(f"❌ เกิดข้อผิดพลาดตอนส่งเสียงเตือนคนเล่นเกม: {e}")
+
+async def check_and_invite_party(guild):
+    global last_party_invites
+    if not guild or not guild.voice_client:
+        return
+
+    vc = guild.voice_client
+    target_channel = vc.channel
+    today = datetime.today().date()
+    
+    # 👥 แยกชาวแก๊ง: คนที่อยู่ในห้องเสียงกับบอท VS คนที่อยู่นอกห้องเสียง
+    in_room_humans = [m for m in target_channel.members if not m.bot]
+    all_guild_humans = [m for m in guild.members if not m.bot]
+    outside_humans = [m for m in all_guild_humans if m not in in_room_humans]
+    
+    if not in_room_humans or not outside_humans:
+        return
+
+    # 🎮 1. ส่องดูว่าคน "ในห้องเสียง" กำลังเล่นเกมอะไรกันอยู่บ้าง (เก็บชื่อเกมไว้)
+    active_games_in_room = set()
+    game_to_players_in_room = {} # { "เกม": [รายชื่อคนในห้อง] }
+    
+    for m in in_room_humans:
+        for activity in m.activities:
+            if activity.type == discord.ActivityType.playing:
+                game_name = activity.name
+                active_games_in_room.add(game_name)
+                if game_name not in game_to_players_in_room:
+                    game_to_players_in_room[game_name] = []
+                game_to_players_in_room[game_name].append(m)
+
+    if not active_games_in_room:
+        return # ถ้าคนในห้องไม่มีใครเล่นเกมอยู่เลย ก็ข้ามคัปพ้ม
+
+    # 🎮 2. ส่องดูคน "นอกห้องเสียง" ว่ามีใครเพิ่งเปิดเกมตรงกับคนในห้องไหม
+    for m_outside in outside_humans:
+        for activity in m_outside.activities:
+            if activity.type == discord.ActivityType.playing:
+                outside_game = activity.name
+                
+                # 🔥 ว้าว! คนนอกห้องเล่นเกมเดียวกับคนในห้องเสียงคัปเมท!
+                if outside_game in active_games_in_room:
+                    invite_key = (m_outside.id, outside_game)
+                    
+                    # เช็กว่านาทีนี้เพิ่งเข้า หรือยังไม่เคยทักชวนในวันนี้
+                    if last_party_invites.get(invite_key) != today:
+                        
+                        # ดึงชื่อเล่นเรียลไทม์ของคนนอกห้อง
+                        outside_name = get_realtime_name(m_outside.id, m_outside.display_name)
+                        
+                        # ดูว่าในห้องมีคนเล่นเกมนี้อยู่กี่คน เพื่อเลือกคำพูด (คุณ / พวกคุณ)
+                        players_in_room = game_to_players_in_room[outside_game]
+                        
+                        if len(players_in_room) == 1:
+                            # มีคนเล่นในห้องคนเดียว เจาะจงชื่อเลยคัป
+                            host_name = get_realtime_name(players_in_room[0].id, players_in_room[0].display_name)
+                            target_speech = f"คุณ {host_name}"
+                        else:
+                            # มีคนเล่นในห้องหลายคน ใช้คำว่า พวกคุณ คัป
+                            target_speech = "พวกคุณ"
+                        
+                        # 🗣️ มัดรวมประโยคชวนตี้แบบนุ่มนวลตามที่เมทชะอมดีไซน์ไว้เลยคัป!
+                        msg = (
+                            f"ดูเหมือนว่า คุณ {outside_name} จะเพิ่งเข้าเกม {outside_game} นะครับ "
+                            f"{target_speech} ต้องการให้ผมชวนคุณ {outside_name} มั้ยครับ "
+                            f"พิมพ์ แบ็คลี่ เรียก พร้อมแท็กได้เลยนะครับ"
+                        )
+                        
+                        # บันทึกสถานะล็อกไว้ทันทีกันบอทพูดสแปมซ้ำซ้อน
+                        last_party_invites[invite_key] = today
+                        
+                        try:
+                            print(f"📡 [Party Matcher]: พบคุณ {outside_name} เปิดเกม {outside_game} ตรงกับคนในห้อง!")
+                            await bagley_speak_wait(guild, msg)
+                            return # พูดจบ 1 อิมแพ็คต่อนาที เพื่อไม่ให้เสียงตีกันคัปพ้ม
+                        except Exception as e:
+                            print(f"❌ เกิดข้อผิดพลาดในระบบแม่สื่อชวนตี้: {e}")
+
+@tasks.loop(time=[
+    dt_time(hour=0, minute=0, tzinfo=bangkok_tz), 
+    dt_time(hour=12, minute=0, tzinfo=bangkok_tz)
+])
 async def daily_announcement_task():
     global last_greeting_dates, reported_guilds_today
     
-    now = datetime.now()
+    # ดึงเวลาปัจจุบันที่เป็นเวลาประเทศไทย
+    now = datetime.now(bangkok_tz)
+    
+    # 🛡️ ปรับตัวเช็กให้ยืดหยุ่น ป้องกันบั๊กเวลาคลาดเคลื่อนระดับวินาทีคัปพ้ม
     if now.hour not in [0, 12]:
-        print(f"DEBUG: ⏰ ข้ามการแจ้งเตือนเนื่องจากเปิดบอทนอกเวลาเที่ยงคืน/เที่ยงวัน (เวลาปัจจุบัน: {now.strftime('%H:%M')})")
+        print(f"DEBUG: ⏰ ข้ามการแจ้งเตือนเนื่องจากระบบทำงานนอกเวลาเป้าหมาย (เวลาปัจจุบัน: {now.strftime('%H:%M')})")
         return
 
     for voice_client in bot.voice_clients:
-        if voice_client and voice_client.channel:
+        # เช็กความชัวร์ว่าบอทเชื่อมต่ออยู่และอยู่ในห้องเสียงจริงๆ
+        if voice_client and voice_client.channel and voice_client.is_connected():
             
             human_members = [m for m in voice_client.channel.members if not m.bot]
             
             if human_members:
-                
+                # 🌙 บล็อกแจ้งเตือนตอนเที่ยงคืนตรง
                 if now.hour == 0:
                     quotes = [
                         "ขณะนี้เวลา ศูนย์นาฬิกาตรงแล้ว เป็นอีกวันแล้วนะครับเมท นั่งยาวเลยน้าค้าบ!",
@@ -1043,6 +1178,7 @@ async def daily_announcement_task():
                         "เข้าสู่วันใหม่เรียบร้อยครับเมท! สถิติเวลาของวันเก่าถูกเคลียร์แล้ว ใครอยากประเดิมเป็นที่หนึ่งของวันใหม่ ลุยต่อยาว ๆ เลยครับ"
                     ]
                 
+                # ☀️ บล็อกแจ้งเตือนตอนเที่ยงวันตรง
                 else:
                     quotes = [
                         "ขณะนี้เวลา 12 นาฬิกาตรง ได้เวลามื้อเที่ยงแล้วนะครับ อย่าลืมหาอะไรอร่อย ๆ ทานด้วยนะครับ",
