@@ -1937,7 +1937,7 @@ class PartyInviteView(discord.ui.View):
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 🛡️ เช็กชัวร์ว่าต้องเป็นคนที่โดนชวนเท่านั้นที่กดได้คัป
         if interaction.user.id != self.target_member.id:
-            await interaction.response.send_message(" ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
+            await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
             return
         
         self.accepted = True
@@ -1956,11 +1956,11 @@ class PartyInviteView(discord.ui.View):
     @discord.ui.button(label="ปฏิเสธคำเชิญ", style=discord.ButtonStyle.red, emoji="❌")
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target_member.id:
-            await interaction.response.send_message(" ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
+            await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
             return
         
         self.stop()
-        await interaction.response.send_message(" รับทราบคัปเมท งั้นผมวาร์ปกลับละน้าา", ephemeral=True)
+        await interaction.response.send_message("👍 รับทราบคัปเมท งั้นผมวาร์ปกลับละน้าา", ephemeral=True)
 
 # --- 4. ฟังก์ชันสำหรับเคลียร์แรมขยะในตัวบอท ---
 def perform_cleanup(bot):
@@ -2578,7 +2578,7 @@ async def on_message(message):
             await message.reply("คำสั่งนี้ต้องใช้ในห้องแชทของเซิร์ฟเวอร์เท่านั้นครับเมท!")
             return
 
-        # ดึงคนสั่ง และคนที่จะให้ไปชวน
+        # 👥 ดึงคนสั่ง และคนที่จะให้ไปชวน (ขยับแท็บเข้ามาในบล็อกเงื่อนไขแล้วคัป)
         host_member = message.author
         if not message.mentions:
             await message.reply("❌ เมทต้องแท็กชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน @ชื่อเพื่อน หน่อย` น้า")
@@ -2619,39 +2619,14 @@ async def on_message(message):
 
         # แจ้งสถานะก่อนบอทบินวาร์ป
         await message.reply(f"🛸 รับทราบคัปพ้ม! แบ็คลี่กำลังวาร์ปไปชวนคุณ {target_name} ที่ห้อง **{target_channel.name}** ให้คัป!")
-        text_channel = message.channel
 
-        # ⚙️ สร้างคลาสปุ่มเฉพาะกิจในฟังก์ชัน
-        class PartyInviteView(discord.ui.View):
-            def __init__(self, target, host_chan):
-                super().__init__(timeout=60.0)
-                self.target = target
-                self.host_chan = host_chan
-                self.accepted = False
+        # 🟢 ปรับปรุงตรงนี้: สั่งให้ text_channel ชี้เข้าห้องแชทข้อความของห้องเสียงปลายทางทันที!
+        if hasattr(target_channel, "text_channel") and target_channel.text_channel is not None:
+            text_channel = target_channel.text_channel
+        else:
+            text_channel = message.channel  # แผนสำรอง: ถ้าห้องเสียงนั้นไม่มีห้องแชทพิมพ์ ให้ส่งในห้องเดิมคัปพ้ม
 
-            @discord.ui.button(label="ตอบรับคำเชิญ (ย้ายห้องทันที)", style=discord.ButtonStyle.success, emoji="🎮")
-            async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-                if interaction.user.id != self.target.id:
-                    await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
-                    return
-                self.accepted = True
-                self.stop()
-                await interaction.response.send_message("🛸 รับทราบคัปพ้ม! กำลังวาร์ปข้ามมิติ...", ephemeral=True)
-                try:
-                    if self.target.voice:
-                        await self.target.move_to(self.host_chan)
-                except Exception as e:
-                    print(f"❌ บั๊กตอนย้ายห้องมนุษย์: {e}")
-
-            @discord.ui.button(label="ปฏิเสธคำเชิญ", style=discord.ButtonStyle.danger, emoji="❌")
-            async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
-                if interaction.user.id != self.target.id:
-                    await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
-                    return
-                self.stop()
-                await interaction.response.send_message("👍 รับทราบคัปเมท งั้นผมวาร์ปกลับละน้าา", ephemeral=True)
-
-        # 4. ลอจิกวาร์ปข้ามมิติไปตื๊อพ่นเสียง
+        # 4. ลоจิกวาร์ปข้ามมิติไปตื๊อพ่นเสียง
         try:
             guild = message.guild
             vc = guild.voice_client
@@ -2661,7 +2636,7 @@ async def on_message(message):
                 vc = await target_channel.connect()
 
             # สร้างประโยคตื๊อเปิดไมค์พูด
-            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับเมท!"
+            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปเล่น {game_speech} ด้วยกันที่ห้องนู้นครับเมท! รีบๆมานะค้าบ ทีมต้องการตัวครับ"
             
             # ส่งปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
             view = PartyInviteView(target_member, host_channel)
@@ -2670,7 +2645,7 @@ async def on_message(message):
             # วนลูปพูดตื๊อ 3 รอบ (เว้นระยะรอบละประมาณ 18 วินาที รวมเป็นเวลา 1 นาที)
             for i in range(3):
                 if view.accepted or view.is_finished(): 
-                    break # ถ้ากดตอบรับ/ปฏิเสธ หรือหมดเวลา ให้หยุดพ่นเสียงทันทีคัป
+                    break  # ถ้ากดตอบรับ/ปฏิเสธ หรือหมดเวลา ให้หยุดพ่นเสียงทันทีคัป
                 
                 print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
                 await bagley_speak_wait(guild, invite_quote)
