@@ -159,15 +159,39 @@ def เคลียร์ข้อมูลพรรคพวก(user_id: str):
     return False
 
 def load_voice_data():
+    file_path = 'voice_stats.json'
+    # 🛠️ หากหาไฟล์ไม่เจอในคอมบริษัท ให้สร้างไฟล์ปีกกาเปล่า {} ขึ้นมาทันทีคัปพ้ม
+    if not os.path.exists(file_path):
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"❌ ไม่สามารถสร้างไฟล์ voice_stats.json ชั่วคราวได้: {e}")
+        return {}
+        
     try:
-        with open('voice_stats.json', 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except FileNotFoundError:
+    except json.JSONDecodeError:
+        # 🛡️ ดักจับกรณีโครงสร้างไฟล์ JSON พัง (ป้องกันบั๊ก Extra data) ให้รีเซ็ตกลับเป็นไฟล์เปล่าทันที
+        print("⚠️ โครงสร้างไฟล์ voice_stats.json พัง/ซ้อนกัน! กำลังทำการล้างเป็นไฟล์เริ่มต้น...")
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=4)
+        except:
+            pass
+        return {}
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาดอื่นในการอ่านไฟล์: {e}")
         return {}
 
 def save_voice_data(data):
-    with open('voice_stats.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        # บันทึกไฟล์ข้อมูลอย่างปลอดภัยแบบเคลียร์ของเดิมทิ้งก่อนเขียนใหม่คัปเมท
+        with open('voice_stats.json', 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"❌ ไม่สามารถบันทึกข้อมูลลง voice_stats.json ได้: {e}")
 
 def get_reminders_for_user(user_id):
     data = load_user_data()
@@ -239,12 +263,23 @@ async def bagley_speak_wait(guild, text, filename=None):
             print(f"Error ในการพูดด้วยเสียง Niwat: {e}")
             
         finally:
+            # 🛡️ 1. สั่งเคลียร์และคลายล็อกไฟล์เสียงจาก FFmpeg ก่อนเลยคัปพ้ม
+            try:
+                if 'source' in locals() and source:
+                    source.cleanup()
+            except Exception as src_err:
+                print(f"Error ตอนสั่ง cleanup source: {src_err}")
+
+            # ⏳ 2. หน่วงเวลานิดนึง (0.5 วินาที) ให้ระบบปฏิบัติการ Windows คืนสิทธิ์ไฟล์เสร็จสรรพ
+            await asyncio.sleep(0.5)
+
+            # 🗑️ 3. สั่งทำลายไฟล์ขยะทิ้ง
             if file_created and os.path.exists(unique_name):
                 try:
                     os.remove(unique_name)
                     print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับเมท!")
                 except Exception as clean_error:
-                    print(f"ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
+                    print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
 
 async def bagley_hijack_alert(voice_channel, message_text):
     vc = None
@@ -1543,8 +1578,15 @@ def perform_cleanup(bot):
     process = psutil.Process(os.getpid())
     before_mem = process.memory_info().rss / 1024 / 1024
     
+    # 🛠️ วิธีเคลียร์แบบสากลและปลอดภัยที่สุดสำหรับ discord.py เวอร์ชั่นใหม่คัปเมท!
     if hasattr(bot, "cached_messages"):
-        bot.cached_messages.clear()
+        try:
+            # สั่งสร้างการจำลอง deque ตัวใหม่ที่ว่างเปล่าเข้าไปแทนที่ก้อนเดิมตรงๆ เลยคัปพ้ม
+            import collections
+            bot.cached_messages._SequenceProxy__sequence = collections.deque(maxlen=1000)
+        except Exception as e:
+            # 🛡️ แผนสำรอง: ถ้าข้างบนยังล็อกแน่น ให้ปล่อยผ่านไปก่อน ไม่ต้องให้บอทระเบิดตัวเองคัป
+            print(f"⚠️ [Bagley Log] ไม่สามารถเคลียร์ข้อความในแคชได้ชั่วคราว: {e}")
         
     gc.collect()
     
