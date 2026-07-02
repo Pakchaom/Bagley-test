@@ -4142,13 +4142,19 @@ class GatherResponseView(ui.View):
     async def confirm(self, interaction: discord.Interaction, button: ui.Button):
         channel = self.guild.get_channel(self.channel_id)
         
-        msg = f"✅ **{interaction.user.display_name}** ตอบตกลงภารกิจ: `{self.topic}` ของคุณ {self.inviter.display_name} แล้ว!"
+        # 🧠 ดึงชื่อเล่นเรียลไทม์จากคลังสมองของแบ็คลี่
+        real_responder_name = get_realtime_name(interaction.user.id, interaction.user.display_name)
+        real_inviter_name = get_realtime_name(self.inviter.id, self.inviter.display_name)
+        
+        # แสดงผลชื่อเล่นในข้อความแชท
+        msg = f"✅ **{real_responder_name}** ตอบตกลงภารกิจ: `{self.topic}` ของคุณ {real_inviter_name} แล้ว!"
         if channel: await channel.send(msg)
 
         vc = self.guild.voice_client
         if vc and vc.is_connected():
             if not vc.is_playing():
-                await bagley_speak(self.guild, f"คุณ {interaction.user.display_name} ตอบตกลงแล้วครับ เดี๋ยวก็คงมาแล้วครับ")
+                # แบ็คลี่พูดออกเสียงโดยใช้ชื่อเล่นในคลังทันที!
+                await bagley_speak(self.guild, f"คุณ {real_responder_name} ตอบตกลงแล้วครับ เดี๋ยวก็คงมาแล้วครับ")
             else:
                 print(f"Bagley: {interaction.user.name} ตกลง แต่ผมไม่พูดแทรกเพลงนะเมท")
 
@@ -4168,13 +4174,18 @@ class GatherResponseView(ui.View):
     @ui.button(label="ไม่สะดวก ❌", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):
         channel = self.guild.get_channel(self.channel_id)
-        msg = f"❌ **{interaction.user.display_name}** ไม่สะดวกมาร่วมภารกิจ: `{self.topic}`"
+        
+        # 🧠 ดึงชื่อเล่นเรียลไทม์จากคลังสมอง
+        real_responder_name = get_realtime_name(interaction.user.id, interaction.user.display_name)
+        
+        msg = f"❌ **{real_responder_name}** ไม่สะดวกมาร่วมภารกิจ: `{self.topic}`"
         if channel: await channel.send(msg)
         
         vc = self.guild.voice_client
         if vc and vc.is_connected():
             if not vc.is_playing():
-                await bagley_speak(self.guild, f"คุณ {interaction.user.display_name} ปฏิเสธครับเมท สงสัยเขาจะติดธุระ")
+                # แบ็คลี่พูดออกเสียงปฏิเสธด้วยชื่อเล่น
+                await bagley_speak(self.guild, f"คุณ {real_responder_name} ปฏิเสธครับเมท สงสัยเขาจะติดธุระ")
             else:
                 print(f"Bagley: {interaction.user.name} ปฏิเสธ แต่ผมไม่พูดขัดจังหวะเพลงครับ")
 
