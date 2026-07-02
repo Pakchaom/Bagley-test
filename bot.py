@@ -938,30 +938,30 @@ async def follow_creator_task():
             reported_guilds_today[guild_id] = today
 
         else:
+            now_hour = datetime.now().hour
+            time_greeting = ""
+            if 0 <= now_hour < 13:
+                time_greeting = "อรุณสวัสดิ์ครับ"
+            elif 13 <= now_hour < 14:
+                time_greeting = "สวัสดีตอนบ่ายครับ"
+            elif 14 <= now_hour < 19:
+                time_greeting = "สวัสดีตอนเย็นครับ"
+            elif 19 <= now_hour <= 23:
+                time_greeting = "สวัสดีตอนกลางคืนครับ"
+
+            chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
+            other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
+            chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
+
+            # 🌟 เคสที่ 1: ทักทายใหญ่รอบแรกของวัน (ยังไม่เคยทัก Target หลัก)
             if last_greeting_dates.get(greeting_key) != today:
-                now_hour = datetime.now().hour
-                time_greeting = ""
-                if 0 <= now_hour < 13:
-                    time_greeting = "อรุณสวัสดิ์ครับ"
-                elif 13 <= now_hour < 14:
-                    time_greeting = "สวัสดีตอนบ่ายครับ"
-                elif 14 <= now_hour < 19:
-                    time_greeting = "สวัสดีตอนเย็นครับ"
-                elif 19 <= now_hour <= 23:
-                    time_greeting = "สวัสดีตอนกลางคืนครับ"
-
-                chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
-                other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
-                chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
-
-                # 1. ทักทายผู้พัฒนาหลัก/คู่คัปพ้ม
                 if both_present:
                     creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาในห้องเสียงแล้วนะครับ"
                 else:
                     name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
                     creator_greet = f"{time_greeting} เพิ่งมาหรอครับคุณ {name_call} ยินดีต้อนรับนะครับ"
 
-                # 2. 🔍 ระบบส่องทักทายเพื่อนร่วมห้องคนอื่นแบบสมูท (เมื่อคนรวมกันไม่เกิน 3 คน)
+                # ระบบส่องทักทายเพื่อนร่วมห้องคนอื่นแบบสมูท (บันทึกคนโดนทักลงคลังด้วย)
                 other_friends_greet = ""
                 if human_count <= 3:
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
@@ -970,11 +970,11 @@ async def follow_creator_task():
                         for f in friends:
                             f_real_name = get_realtime_name(f.id, f.display_name)
                             friend_names.append(f"คุณ {f_real_name}")
+                            last_greeting_dates[f.id] = today # บันทึกว่าทักแล้วคัปพ้ม!
                         
-                        friends_str = " ".join(friend_names)
+                        friends_str = " และ ".join(friend_names)
                         other_friends_greet = f" สวัสดี {friends_str} ด้วยนะครับ"
 
-                # 3. มัดรวมคำพูดทั้งหมด
                 msg = creator_greet + other_friends_greet + generate_report_speech(guild_to_join)
                 should_speak = True
                 
@@ -984,10 +984,41 @@ async def follow_creator_task():
                         last_greeting_dates[uid] = today
                 reported_guilds_today[guild_id] = today
 
+            # 🌟 เคสที่ 2: เคยทักกลุ่มหลักไปแล้วในวันนั้น แต่ย้ายมาเซิร์ฟเวอร์ใหม่ที่ยังไม่ได้รายงานสถิติ
             elif reported_guilds_today.get(guild_id) != today:
-                msg = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
+                base_report = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
+                
+                # 🔍 ตรวจสอบหา "คนหน้าใหม่" ในห้องเสียงนี้ที่แบ็คลี่ยังไม่เคยสวัสดีเลยในวันนี้
+                un_greeted_people = []
+                if human_count <= 3: # ใช้ลอจิกเซฟโซนไม่เกิน 3 คนตามข้อตกลงเดิมคัป
+                    for m in all_humans_in_room:
+                        # ข้ามคนที่เราทักไปแล้วแน่ ๆ ในวันนี้
+                        if last_greeting_dates.get(m.id) == today:
+                            continue
+                        # ข้ามกลุ่มคนพิเศษที่ถูกเช็กใน greeting_key ไปแล้ว
+                        if both_present and m.id in ALLOWED_USERS:
+                            continue
+                        if not both_present and m.id == target_member.id:
+                            continue
+                            
+                        un_greeted_people.append(m)
+                
+                # ถ้าเจอคนหน้าใหม่ที่ยังไม่เคยทักทายในวันนี้เลย!
+                extra_greet = ""
+                if un_greeted_people:
+                    new_friend_names = []
+                    for f in un_greeted_people:
+                        f_real_name = get_realtime_name(f.id, f.display_name)
+                        new_friend_names.append(f"คุณ {f_real_name}")
+                        last_greeting_dates[f.id] = today # ล็อคเป้าหมาย บันทึกว่าทักแล้ว!
+                    
+                    friends_str = " และ ".join(new_friend_names)
+                    extra_greet = f" อ้อ แล้วก็ สวัสดี {friends_str} ที่เพิ่งเจอกันในห้องนี้ด้วยนะครับ"
+                
+                msg = base_report + extra_greet
                 should_speak = True
                 reported_guilds_today[guild_id] = today
+                
             else:
                 should_speak = False
 
