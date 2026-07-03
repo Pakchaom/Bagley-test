@@ -70,9 +70,6 @@ is_playing_music = False
 
 is_tts_enabled = False
 
-if 'active_conversations' not in globals():
-    active_conversations = {}
-
 # ID Discord ของ Owner
 OWNER_DISCORD_ID = 1133740216822267954  
 
@@ -3225,29 +3222,13 @@ async def on_message(message):
                     print(f"❌ [Bagley] เกิดข้อผิดพลาดในระบบแปลภาษาคู่ขนาน: {e}")
 
     # 💾 [ระบบตรวจสอบความจำที่เคยถูกสอน (Teach Memory) / คุยเล่น Free Chat] ───
-    import time
-    current_time = time.time()
-    user_id = message.author.id
-    lower_content = message.content.lower()
-
-    # ⏳ เช็กระบบคุยต่อเนื่อง (ภายใน 120 วินาที หรือ 2 นาที)
-    is_continuous = False
-    if user_id in active_conversations:
-        time_passed = current_time - active_conversations[user_id]
-        if time_passed <= 120:  # ปรับหน่วยเป็นวินาทีตรงนี้ได้คัปพ้ม
-            is_continuous = True
-
-    # 🎯 ตั้งค่า Trigger สำหรับระบบความจำ (Teach Memory)
     is_sqlite_triggered = False
+
     if message.guild is not None:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        # บอทจะทำงานเมื่อ: มีคำสำคัญ, มีการ Reply บอท, หรืออยู่ระหว่างช่วงคุยต่อเนื่อง 2 นาที
-        is_reply_to_bot = (message.reference and message.reference.cached_message and message.reference.cached_message.author.id == bot.user.id)
-        
-        if any(keyword in lower_content for keyword in bot_keywords) or is_reply_to_bot or is_continuous:
+        if any(keyword in lower_content for keyword in bot_keywords):
             is_sqlite_triggered = True
     else:
-        # ถ้าทัก DM มา คุยได้ตลอดเวลาอยู่แล้วคัปพ้ม
         is_sqlite_triggered = True
 
     matched_response = None
@@ -3264,9 +3245,6 @@ async def on_message(message):
     # 🔥 [ส่วนที่ A: จัดการคำสอนดึงจาก Database]
     # ==========================================
     if matched_response:
-        # 🔄 ต่อเวลาคุยต่อเนื่องทันทีเมื่อมีการตอบโต้สำเร็จ
-        active_conversations[user_id] = current_time
-
         if message.guild is not None:
             await message.reply("กำลังโหลด...", delete_after=2.0)
 
@@ -3315,6 +3293,7 @@ async def on_message(message):
 
             await message.reply(bagley_styled_text)
             
+            # 🗣️ ระบบส่งเสียงพูดสำหรับข้อความที่ดึงมาจากฐานข้อมูลความจำ
             if message.guild and message.guild.voice_client:
                 if not message.guild.voice_client.is_playing():
                     try:
@@ -3332,19 +3311,13 @@ async def on_message(message):
 
     is_bot_called = False
     if message.guild is not None:
-        is_reply_to_bot = (message.reference and message.reference.cached_message and message.reference.cached_message.author.id == bot.user.id)
-        # ถ้ามีคีย์เวิร์ด, โดนเมนชั่น, โดน Reply หรืออยู่ในโหมดคุยต่อเนื่อง ให้เปิดสิทธิ์ Free Chat คัปพ้ม!
-        if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message) or is_reply_to_bot or is_continuous:
+        if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message):
             is_bot_called = True
 
     if message.guild is None or is_bot_called:
-        # ถ้าหลุดเข้ามาคุยต่อเนื่องแบบไม่มีคำถาม (เช่น ทักชื่อบอทลอย ๆ หรือกดปุ่มเอ๋อ)
-        if message.guild is not None and not user_question and not is_continuous:
+        if message.guild is not None and not user_question:
             await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
             return
-
-        # 🔄 ต่อเวลาคุยต่อเนื่องเมื่อเข้ามาในล็อก Free Chat สำเร็จ
-        active_conversations[user_id] = current_time
 
         if message.guild is not None:
             await message.reply("กำลังโหลด...", delete_after=2.0)
