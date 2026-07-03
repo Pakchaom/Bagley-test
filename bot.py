@@ -775,11 +775,17 @@ async def fade_out_source(vc, duration=1.5, steps=15):
 # --- 🔄 1. ระบบ Loop เช็กทุก 1 นาที ---
 @tasks.loop(minutes=1)
 async def follow_creator_task():
-    global last_greeting_dates, reported_guilds_today
+    global last_greeting_dates, reported_guilds_today, room_guard_status
     today = datetime.today().date()
     active_targets = []
 
     for guild in bot.guilds:
+        guild_id = guild.id
+        
+        if room_guard_status.get(guild_id, False):
+            print(f"DEBUG: 🛡️ เซิร์ฟเวอร์ {guild.name} เปิดโหมดสายตรวจอยู่ แบ็คลี่ล็อกขาตัวเองไว้ ข้ามระบบตามเจ้านายชั่วคราวครับ")
+            continue
+
         for user_id in ALLOWED_USERS:
             if not auto_follow_status.get(user_id, True):
                 continue
