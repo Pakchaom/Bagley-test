@@ -2254,7 +2254,7 @@ async def on_message(message):
     # ==========================================
     # 📝 [ส่วนที่ 3: ระบบฝากข้อความ/บอกเพื่อนตอนไม่อยู่]
     # ==========================================
-    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "บอกว่า", "บอกทีว่า", "ฝากบอก"]
+    trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "ฝากบอก"]
     found_trigger = next((word for word in trigger_words if word in lower_content), None)
 
     if found_trigger:
