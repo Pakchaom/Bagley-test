@@ -1283,22 +1283,624 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
         print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
 
 async def execute_voice_intent(ctx, command):
-    # 🎵 1. ลอจิกสั่งเปิดเพลง
-    if "เปิดเพลง" in command:
-        # ค้นหาคำค้นหาเพลงหลังจากคำว่าเปิดเพลง
-        song_search = command.replace("เปิดเพลง", "").strip()
-        if song_search:
-            await ctx.send(f"🛸 **[สั่งการด้วยเสียง]** ได้รับคำสั่งเปิดเพลง: {song_search}")
-            await play_song(ctx, song_search) # เรียกฟังก์ชันเปิดเพลงเดิมของเมททันที!
-            
-    # 🥾 2. ลอจิกสั่งเตะเสียง / ย้ายคน (อิงตามระบบเดิมของเมท)
-    elif "เตะ" in command or "ย้าย" in command:
-        await ctx.send("🛸 **[สั่งการด้วยเสียง]** กำลังจัดการย้ายหรือเตะห้องเสียงให้ตามคำสั่งคัปพ้ม!")
-        # เมทสามารถเอาฟังก์ชันดีเทคคำสั่งย้าย/ดีซีคอลเดิมมาใส่ตรงนี้ได้เลยคัป
+    # 🔓 ดึงตัวแปรฐานข้อมูลและบอทจาก Global มาทำงานในเลนเสียงคัป
+    global cursor, conn, bot, voice_report_status
+    
+    # ปรับข้อความเสียงเป็นตัวพิมพ์เล็กเพื่อความแม่นยำในการ Match คีย์เวิร์ด
+    lower_content = command.lower()
+    MY_MASTER_ID = 1133740216822267954
+
+    # --------------------------------------------------------
+    # 🎵 [คำสั่งเสียงที่ 1]: ระบบเปิดเพลง / ค้นหาเพลง
+    # --------------------------------------------------------
+    if any(word in lower_content for word in ["เปิดเพลง", "หาเพลง", "play", "เล่นเพลง"]):
+        print("DEBUG: ตรวจพบคำสั่งเปิดเพลงด้วยเสียง!")
+        url_match = regex_lib.search(r'(https?://[^\s]+)', command)
         
-    # 🎯 3. สั่งคุยเล่นทั่วไปกับ AI
+        if url_match:
+            song_query = url_match.group(0)
+        else:
+            raw_text = command
+            trash_words = ["เปิดเพลง", "หาเพลง", "play", "เล่นเพลง", "ให้หน่อย", "หน่อย", "แบ็คลี่", "bagley"]
+            for word in trash_words:
+                raw_text = regex_lib.sub(regex_lib.escape(word), '', raw_text, flags=regex_lib.IGNORECASE)
+            song_query = raw_text.strip()
+
+        if song_query:
+            play_command = bot.get_command('play')
+            if play_command:
+                await ctx.send(f"🛸 **[สั่งการด้วยเสียง]** ได้รับคำสั่งเปิดเพลง: {song_query}")
+                await ctx.invoke(play_command, search=song_query)
+        else:
+            msg = "จะให้ผมเปิดเพลงอะไรล่ะครับ บอกชื่อเพลงมาสิครับเมท"
+            if not ctx.voice_client or not ctx.voice_client.is_playing():
+                try: await bagley_speak(ctx.guild, msg)
+                except Exception as e: print(f"Speak Error: {e}")
+            await ctx.send(msg)
+        return
+
+    # --------------------------------------------------------
+    # ⏸️ [คำสั่งเสียงที่ 2]: หยุดเพลง / ปิดเพลง
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["หยุดเพลง", "ปิดเพลง", "stop", "ลำคาญ", "หนวกหู"]):
+        print("DEBUG: ตรวจพบคำสั่งหยุดเพลงด้วยเสียง!")
+        stop_command = bot.get_command('stop')
+        if stop_command:
+            await ctx.invoke(stop_command)
+        return
+
+    # --------------------------------------------------------
+    # 🥾 [คำสั่งเสียงที่ 3]: สั่งให้บอทออกจากห้องเสียง
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["ออกไป", "ออกไปก่อน", "ขอคุยธุระ", "ออกจากห้อง"]):
+        leave_command = bot.get_command('leave')
+        if leave_command:
+            await ctx.invoke(leave_command)
+        return
+
+    # --------------------------------------------------------
+    # ⏭️ [คำสั่งเสียงที่ 4]: ข้ามเพลง
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["เพลงถัดไป", "ข้ามเพลง", "เพลงต่อไป", "ข้าม"]):
+        skip_command = bot.get_command('skip')
+        if skip_command:
+            await ctx.invoke(skip_command)
+        return
+
+    # --------------------------------------------------------
+    # 🗣️ [คำสั่งเสียงที่ 5]: เปิด-ปิดระบบล่าม (TTS)
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["ปิดล่าม", "เปิดล่าม", "หยุดพูด", "ไม่ต้องพูด", "พูดให้"]):
+        mode_input = None
+        if any(k in lower_content for k in ["เปิด", "พูดให้"]):
+            mode_input = "on"
+        elif any(k in lower_content for k in ["ปิด", "หยุด", "ไม่ต้อง"]):
+            mode_input = "off"
+        
+        tts_command = bot.get_command('tts')
+        if tts_command:
+            await ctx.invoke(tts_command, mode=mode_input)
+        return
+
+    # --------------------------------------------------------
+    # 🔍 [คำสั่งเสียงที่ 6]: ตรวจสอบสถานะระบบ
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["เช็คสถานะระบบ", "ตรวจสอบระบบ", "เช็คการทำงาน", "คุณโอเคมั้ย", "คุณโอเคไหม", "ตรวจสอบสถานะการทำงาน"]):
+        diag_command = bot.get_command('diagnostic')
+        if diag_command:
+            await ctx.invoke(diag_command)
+        return
+
+    # --------------------------------------------------------
+    # 📝 [คำสั่งเสียงที่ 7]: ฝากบอกสถานะ (ลงคลังระบบคนอู้งาน)
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "ฝากบอก"]):
+        trigger_words = ["ฝากบอกว่า", "ฝากบอกทีว่า", "บอกเพื่อนว่า", "ฝากบอก"]
+        found_trigger = next((word for word in trigger_words if word in lower_content), None)
+        
+        if found_trigger:
+            parts = command.split(found_trigger, 1)
+            reason = parts[1].strip() if len(parts) > 1 else ""
+
+            if reason:
+                try:
+                    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                    cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
+                                (str(ctx.author.id), reason, 1, now_str))
+                    conn.commit()
+                    await ctx.send(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
+                except Exception as db_err:
+                    print(f"❌ [DEBUG ฝากบอกด้วยเสียง ERROR]: {db_err}")
+            else:
+                await ctx.send("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
+        return
+
+    # --------------------------------------------------------
+    # 👁️ [คำสั่งเสียงที่ 8]: เรียกดูรายชื่อคนในดิส (ระบบตาทิพย์)
+    # --------------------------------------------------------
+    elif "รายชื่อคนในดิส" in lower_content:
+        try:
+            user_data = load_user_data()
+            if not user_data:
+                await ctx.send("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
+                return
+
+            is_master_command = "ทั้งหมด" in lower_content or "ทุกเซิร์ฟ" in lower_content
+
+            # เช็กสิทธิ์กรณีต้องการดูทั้งหมด/ทุกเซิร์ฟ
+            if is_master_command and ctx.author.id != MY_MASTER_ID:
+                await ctx.send("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌")
+                return
+
+            if is_master_command:
+                response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
+                for user_id_str, data in user_data.items():
+                    if user_id_str == "reminders": continue
+                    nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
+                    birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
+                    response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
+                await ctx.send(response_msg)
+            else:
+                # รายชื่อเฉพาะในเซิร์ฟเวอร์นั้น ๆ
+                guild = ctx.guild
+                response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
+                has_anyone_here = False
+                
+                for user_id_str, data in user_data.items():
+                    if user_id_str == "reminders": continue
+                    member = guild.get_member(int(user_id_str))
+                    if not member: continue
+                    
+                    has_anyone_here = True
+                    nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
+                    birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
+                    
+                    if birthday != "ยังไม่ได้ระบุ":
+                        response_msg += f"• <@{user_id_str}>: {nickname} (วันเกิด: {birthday})\n"
+                    else:
+                        response_msg += f"• <@{user_id_str}>: {nickname}\n"
+                
+                if has_anyone_here: await ctx.send(response_msg)
+                else: await ctx.send("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+        except Exception as e:
+            print(f"🚨 ERROR ระบบรายชื่อด้วยเสียง: {e}")
+            await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท")
+        return
+
+    # --------------------------------------------------------
+    # 🔊 [คำสั่งเสียงที่ 9]: ระบบสรุปสถิติห้องเสียง (ใครคุยนานสุด)
+    # --------------------------------------------------------
+    elif "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
+        data = load_voice_data()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        if not data or data.get("date") != today_str or not data.get("stats"):
+            await ctx.send("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับเมท!")
+            return
+
+        stats = data["stats"]
+        guild_id_str = str(ctx.guild.id)
+        guild_stats = stats.get(guild_id_str, {})
+        filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
+        sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
+        
+        if not sorted_stats:
+            await ctx.send("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับเมท!")
+            return
+
+        user_memory = load_user_data()
+        
+        def get_realtime_name(uid, default):
+            mem = user_memory.get(str(uid))
+            if mem and isinstance(mem, dict):
+                if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ": return mem.get("admin_nickname")
+                if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ": return mem.get("nickname")
+            return default
+
+        report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
+        top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
+        
+        for i, (u_id, info) in enumerate(sorted_stats, 1):
+            ts = info['total_time']
+            time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที" if ts >= 3600 else f"{max(1, int(ts//60))}นาที"
+            display_name = get_realtime_name(u_id, info['name'])
+            report += f"{i}. {display_name}: {time_display}\n"
+
+        await ctx.send(report)
+        if ctx.guild.voice_client:
+            await bagley_speak(ctx.guild, f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
+        return
+
+    # --------------------------------------------------------
+    # 📢 [คำสั่งเสียงที่ 10]: เปิด-ปิด ระบบรายงานห้องเสียง (ทักเข้า-ออก)
+    # --------------------------------------------------------
+    elif "รายงานห้องเสียง" in lower_content or "ทักห้องเสียง" in lower_content:
+        if "ปิด" in lower_content:
+            voice_report_status[ctx.guild.id] = False
+            await ctx.send("รับทราบครับ! 🔇 ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงชั่วคราวแล้วครับ")
+        elif "เปิด" in lower_content:
+            voice_report_status[ctx.guild.id] = True
+            await ctx.send("เปิดระบบคืนชีพ! 🔊 เปิดระบบรายงานห้องเสียงตามปกติแล้วครับ!")
+        return
+
+    # --------------------------------------------------------
+    # 🔔 [คำสั่งเสียงที่ 11]: แบ็คลี่ เรียก @เพื่อน (ส่งรหัสลิงก์เข้า DM)
+    # --------------------------------------------------------
+    elif "เรียก" in lower_content:
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+        
+        target_user = None
+        # 🔍 วนลูปสแกนหาตัวคนที่เราเรียกชื่อเล่นในกลุ่มคอล
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target_user = member
+                break
+                
+        if not target_user:
+            await ctx.send("❌ แบ็คลี่ไม่เจอพรรคพวกชื่อนี้อยู่ในดิสคอร์ดเลยคัปพ้ม")
+            return
+            
+        if target_user.id == ctx.author.id:
+            await ctx.send("🤖 หว่าเมท... จะเรียกตัวเองทำไมกันครับ! ตัวเมทก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
+            return
+
+        if not ctx.author.voice or not ctx.author.voice.channel:
+            await ctx.send("❌ เมทต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับ!")
+            return
+
+        current_channel = ctx.channel
+        voice_channel = ctx.author.voice.channel
+        inviter = ctx.author
+        guild_name = ctx.guild.name
+
+        class GatherView(discord.ui.View):
+            def __init__(self): super().__init__(timeout=120.0)
+            @discord.ui.button(label="🟢 ไปหาเดี๋ยวนี้ (Join)", style=discord.ButtonStyle.success)
+            async def accept_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await current_channel.send(f"🤖 **[BAGLEY]**: เมท {target_user.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับ! 🚀")
+                try:
+                    invite = await voice_channel.create_invite(max_age=1800, max_uses=1)
+                    await interaction.response.send_message(f"รับทราบครับ! นี่คือลิงก์เข้าห้องเสียงครับเมท วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
+                except Exception as e: await interaction.response.send_message(f"รับทราบครับ! (แต่สร้างลิงก์เชิญไม่สำเร็จ: {e})", ephemeral=True)
+                self.stop()
+
+            @discord.ui.button(label="🔴 ไม่ว่าง/ติดธุระ (Decline)", style=discord.ButtonStyle.danger)
+            async def decline_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await current_channel.send(f"🤖 **[BAGLEY]**: แจ้งสถานะครับเมท... พอดี {target_user.mention} กดปฏิเสธจากใน DM ว่าติดธุระด่วนอยู่ครับ 💤")
+                await interaction.response.send_message("ปฏิเสธคำเชิญเรียบร้อยครับ", ephemeral=True)
+                self.stop()
+
+        try:
+            view = GatherView()
+            await target_user.send(
+                f"🔔 **สวัสดีครับคุณ {target_user.display_name}**\n"
+                f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากเมท **{inviter.display_name}** ในดิส `{guild_name}`\n"
+                f"รบกวนตามไปพบกันที่ห้อง {voice_channel.name} หน่อยน้าครับ! 👇", 
+                view=view
+            )
+            await ctx.send(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_user.mention} เรียบร้อยแล้วครับ!")
+        except discord.Forbidden:
+            await ctx.send(f"หว่าเมท... ผมไม่สามารถส่ง DM หา {target_user.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับ 🔒")
+        return
+
+    # --------------------------------------------------------
+    # 🛸 [คำสั่งเสียงที่ 12]: แบ็คลี่ ชวน @เพื่อน หน่อย (วาร์ปข้ามมิติไปตามบ่น)
+    # --------------------------------------------------------
+    elif "ชวน" in lower_content and "หน่อย" in lower_content:
+        host_member = ctx.author
+        target_member = None
+        
+        # 🔍 ค้นหาชื่อเป้าหมายที่ต้องการให้ไปชวน
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target_member = member
+                break
+
+        if not target_member:
+            await ctx.send("❌ เมทต้องพูดชื่อเพื่อนที่จะให้ผมไปชวนให้ชัดเจนด้วยสิคัปพ้ม")
+            return
+            
+        def get_realtime_name(uid, default):
+            user_memory = load_user_data()
+            mem = user_memory.get(str(uid))
+            if mem and isinstance(mem, dict):
+                if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ": return mem.get("nickname")
+            return default
+
+        host_name = get_realtime_name(host_member.id, host_member.display_name)
+        target_name = get_realtime_name(target_member.id, target_member.display_name)
+
+        if not host_member.voice or not host_member.voice.channel:
+            await ctx.send("❌ คุณต้องอยู่ในห้องเสียงก่อนนะครับ ถึงจะสั่งให้ผมไปชวนเพื่อนได้คัปพ้ม!")
+            return
+
+        host_channel = host_member.voice.channel
+
+        if not target_member.voice or not target_member.voice.channel:
+            await ctx.send(f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับเมท ชวนไม่ได้คัปพ้ม")
+            return
+
+        target_channel = target_member.voice.channel
+
+        if host_channel.id == target_channel.id:
+            await ctx.send(f"อ้าวเมท คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555")
+            return
+
+        game_name = None
+        for activity in host_member.activities:
+            if activity.type == discord.ActivityType.playing:
+                game_name = activity.name
+                break
+
+        game_speech = f"เกม {game_name}" if game_name else "เล่นเกมด้วยกัน"
+        await ctx.send(f"🛸 รับทราบคัปพ้ม! แบ็คลี่กำลังวาร์ปไปชวนคุณ {target_name} ที่ห้อง **{target_channel.name}** ให้คัป!")
+
+        text_channel = getattr(target_channel, "text_channel", None) or ctx.channel
+
+        try:
+            guild = ctx.guild
+            vc = guild.voice_client
+            if vc: await vc.move_to(target_channel)
+            else: vc = await target_channel.connect()
+
+            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปเล่น {game_speech} ด้วยกันที่ห้องนู้นครับเมท! รีบๆมานะค้าบ ทีมต้องการตัวครับ"
+            
+            # สมมติว่ามีคลาส PartyInviteView อยู่ในไฟล์เดิมอยู่แล้วคัปพ้ม
+            view = PartyInviteView(target_member, host_channel)
+            invite_msg = await text_channel.send(f"📢 **คำเชิญชวนเข้าตี้ด่วน!** คุณ {host_name} ชวนคุณ {target_name} ไปจอย {game_speech} คัปพ้ม!", view=view)
+
+            for i in range(3):
+                if view.accepted or view.is_finished(): break
+                print(f"🗣️ [Warp Invite Voice]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
+                await bagley_speak_wait(guild, invite_quote)
+                await asyncio.sleep(18)
+
+            try: await invite_msg.edit(content=f"⌛ คำเชิญชวนถึงคุณ {target_name} สิ้นสุดลงแล้วคัปเมท", view=None)
+            except: pass
+            
+            if guild.voice_client:
+                await guild.voice_client.move_to(host_channel)
+                await bagley_speak_wait(guild, "แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับเมท!")
+        except Exception as e:
+            print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้ด้วยเสียง: {e}")
+        return
+
+    # --------------------------------------------------------
+    # 🥾 [คำสั่งเสียงที่ 13]: ลอจิกสั่งย้ายห้องคนคอลด้วยเสียง
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target_member = None
+        room_name = command
+        
+        for member in ctx.guild.members:
+            if member.id == bot.user.id or not member.voice: continue
+            if member.display_name in command or member.name in command:
+                target_member = member
+                room_name = room_name.replace(member.display_name, "").replace(member.name, "")
+                break
+
+        if not target_member:
+            return await ctx.send("❌ แบ็คลี่ไม่เจอเพื่อนชื่อนี้อยู่ในห้องคอลเลยคัปเมท ลองเรียกชื่อให้ชัดขึ้นน้า")
+
+        for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง", "ไปห้อง", "ที", "หน่อย"]:
+            room_name = room_name.replace(k, "")
+        room_name = room_name.strip()
+
+        if room_name:
+            voice_channel = discord.utils.get(ctx.guild.voice_channels, name=room_name)
+            if voice_channel:
+                await ctx.invoke(bot.get_command('move'), member=target_member, channel=voice_channel)
+                return 
+            else: return await ctx.send(f"❌ แบ็คลี่หาห้อง '{room_name}' ไม่เจอคัปเมท ลองเช็กชื่อห้องดูน้า")
+        else: return await ctx.send("จะให้ย้ายไปห้องไหน รบกวนพูดชื่อห้องต่อท้ายด้วยคัปเมท")
+
+    elif any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target = None
+        # 🔍 สแกนหาชื่อสมาชิกที่พูดถึงในห้องเสียง
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target = member
+                break
+
+        if target and target.voice and target.voice.channel:
+            try:
+                await target.move_to(None)
+                await ctx.send(f"⚡ เรียบร้อยครับเมท! ผมจัดการเขี่ย {target.mention} ออกไปแล้ว")
+                if ctx.guild.voice_client:
+                    await bagley_speak(ctx.guild, f"จัดการเชิญคุณ {target.display_name} ออกไปเรียบร้อย")
+            except Exception as e:
+                await ctx.send(f"❌ ผมจัดการไม่ได้ครับ: {e}")
+        elif target:
+            await ctx.send("เป้าหมายไม่ได้อยู่ในห้องเสียงครับเมท")
+        else:
+            await ctx.send("ช่วยพูดชื่อคนที่จะให้ผมจัดการให้ชัดเจนด้วยครับเมท")
+        return
+
+    # --------------------------------------------------------
+    # 📦 [คำสั่งเสียง]: ตั้งค่าห้องแจ้งเตือน (Text Channel)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["เซ็ตห้องแจ้งเตือน", "ตั้งค่าห้องแจ้งเตือน", "เปลี่ยนห้องแจ้งเตือน"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        room_name = lower_content
+        for k in ["แบ็คลี่", "bagley", "เซ็ตห้องแจ้งเตือน", "ตั้งค่าห้องแจ้งเตือน", "เปลี่ยนห้องแจ้งเตือน", "เป็นห้อง", "ที่ห้อง", "ที", "หน่อย"]:
+            room_name = room_name.replace(k, "")
+        room_name = room_name.strip()
+
+        if room_name:
+            # 🔍 ค้นหาห้องพิมพ์แชทที่มีชื่อตรงกับเสียงพูด
+            target_channel = discord.utils.get(ctx.guild.text_channels, name=room_name)
+            if target_channel:
+                settings = load_settings()
+                settings[str(ctx.guild.id)] = target_channel.id
+                save_settings(settings)
+                await ctx.send(f"✅ เรียบร้อยครับเมท! ผมจะส่งการแจ้งเตือนไปที่ห้อง **#{target_channel.name}** ครับ")
+            else:
+                await ctx.send(f"❌ ผมหาห้องแชทพิมพ์ '{room_name}' ไม่เจอครับเมท")
+        else:
+            await ctx.send("❓ เมทต้องบอกชื่อห้องด้วยนะครับ เช่น 'ตั้งค่าห้องแจ้งเตือน ห้องแชททั่วไป'")
+        return
+
+    # --------------------------------------------------------
+    # 🔄 [คำสั่งเสียง]: ระบบย้ายกลุ่ม / แยกกลุ่มห้องเสียง
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["ย้ายกลุ่ม", "แยกกลุ่ม", "ย้ายห้องกัน"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        try:
+            await ctx.invoke(bot.get_command('group_move'))
+        except Exception as e:
+            await ctx.send(f"❌ ระบบย้ายกลุ่มขัดข้องครับ: {e}")
+        return
+
+    # --------------------------------------------------------
+    # ➕ [คำสั่งเสียง]: สร้างห้อง/เปิดปาร์ตี้ใหม่
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["สร้างห้อง", "เปิดห้อง", "ตั้งปาร์ตี้"]):
+        party_name = lower_content
+        for k in ["แบ็คลี่", "bagley", "สร้างห้อง", "เปิดห้อง", "ตั้งปาร์ตี้", "ชื่อ", "หน่อย", "ที"]:
+            party_name = party_name.replace(k, "")
+        party_name = party_name.strip() or f"ห้องของ {ctx.author.display_name}"
+
+        await ctx.invoke(bot.get_command('create_party'), name=party_name)
+        return
+
+    # --------------------------------------------------------
+    # 🔇 [คำสั่งเสียง]: สั่งปิดไมค์เพื่อน (Mute)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["ปิดเสียง", "ปิดไมค์"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target = None
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target = member
+                break
+
+        if target:
+            await ctx.invoke(bot.get_command('mute_sleep'), member=target)
+        else:
+            await ctx.send("จะให้ผมปิดไมค์ใคร รบกวนพูดชื่อเพื่อนให้ชัดเจนด้วยครับ")
+        return
+
+    # --------------------------------------------------------
+    # 🔊 [คำสั่งเสียง]: ปลดไมค์ให้ตัวเอง (Unmute Me)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["เปิดเสียงให้ที", "เปิดเสียงให้หน่อย", "เปิดไมค์ให้หน่อย", "เปิดไมค์ให้ที"]):
+        await ctx.invoke(bot.get_command('unmute_me'))
+        return
+
+    # --------------------------------------------------------
+    # 🔓 [คำสั่งเสียง]: ปลดไมค์ให้เพื่อน (Unmute Member)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target = None
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target = member
+                break
+
+        if target:
+            await ctx.invoke(bot.get_command('unmute_member'), member=target)
+        else:
+            await ctx.send("จะให้ผมเปิดไมค์ให้ใคร รบกวนระบุชื่อเพื่อนด้วยครับเมท")
+        return
+
+    # --------------------------------------------------------
+    # 🎧 [คำสั่งเสียง]: สั่งปิดหูฟัง (Deafen)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target = None
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target = member
+                break
+
+        if target:
+            await ctx.invoke(bot.get_command('deaf_work'), member=target)
+        else:
+            await ctx.send("จะให้ผมปิดหูฟังใคร รบกวนบอกชื่อด้วยครับ")
+        return
+
+    # --------------------------------------------------------
+    # 👂 [คำสั่งเสียง]: ปลดหูฟังให้ตัวเอง (Undeafen Me)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["เปิดหูฟังให้ฉัน", "กลับมาแล้ว", "เลิกทำงานแล้ว"]):
+        await ctx.invoke(bot.get_command('undeaf_me'))
+        return
+
+    # --------------------------------------------------------
+    # 🔓 [คำสั่งเสียง]: ปลดหูฟังให้เพื่อน (Undeafen Member)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["เปิดหูฟังให้", "ปลดหูฟังให้"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target = None
+        for member in ctx.guild.members:
+            if member.id == bot.user.id: continue
+            if member.display_name in command or member.name in command:
+                target = member
+                break
+
+        if target:
+            await ctx.invoke(bot.get_command('undeaf_member'), member=target)
+        return
+
+    # --------------------------------------------------------
+    # 🛡️ [คำสั่งเสียง]: ระบบสแกนข้อมูลโปรไฟล์ (Profile Scan)
+    # --------------------------------------------------------
+    elif any(k in lower_content for k in ["สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ"]):
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ ระบบประมวลผลกำลัง Overheat รอก่อนอีก {rem} วินาทีนะครับเมท")
+
+        target = None
+        if any(k in lower_content for k in ["ฉัน", "เรา", "ตัวเอง"]):
+            target = ctx.author
+        else:
+            for member in ctx.guild.members:
+                if member.id == bot.user.id: continue
+                if member.display_name in command or member.name in command:
+                    target = member
+                    break
+
+        if target:
+            await ctx.invoke(bot.get_command('profile_scan'), member=target)
+        else:
+            await ctx.send("จะให้ผมสแกนใคร รบกวนบอกชื่อ หรือบอกว่า 'สแกนฉัน' ด้วยครับเมท")
+        return
+
+    # --------------------------------------------------------
+    # 🏰 [คำสั่งเสียง]: เปิด-ปิด ระบบเฝ้าห้องเสียง (Guard Room)
+    # --------------------------------------------------------
+    elif any(word in lower_content for word in ["เฝ้าห้อง", "เลิกเฝ้า", "หยุดเฝ้า", "ฝากเฝ้า"]):
+        mode_input = None
+        if any(k in lower_content for k in ["เฝ้าห้อง", "ฝากเฝ้า"]):
+            mode_input = "on"
+        elif any(k in lower_content for k in ["เลิกเฝ้า", "หยุดเฝ้า"]):
+            mode_input = "off"
+            
+        guard_command = bot.get_command('guard_room')
+        if guard_command:
+            await ctx.invoke(guard_command, mode=mode_input)
+        return
+
+    # --------------------------------------------------------
+    # 🎯 [คำสั่งเสียงที่ 14]: พูดคุยทั่วไปกับแบ็คลี่ (Fallback)
+    # --------------------------------------------------------
     else:
-        # ถ้าพูดคำอื่น ๆ กับแบ็คลี่ ให้ส่งข้อความตอบกลับน่ารัก ๆ หรือเข้าสมอง AI คัป
         await ctx.send(f"🤖 **[หูทิพย์]** เมทชะอมพูดว่า '{command}' ใช่ไหมคัป มีอะไรให้แบ็คลี่รับใช้เพิ่มเติมไหมคัปพ้ม?")
 
 async def process_boss_voice(user_id, audio_data, ctx):
