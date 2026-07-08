@@ -17,6 +17,7 @@ import json
 import time
 import collections
 import urllib.parse
+import speech_recognition as sr
 
 # --- Google Gen AI ---
 from google import genai
@@ -49,6 +50,8 @@ user_join_times = {}
 voice_report_status = {}
 
 reported_guilds_today = {}
+
+voice_listen_status = {}
 
 last_party_invites = {}
 
@@ -441,7 +444,6 @@ async def play_song(ctx, search):
     FFMPEG_OPTIONS = {
         'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
         'options': '-vn',
-        'executable': 'C:/ffmpeg/bin/ffmpeg.exe'
     }
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -465,7 +467,11 @@ async def play_song(ctx, search):
                     print(f"Player error: {error}")
 
             is_playing_music = True
-            raw_source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTIONS)
+            raw_source = discord.FFmpegPCMAudio(
+                url, 
+                executable='C:/ffmpeg/bin/ffmpeg.exe', 
+                **FFMPEG_OPTIONS
+            )
             
             volume_controlled_source = discord.PCMVolumeTransformer(raw_source)
             volume_controlled_source.volume = 0.15
@@ -1275,6 +1281,58 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
 
     except Exception as e:
         print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
+
+async def execute_voice_intent(ctx, command):
+    # 🎵 1. ลอจิกสั่งเปิดเพลง
+    if "เปิดเพลง" in command:
+        # ค้นหาคำค้นหาเพลงหลังจากคำว่าเปิดเพลง
+        song_search = command.replace("เปิดเพลง", "").strip()
+        if song_search:
+            await ctx.send(f"🛸 **[สั่งการด้วยเสียง]** ได้รับคำสั่งเปิดเพลง: {song_search}")
+            await play_song(ctx, song_search) # เรียกฟังก์ชันเปิดเพลงเดิมของเมททันที!
+            
+    # 🥾 2. ลอจิกสั่งเตะเสียง / ย้ายคน (อิงตามระบบเดิมของเมท)
+    elif "เตะ" in command or "ย้าย" in command:
+        await ctx.send("🛸 **[สั่งการด้วยเสียง]** กำลังจัดการย้ายหรือเตะห้องเสียงให้ตามคำสั่งคัปพ้ม!")
+        # เมทสามารถเอาฟังก์ชันดีเทคคำสั่งย้าย/ดีซีคอลเดิมมาใส่ตรงนี้ได้เลยคัป
+        
+    # 🎯 3. สั่งคุยเล่นทั่วไปกับ AI
+    else:
+        # ถ้าพูดคำอื่น ๆ กับแบ็คลี่ ให้ส่งข้อความตอบกลับน่ารัก ๆ หรือเข้าสมอง AI คัป
+        await ctx.send(f"🤖 **[หูทิพย์]** เมทชะอมพูดว่า '{command}' ใช่ไหมคัป มีอะไรให้แบ็คลี่รับใช้เพิ่มเติมไหมคัปพ้ม?")
+
+async def process_boss_voice(user_id, audio_data, ctx):
+    # 🔒 ล็อกขาขั้นสุด: ถ้าคนพูดไม่ใช่ไอดีเจ้านายชะอม -> โยนทิ้งทันทีคัป!
+    if user_id != 1133740216822267954:
+        return
+
+    recognizer = sr.Recognizer()
+    
+    try:
+        # แปลงบิตเสียงดิบจาก Discord PCM ให้เป็นไฟล์ Wave ในหน่วยความจำ
+        # (หมายเหตุ: ตัวแปรเสียงดิบนี้จะส่งมาจากขบวนการ Sink ในสเต็ปถัดไปคัป)
+        audio_file = io.BytesIO(audio_data)
+        with sr.AudioFile(audio_file) as source:
+            audio = recognizer.record(source)
+            
+        # ส่งเข้าสมอง Google STT เพื่อแปลงเป็นข้อความภาษาไทย
+        text_result = recognizer.recognize_google(audio, language="th-TH")
+        text_result = text_result.strip()
+        
+        # 🔍 ดักจับคำปลุก "แบ็คลี่"
+        if text_result.startswith("แบ็คลี่"):
+            # ตัดคำว่า "แบ็คลี่" ออก เพื่อเอาเนื้อความสั่งการข้างหลัง
+            command_content = text_result[7:].strip()
+            print(f"👂 แบ็คลี่ได้ยินเจ้านายสั่งว่า: '{command_content}'")
+            
+            # 🚀 ส่งคำสั่งวิ่งเข้าเลนพิเศษดักคำสั่งของเมทได้เลย!
+            await execute_voice_intent(ctx, command_content)
+            
+    except sr.UnknownValueError:
+        # กรณีบอทได้ยินเสียงพึมพำ ฟังไม่เป็นคำ จะไม่ทำอะไรคัป ปลอดภัยไว้ก่อน
+        pass
+    except Exception as e:
+        print(f"Voice Processing Error: {e}")
 
 @tasks.loop(time=[
     dt_time(hour=0, minute=0, tzinfo=bangkok_tz), 
@@ -5666,5 +5724,70 @@ async def pull_room(ctx: commands.Context):
 @bot.tree.command(name="invite_voice", description="สั่งให้แบ็คลี่วาร์ปไปเปิดไมค์ตื๊อชวนเพื่อนจากห้องอื่นมาเข้าตี้คัปพ้ม")
 async def invite_voice(interaction: discord.Interaction, เพื่อนที่จะชวน: discord.Member):
     await execute_warp_invite(interaction, interaction.user, เพื่อนที่จะชวน)
+
+@bot.hybrid_command(name="toggle_voice", description="⚡ เปิด-ปิดโหมดหูไว สั่งการแบ็คลี่ด้วยเสียงในห้องคอล")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="เปิดระบบ (On)", value="on"),
+    app_commands.Choice(name="ปิดระบบ (Off)", value="off")
+])
+async def toggle_voice(ctx: commands.Context, mode: str = None):
+    global voice_listen_status, is_playing_music
+    
+    # 🔒 ล็อกสิทธิ์เฉพาะไอดีเมทชะอมเท่านั้น! คนอื่นแอบมา On/Off ไม่ได้คัป
+    if ctx.author.id != 1133740216822267954:
+        await ctx.send("❌ ขออภัยคัปพ้ม! คำสั่งระบบหูทิพย์นี้มีเพียงเมทชะอมเท่านั้นที่สั่งการได้คัป!", ephemeral=True)
+        return
+
+    # เช็กว่าบอทอยู่ในห้องคอลหรือเปล่า
+    if not ctx.voice_client:
+        return await ctx.send("🔇 แบ็คลี่ต้องเข้าไปอยู่ในห้องเสียงก่อนคัปเมท! ชวนผมเข้าห้องคอลก่อนน้า", ephemeral=True)
+
+    guild_id = ctx.guild.id
+    current_status = voice_listen_status.get(guild_id, False)
+
+    # 1. จัดการสถานะตามเงื่อนไขอัจฉริยะ (Toggle หรือ On/Off)
+    if mode is None:
+        new_status = not current_status
+    else:
+        if mode.lower() in ["on", "เปิด", "start"]:
+            new_status = True
+        elif mode.lower() in ["off", "ปิด", "stop"]:
+            new_status = False
+
+    voice_listen_status[guild_id] = new_status
+
+    # 2. ทำงานตามสถานะใหม่ที่เซ็ตไว้
+    if voice_listen_status[guild_id]:
+        # 👂 สั่งเปิดฟังก์ชันดักฟังเสียงบิตดิบ
+        try:
+            ctx.voice_client.listen(discord.UserFilter(
+                after=lambda user, audio: bot.loop.create_task(
+                    process_boss_voice(user.id, audio.data, ctx)
+                )
+            ))
+        except Exception as e:
+            print(f"Listen Error (อาจจะแอบฟังอยู่แล้ว): {e}")
+
+        text_msg = "👂 **[โหมดหูทิพย์: ON]** แบ็คลี่เริ่มสวมหูฟังแล้วคัป! กำลังเงี่ยหูฟังเสียงสั่งการจากเมทชะอมคนเดียวคัปพ้ม! 🛸✨"
+        voice_msg = "เปิดระบบหูทิพย์แล้วครับเจ้านาย แบ็คลี่รอฟังคำสั่งอยู่นะครับ"
+    else:
+        # 📴 สั่งหยุดดักฟังเสียง
+        try:
+            ctx.voice_client.stop_listening()
+        except Exception as e:
+            print(f"Stop Listen Error: {e}")
+
+        text_msg = "📴 **[โหมดหูทิพย์: OFF]** ถอดหูฟังเรียบร้อยคัป แบ็คลี่กลับเข้าสู่โหมดสแตนด์บายปกติแล้วน้าเมท"
+        voice_msg = "ปิดระบบหูทิพย์แล้วครับเจ้านาย กลับสู่โหมดปกติแล้วคัป"
+
+    # 3. ส่งข้อความในแชท
+    await ctx.send(text_msg)
+    
+    # 4. สั่งให้บอทพูดออกไมค์แจ้งเตือน (ถ้าไม่ได้เปิดเพลงแช่อยู่)
+    if not is_playing_music:
+        try:
+            await bagley_speak(ctx.guild, voice_msg)
+        except Exception as e:
+            print(f"Voice Toggle Speech Error: {e}")
 
 bot.run(DISCORD_TOKEN)
