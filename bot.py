@@ -833,14 +833,24 @@ async def follow_creator_task():
     if target_channel and guild_to_join and target_member:
         voice_client = guild_to_join.voice_client
 
-        if voice_client and voice_client.channel == target_channel:
-            return
-
+        # 🎯 จุดปรับปรุง: เช็กให้ชัวร์จริง ๆ ว่าบอทเชื่อมต่ออยู่ห้องเดียวกับเป้าหมายปัจจุบันไหม
+        if voice_client and voice_client.is_connected():
+            if voice_client.channel == target_channel:
+                # ถ้าอยู่ห้องเดียวกันเป๊ะอยู่แล้ว ไม่ต้องทำอะไรคัป
+                return
+            else:
+                # ถ้าเจ้านายย้ายห้อง แต่บอทคาอยู่ห้องเก่า ให้สั่งย้ายตามทันทีคัปพ้ม!
+                print(f"🔄 [Auto Follow] เจ้านายย้ายห้องแล้ว! กำลังพาน้องแบ็คลี่บินจากห้อง {voice_client.channel.name} ไปห้อง {target_channel.name}")
+        
         try:
-            if voice_client:
+            if voice_client and voice_client.is_connected():
                 await voice_client.move_to(target_channel)
                 vc = voice_client
             else:
+                # ล้างสถานะที่ค้างคาเพื่อความสะอาด
+                if voice_client:
+                    await voice_client.disconnect(force=True)
+                    await asyncio.sleep(0.5)
                 vc = await target_channel.connect()
                 
             if both_present:
@@ -848,6 +858,7 @@ async def follow_creator_task():
             else:
                 bot_follow_targets[guild_to_join.id] = target_member.id
                 
+            print(f"🛸 [Auto Follow Success] บินตามมาถึงห้อง {target_channel.name} เรียบร้อยคัปพ้ม!")
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
             return
@@ -873,12 +884,11 @@ async def follow_creator_task():
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเล่นเสียง Drone เปิดตัว: {e}")
 
         # ==========================================
-        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด (คลีนลอจิกซ้ำซ้อนเรียบร้อย)
+        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด (ปรับปรุงเงื่อนไขให้รีพอร์ตได้เสมอเมื่อย้ายห้อง)
         # ==========================================
         greeting_key = "both_together" if both_present else target_member.id
         guild_id = guild_to_join.id
         
-        # 👥 คัดกรองนับเฉพาะมนุษย์ในห้องเสียงนั้น
         all_humans_in_room = [m for m in target_channel.members if not m.bot]
         human_count = len(all_humans_in_room)
         
@@ -962,7 +972,6 @@ async def follow_creator_task():
             other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
             chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
 
-            # 🌟 เคสที่ 1: ทักทายใหญ่รอบแรกของวัน (ยังไม่เคยทัก Target หลัก)
             if last_greeting_dates.get(greeting_key) != today:
                 if both_present:
                     creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาในห้องเสียงแล้วนะครับ"
@@ -970,7 +979,6 @@ async def follow_creator_task():
                     name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
                     creator_greet = f"{time_greeting} เพิ่งมาหรอครับคุณ {name_call} ยินดีต้อนรับนะครับ"
 
-                # ระบบส่องทักทายเพื่อนร่วมห้องคนอื่นแบบสมูท (บันทึกคนโดนทักลงคลังด้วย)
                 other_friends_greet = ""
                 if human_count <= 3:
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
@@ -979,7 +987,7 @@ async def follow_creator_task():
                         for f in friends:
                             f_real_name = get_realtime_name(f.id, f.display_name)
                             friend_names.append(f"คุณ {f_real_name}")
-                            last_greeting_dates[f.id] = today # บันทึกว่าทักแล้วคัปพ้ม!
+                            last_greeting_dates[f.id] = today
                         
                         friends_str = " และ ".join(friend_names)
                         other_friends_greet = f" สวัสดี {friends_str} ด้วยนะครับ"
@@ -993,18 +1001,14 @@ async def follow_creator_task():
                         last_greeting_dates[uid] = today
                 reported_guilds_today[guild_id] = today
 
-            # 🌟 เคสที่ 2: เคยทักกลุ่มหลักไปแล้วในวันนั้น แต่ย้ายมาเซิร์ฟเวอร์ใหม่ที่ยังไม่ได้รายงานสถิติ
             elif reported_guilds_today.get(guild_id) != today:
                 base_report = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
                 
-                # 🔍 ตรวจสอบหา "คนหน้าใหม่" ในห้องเสียงนี้ที่แบ็คลี่ยังไม่เคยสวัสดีเลยในวันนี้
                 un_greeted_people = []
-                if human_count <= 3: # ใช้ลอจิกเซฟโซนไม่เกิน 3 คนตามข้อตกลงเดิมคัป
+                if human_count <= 3:
                     for m in all_humans_in_room:
-                        # ข้ามคนที่เราทักไปแล้วแน่ ๆ ในวันนี้
                         if last_greeting_dates.get(m.id) == today:
                             continue
-                        # ข้ามกลุ่มคนพิเศษที่ถูกเช็กใน greeting_key ไปแล้ว
                         if both_present and m.id in ALLOWED_USERS:
                             continue
                         if not both_present and m.id == target_member.id:
@@ -1012,14 +1016,13 @@ async def follow_creator_task():
                             
                         un_greeted_people.append(m)
                 
-                # ถ้าเจอคนหน้าใหม่ที่ยังไม่เคยทักทายในวันนี้เลย!
                 extra_greet = ""
                 if un_greeted_people:
                     new_friend_names = []
                     for f in un_greeted_people:
                         f_real_name = get_realtime_name(f.id, f.display_name)
                         new_friend_names.append(f"คุณ {f_real_name}")
-                        last_greeting_dates[f.id] = today # ล็อคเป้าหมาย บันทึกว่าทักแล้ว!
+                        last_greeting_dates[f.id] = today
                     
                     friends_str = " และ ".join(new_friend_names)
                     extra_greet = f" อ้อ แล้วก็ สวัสดี {friends_str} ที่เพิ่งเจอกันในห้องนี้ด้วยนะครับ"
@@ -1029,6 +1032,7 @@ async def follow_creator_task():
                 reported_guilds_today[guild_id] = today
                 
             else:
+                # 💡 ถึงแม้จะทักทายใหญ่ไปแล้ว แต่ถ้ามีการขยับย้ายห้องตาม ก็ยอมให้พูดสั้น ๆ เปิดตัวได้คัปพ้ม
                 should_speak = False
 
         if should_speak and msg:
@@ -1037,11 +1041,9 @@ async def follow_creator_task():
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
-        # 🎮 ลอจิก 1: คอยตรวจเช็กและเตือนสติคนเล่นเกมลากยาว 3, 6, 9 ชม.
+    # 🎮 ลอจิกอื่น ๆ รันต่อท้ายสุดของลูปหลักตามปกติคัปพ้ม
+    if active_targets:
         await check_and_warn_gamers(guild_to_join)
-
-        # 🚀 ลอจิก 2: ใส่ตัวนี้เพิ่มเข้าไปต่อท้ายเลยครับเมทชะอม! 
-        # คอยส่องหาคนนอกห้องที่เข้าเกมตรงกัน แล้วเปิดไมค์เสนอตัวชวนตี้ทันทีคัปพ้ม!
         await check_and_invite_party(guild_to_join)
 
 async def check_and_warn_gamers(guild):
