@@ -3466,7 +3466,8 @@ async def on_message(message):
 
     if message.guild is not None:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
+        # 🌟 [ปรับปรุง]: ถ้ามาจาก Webhook เสียงของเมทชะอม ให้เปิดระบบดักความจำทันทีโดยไม่ต้องง้อคีย์เวิร์ด
+        if is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords):
             is_sqlite_triggered = True
     else:
         is_sqlite_triggered = True
@@ -3507,7 +3508,7 @@ async def on_message(message):
 
 สไตล์การพูด:
 - สำเนียงชายหนุ่มอังกฤษกวน ๆ พูดจาลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ไม่ใช้คำพูดแพทเทิร์นบอททื่อ ๆ ห้ามเกร็ง!
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
+- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับ' เสมอ (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
 - ตอบกลับแบบ สั้น กระชับ แต่อ่านแล้วมีชีวิตชีวา มีอารมณ์ขัน
 
 🚫 กฎเหล็กด้านเนื้อหา (สำคัญมาก):
@@ -3551,11 +3552,13 @@ async def on_message(message):
 
     is_bot_called = False
     if message.guild is not None:
-        if any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message):
+        # 🌟 [ปรับปรุง]: ถ้าเป็น Webhook ของชะอม หรือมีการเรียกชื่อบอท ให้เปิดสวิตช์คุยเล่นทันทีคัป!
+        if is_from_my_webhook or any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message):
             is_bot_called = True
 
     if message.guild is None or is_bot_called:
-        if message.guild is not None and not user_question:
+        # 🌟 [ปรับปรุง]: เพิ่ม 'and not is_from_my_webhook' ตรงนี้ เพื่อไม่ให้บอทส่งข้อความถามซ้ำเวลาระบบเสียงส่งมาเป็นคำสั้น ๆ
+        if message.guild is not None and not user_question and not is_from_my_webhook:
             await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
             return
 
@@ -3593,7 +3596,7 @@ async def on_message(message):
 สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด:
 - พูดจาลื่นไหลเป็นธรรมชาติเหมือนคนสนิทคุยกัน ไม่พูดเป็นข้อ ๆ ไม่ใช้ภาษาเขียนทางการแบบบอท AI ทั่วไป มีจังหวะรับส่งมุก ตบมุก ตลกหน้าตายแบบ British Humor
 - แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขาด้วยความคุ้นเคย
-- ลงท้ายประโยคด้วย 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด!)
+- ลงท้ายประโยคด้วย 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด!)
 - ตอบกลับแบบ สั้น กระชับ แซ่บกวนโอ๊ย ได้ใจความภายใน 2-3 ประโยค เพื่อให้เหมาะกับการเอาไปใช้ในระบบพูดออกเสียง (TTS)
 
 🚫 กฎเหล็กด้านเนื้อหา (สำคัญที่สุด):
