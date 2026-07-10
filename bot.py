@@ -5916,27 +5916,32 @@ async def pull_room(ctx: commands.Context):
 async def invite_voice(interaction: discord.Interaction, เพื่อนที่จะชวน: discord.Member):
     await execute_warp_invite(interaction, interaction.user, เพื่อนที่จะชวน)
 
-@bot.tree.command(name="remind", description="Ask Bagley to remember and remind you of a schedule in the voice channel.")
+@bot.tree.command(name="remind", description="สั่งให้แบ็คลี่บันทึกกำหนดการและแจ้งเตือนในห้องเสียงเมื่อถึงวัน")
 @app_commands.describe(
-    date="Enter date (e.g., 2026-07-11 or just '11')",
-    time="Enter time (e.g., 21:00, 9 PM)",
-    event="What's happening? (e.g., VCT Match, Scrim, Party)"
+    date="ระบุวันที่ (เช่น 2026-07-11 หรือใส่แค่ตัวเลขวันที่ เช่น '11')",
+    time="ระบุเวลา (เช่น 21:00, 3 ทุ่ม, 5 โมงเย็น)",
+    event="กิจกรรมที่ต้องการให้เตือน (เช่น แข่ง VCT, ซ้อมทีม Scrim, ตี้หมูกระทะ)"
 )
 async def slash_remind(interaction: discord.Interaction, date: str, time: str, event: str):
-    # ดึงเวลาไทยปัจจุบันขึ้นมาอ้างอิงเผื่อเมทใส่แค่ตัวเลขวันที่
+    # ดึงเวลาไทยปัจจุบันขึ้นมาอ้างอิง
     now = datetime.now(bangkok_tz)
     clean_date = date.strip()
 
-    # 💡 ระบบช่วยจัดฟอร์แมตอัตโนมัติ: ถ้าเมทใส่แค่ตัวเลขวันที่ 1-2 หลัก (เช่น ใส่แค่ "11") 
-    # แบ็คลี่จะแอบเติมปีกับเดือนปัจจุบันให้เป็นฟอร์แมต YYYY-MM-DD ทันทีคัปพ้ม!
+    # 📅 ระบบช่วยจัดฟอร์แมตวันที่แบบสั้นอัตโนมัติ (กันบั๊กข้ามเดือน)
     if len(clean_date) <= 2 and clean_date.isdigit():
         try:
             day_val = int(clean_date)
-            # สร้าง Object วันที่โดยดึง ปี และ เดือน ของปัจจุบันมาประกบตัวเลขวันที่เมทกรอก
-            target_date = now.replace(day=day_val)
+            if day_val < now.day:
+                # ปัดเป็นวันที่ของเดือนถัดไปอัตโนมัติถ้าตัวเลขวันที่ผ่านมาแล้วในเดือนนี้
+                first_of_next_month = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
+                target_date = first_of_next_month.replace(day=day_val)
+            else:
+                target_date = now.replace(day=day_val)
+                
             clean_date = target_date.strftime("%Y-%m-%d")
         except Exception as e:
             print(f"DEBUG: 📅 จัดฟอร์แมตวันที่แบบสั้นพลาด: {e}")
+            clean_date = now.strftime("%Y-%m-%d")
 
     # โหลดไฟล์ความจำ JSON ปัจจุบันขึ้นมา
     user_data = load_user_data()
@@ -5953,13 +5958,13 @@ async def slash_remind(interaction: discord.Interaction, date: str, time: str, e
     user_data["schedules"].append(new_job)
     save_user_data(user_data) # บันทึกลงไฟล์ JSON คัปพ้ม
 
-    # บอทตอบรับเมื่อเซฟข้อมูลสำเร็จ
+    # 📤 ตอบกลับในห้องแชทเป็นภาษาไทยสไตล์แบ็คลี่สุดหล่อ!
     await interaction.response.send_message(
-        f"🛸 **Task Logged, Mate!**\n"
-        f"📌 **Event:** {event}\n"
-        f"📅 **Date:** {clean_date}\n"
-        f"⏰ **Time:** {time}\n"
-        f"Leave it to me! I'll pop into the voice room and remind you once the day comes. 🫡"
+        f"🛸 **ล็อกเป้าหมายตารางงานเรียบร้อยคัปเมท!**\n"
+        f"📌 **กิจกรรม:** {event}\n"
+        f"📅 **วันที่:** {clean_date}\n"
+        f"⏰ **เวลา:** {time}\n"
+        f"ปล่อยเป็นหน้าที่ของแบ็คลี่ได้เลย! พอถึงวันเดี๋ยวผมบินโดรนแวะเข้าห้องเสียงไปเปิดไมค์แจ้งเตือนให้คัปพ้ม! 🫡"
     )
 
 bot.run(DISCORD_TOKEN)
