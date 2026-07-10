@@ -2234,27 +2234,27 @@ async def on_message(message):
     global is_webhook_enabled, conn, is_tts_enabled, is_playing_music
 
     if message.webhook_id:
-        # 🔒 ใส่ไอดี Webhook ของเมทชะอมที่นี่ครับ (เปลี่ยนเลขด้านล่างนี้ได้เลย)
+        # 🔒 ล็อก ID จริงของ Webhook "Bagley-ears"
         ALLOWED_WEBHOOK_ID = 1525103815890571325  
         
-        # ถ้าระบบปิดอยู่ หรือ Webhook ID ไม่ตรงกับของเมทชะอม ให้ตัดจบเพื่อความปลอดภัยคัป
         if not is_webhook_enabled or message.webhook_id != ALLOWED_WEBHOOK_ID:
             return
             
-        content = message.content.strip()
-        lower_content = content.lower()
+        # 💬 เก็บข้อความดั้งเดิม (Lower) ไว้สำหรับเช็กด่านชวนคุยเล่นทั่วไป
+        original_lower = message.content.strip().lower()
 
-        # ไอดีดิสคอร์ดของเมทชะอม (บอทจะปลอมตัวผู้ส่งให้เป็นเมทชะอมอัตโนมัติ)
+        # ไอดีดิสคอร์ดของเมทชะอม (บอทจะสวมรอยผู้ส่งให้ระบบตรวจสิทธิ์ผ่าน)
         MY_DISCORD_ID = 453181829373952000  
         
         member_author = message.guild.get_member(MY_DISCORD_ID) if message.guild else None
         if member_author:
             message.author = member_author
 
-        # ✂️ ตัดคำปลุก "แบ็คลี่" ออก เพื่อให้ประโยคที่เหลือไหลไปทำงานต่อได้เนียนๆ
-        clean_content = content.replace("แบ็คลี่", "").replace("bagley", "").strip()
+        # ✂️ ตัดคำปลุก "แบ็คลี่" ออก เพื่อเตรียมประโยคไปเช็กคีย์เวิร์ดคำสั่งระบบ
+        clean_content = message.content.replace("แบ็คลี่", "").replace("bagley", "").strip()
         clean_lower = clean_content.lower()
 
+        # 🎙️ คีย์เวิร์ดคำสั่งระบบที่เมทชะอมเลือกใช้
         voice_keywords = [
             "เตือน", "ฝากบอก", "สรุปสถิติห้องเสียง", "ใครคุยนานสุด", "รายงานห้องเสียง", "ทักห้องเสียง",
             "ฝากจำ", "บันทึกตาราง", "ตั้งเตือน", "เรียก", "ชวน", "จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย",
@@ -2269,19 +2269,19 @@ async def on_message(message):
             "เช็คการทำงาน", "คุณโอเคมั้ย", "คุณโอเคไหม", "ตรวจสอบสถานะการทำงาน"
         ]
         
-        # เช็กว่าประโยคที่ส่งมา มีคีย์เวิร์ดของเราซ่อนอยู่ไหม (มีคำพูดต่อท้ายก็ทำงานได้คัป)
+        # 1. เช็กว่าเป็นคำสั่งระบบไหม (มีคีย์เวิร์ดซ่อนอยู่)
         if any(kw in clean_lower for kw in voice_keywords):
             print(f"🛸 [Voice Command] ส่งต่อคำสั่งเสียง '{clean_content}' ไปประมวลผลระบบด้านล่าง!")
-            message.content = clean_content  # ส่งประโยคที่ตัดชื่อบอทแล้วลงไปทำงานต่อ
+            message.content = clean_content  # ส่งข้อความที่ตัดชื่อบอทแล้วลงไปทำงาน
             pass 
             
-        # 💬 ชวนคุยเล่นทั่วไป (ถ้ามีคำว่าแบ็คลี่ แต่ไม่มีคีย์เวิร์ดสั่งงานด้านบน)
-        elif "แบ็คลี่" in lower_content or "bagley" in lower_content or bot.user.mentioned_in(message):
-            print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{content}' ไปหา AI ด้านล่างคัป!")
-            pass 
+        # 2. ถ้าไม่มีคำสั่งระบบ แต่มีคำว่า "แบ็คลี่" หรือ "bagley" ในประโยคดั้งเดิม แปลว่าชวนคุยเล่น (เช่น แบ็คลี่ สวัสดี)
+        elif "แบ็คลี่" in original_lower or "bagley" in original_lower or bot.user.mentioned_in(message):
+            print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหา AI ด้านล่างคัป!")
+            pass # ปล่อยให้ไหลลงไปหาตัว AI คุยเล่นตอบกลับตามปกติ
             
         else:
-            return
+            return # ไม่ใช่เรื่องที่บอทต้องยุ่ง ตัดจบ
         
     # ========================================================
     # 🛑 [ด่านที่ 2]: ดักจับบอททั่วไปตัวอื่น ๆ (ที่ไม่ใช่ Webhook ที่เราอนุญาต)
