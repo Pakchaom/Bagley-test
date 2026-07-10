@@ -70,6 +70,11 @@ is_playing_music = False
 
 is_tts_enabled = False
 
+# 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ on_message เกิด
+# NameError ทุกครั้งที่มีข้อความจาก webhook เข้ามา (เพราะไปเช็ค is_webhook_enabled
+# ที่ยังไม่เคยถูกสร้างขึ้นมาก่อน) ส่งผลให้บอทไม่ตอบสนองต่อ webhook ของไมค์เลย
+is_webhook_enabled = True
+
 # ID Discord ของ Owner
 OWNER_DISCORD_ID = 1133740216822267954  
 
@@ -2246,7 +2251,7 @@ async def on_message(message):
         original_lower = message.content.strip().lower()
 
         # ไอดีดิสคอร์ดของเมทชะอม (บอทจะสวมรอยผู้ส่งให้ระบบตรวจสิทธิ์ผ่าน)
-        MY_DISCORD_ID = 453181829373952000  
+        MY_DISCORD_ID = 1133740216822267954  
         member_author = message.guild.get_member(MY_DISCORD_ID) if message.guild else None
         if member_author:
             message.author = member_author
