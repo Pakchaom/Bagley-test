@@ -2286,7 +2286,7 @@ async def on_message(message):
     # ========================================================
     # 🛑 [ด่านที่ 2]: ดักจับบอททั่วไปตัวอื่น ๆ (ที่ไม่ใช่ Webhook ที่เราอนุญาต)
     # ========================================================
-    elif message.author.bot: 
+    if message.author.bot and not message.webhook_id: 
         return
 
     if message.mention_everyone:
