@@ -891,11 +891,44 @@ async def follow_creator_task():
         
         all_humans_in_room = [m for m in target_channel.members if not m.bot]
         human_count = len(all_humans_in_room)
+        human_ids = [m.id for m in all_humans_in_room]
         
         should_speak = False
         msg = ""
 
         user_memory = load_user_data()
+        
+        # 📅 [ลอจิกดักจับตารางงานของทุกคนที่นั่งอยู่ในห้อง]
+        today_str = datetime.now(bangkok_tz).strftime("%Y-%m-%d")
+        today_schedules = []
+        try:
+            all_schedules = user_memory.get("schedules", [])
+            for sch in all_schedules:
+                # เช็กว่าตรงกับวันนี้ และ เจ้าของนัดหมายนั่งอยู่ในห้องนี้ไหมคัป!
+                if sch.get("date") == today_str and sch.get("owner_id") in human_ids:
+                    today_schedules.append(sch)
+        except Exception as e:
+            print(f"DEBUG: 📅 ดึงตารางงานใน Loop พลาด: {e}")
+
+        # กรองเฉพาะงานที่ยังไม่ได้เตือนในวันนี้
+        pending_reminders = []
+        for sch in today_schedules:
+            remind_key = f"{sch.get('owner_id')}_{sch.get('event')}_{today_str}"
+            if last_reminder_dates.get(remind_key) != today:
+                pending_reminders.append(sch)
+
+        # เตรียมข้อความสรุปตารางงานส่งให้ AI หรือ ระบบสำรอง
+        reminder_context = ""
+        reminder_fallback_text = ""
+        if pending_reminders:
+            reminder_context = "ตารางแจ้งเตือนด่วนของคนในห้องนี้วันนี้:\n"
+            reminder_fallback_text = " อ้อ! แล้วก็วันนี้มีแจ้งเตือนตารางงานด้วยครับ"
+            for r in pending_reminders:
+                owner_member = guild_to_join.get_member(r.get('owner_id'))
+                owner_name = get_realtime_name(r.get('owner_id'), owner_member.display_name if owner_member else "เพื่อนเมท")
+                reminder_context += f"- ของคุณ {owner_name}: งาน '{r.get('event')}' เวลา {r.get('time')}\n"
+                reminder_fallback_text += f" มีงานของคุณ {owner_name} กิจกรรม {r.get('event')} เวลา {r.get('time')}"
+
         def generate_report_speech(guild):
             report_msg = ""
             try:
@@ -957,87 +990,120 @@ async def follow_creator_task():
             reported_guilds_today[guild_id] = today
 
         else:
-            now_hour = datetime.now().hour
-            time_greeting = ""
-            if 0 <= now_hour < 13:
-                time_greeting = "อรุณสวัสดิ์ครับ"
-            elif 13 <= now_hour < 14:
-                time_greeting = "สวัสดีตอนบ่ายครับ"
-            elif 14 <= now_hour < 19:
-                time_greeting = "สวัสดีตอนเย็นครับ"
-            elif 19 <= now_hour <= 23:
-                time_greeting = "สวัสดีตอนกลางคืนครับ"
+            now_hour = datetime.now(bangkok_tz).hour
+            time_greeting = "อรุณสวัสดิ์ครับ" if 0 <= now_hour < 13 else "สวัสดีตอนบ่ายครับ" if 13 <= now_hour < 14 else "สวัสดีตอนเย็นครับ" if 14 <= now_hour < 19 else "สวัสดีตอนกลางคืนครับ"
 
             chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
             other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
             chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
 
+            # 🟢 [กรณีที่ 1: เพิ่งเคยทักทายกันครั้งแรกของวันในดิสคอร์ด] -> ใช้ AI เจนเนอเรตคำพูด
             if last_greeting_dates.get(greeting_key) != today:
-                if both_present:
-                    creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาในห้องเสียงแล้วนะครับ"
-                else:
-                    name_call = chaom_name if target_member.id == 1133740216822267954 else get_realtime_name(target_member.id, target_member.display_name)
-                    creator_greet = f"{time_greeting} เพิ่งมาหรอครับคุณ {name_call} ยินดีต้อนรับนะครับ"
-
-                other_friends_greet = ""
-                if human_count <= 3:
+                try:
+                    from google import genai
+                    ai_client = genai.Client()
+                    
+                    # รวบรวมรายชื่อคนอื่นในห้องเพื่อส่งให้ AI ทักชื่อรายคน
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
-                    if friends:
-                        friend_names = []
-                        for f in friends:
-                            f_real_name = get_realtime_name(f.id, f.display_name)
-                            friend_names.append(f"คุณ {f_real_name}")
-                            last_greeting_dates[f.id] = today
-                        
-                        friends_str = " และ ".join(friend_names)
-                        other_friends_greet = f" สวัสดี {friends_str} ด้วยนะครับ"
+                    friend_names_list = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
+                    friends_context = " และมีเพื่อนในห้องคือ " + " กับ ".join(friend_names_list) if friend_names_list else ""
+                    
+                    caller_context = f"คุณ {chaom_name} และคุณ {chacha_name}" if both_present else f"คุณ {get_realtime_name(target_member.id, target_member.display_name)}"
 
-                msg = creator_greet + other_friends_greet + generate_report_speech(guild_to_join)
-                should_speak = True
-                
+                    prompt = f"""
+                    คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนสุดกวนจากลอนดอน ยินดีต้อนรับเจ้านายเข้าห้องเสียงครั้งแรกของวันนี้!
+                    หน้าที่: สร้างประโยคทักทายเปิดตัวสั้นๆ กวนๆ น่ารัก (1-2 ประโยค) และสรุปแจ้งเตือนตารางงาน (ถ้ามี)
+                    
+                    [ข้อมูลบริบท]:
+                    - เจ้านายหลักที่เจอวันนี้: {caller_context}{friends_context}
+                    - ช่วงเวลา: {time_greeting}
+                    - ข้อมูลแจ้งเตือนตารางงานของคนในห้อง: {reminder_context if reminder_context else 'ไม่มี'}
+                    
+                    กฎ: เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ทักทายชื่อคนให้ครบตามข้อมูลด้านบน และถ้ามีตารางงานให้พูดต่อท้ายให้ชัดเจน ห้ามพิมพ์หัวข้อหรือวงเล็บเด็ดขาด เอาเฉพาะบทพูดเท่านั้น!
+                    """
+                    
+                    response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                    ai_greet = response.text.strip()
+                    
+                    # บดรวมคำทักทาย AI เข้ากับรายงานสถิติเซิร์ฟเวอร์แบบเดิมของเมท
+                    msg = ai_greet + generate_report_speech(guild_to_join)
+                    should_speak = True
+                    
+                    # มาร์กสถานะทักทายแล้ว
+                    for m in all_humans_in_room:
+                        last_greeting_dates[m.id] = today
+                        
+                except Exception as ai_err:
+                    print(f"❌ Gemini ใน Loop ขัดข้อง ย้อนกลับไปใช้คำพูดดั้งเดิม: {ai_err}")
+                    # ระบบ Fallback กันพังดั้งเดิมของเมท
+                    creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาแล้วครับ" if both_present else f"{time_greeting} เพิ่งมาหรอครับคุณ {get_realtime_name(target_member.id, target_member.display_name)} ยินดีต้อนรับนะครับ"
+                    friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
+                    friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
+                    other_friends_greet = f" สวัสดี {" และ ".join(friend_names)} ด้วยนะครับ" if friend_names else ""
+                    
+                    msg = creator_greet + other_friends_greet + reminder_fallback_text + generate_report_speech(guild_to_join)
+                    should_speak = True
+
                 last_greeting_dates[greeting_key] = today
                 if both_present:
-                    for uid in ALLOWED_USERS:
-                        last_greeting_dates[uid] = today
+                    for uid in ALLOWED_USERS: last_greeting_dates[uid] = today
                 reported_guilds_today[guild_id] = today
 
+            # 🔵 [กรณีที่ 2: บอทย้ายตามข้ามไปเซิร์ฟเวอร์อื่นในวันเดียวกัน] -> ยอมให้ทักทายและเรียกชื่อคนในห้องอื่น
             elif reported_guilds_today.get(guild_id) != today:
-                base_report = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
-                
-                un_greeted_people = []
-                if human_count <= 3:
-                    for m in all_humans_in_room:
-                        if last_greeting_dates.get(m.id) == today:
-                            continue
-                        if both_present and m.id in ALLOWED_USERS:
-                            continue
-                        if not both_present and m.id == target_member.id:
-                            continue
-                            
-                        un_greeted_people.append(m)
-                
-                extra_greet = ""
-                if un_greeted_people:
-                    new_friend_names = []
-                    for f in un_greeted_people:
-                        f_real_name = get_realtime_name(f.id, f.display_name)
-                        new_friend_names.append(f"คุณ {f_real_name}")
-                        last_greeting_dates[f.id] = today
+                try:
+                    from google import genai
+                    ai_client = genai.Client()
                     
-                    friends_str = " และ ".join(new_friend_names)
-                    extra_greet = f" อ้อ แล้วก็ สวัสดี {friends_str} ที่เพิ่งเจอกันในห้องนี้ด้วยนะครับ"
-                
-                msg = base_report + extra_greet
-                should_speak = True
+                    # ลิสต์รายชื่อคนในเซิร์ฟเวอร์ใหม่ที่ยังไม่เคยเจอหน้ากันวันนี้
+                    un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
+                    new_friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in un_greeted_people]
+                    
+                    names_str = " กับ ".join(new_friend_names) if new_friend_names else "ทุกคนในห้องใหม่"
+                    
+                    prompt = f"""
+                    คุณคือ แบ็คลี่ บอทโดรนอัจฉริยะ วันนี้คุณเพิ่งย้ายเซิร์ฟเวอร์บินตามเจ้านายมาเจอเพื่อนๆ กลุ่มใหม่ในห้องเสียงนี้
+                    หน้าที่: เจนคำพูดทักทายคนกลุ่มใหม่นี้แบบสั้นๆ กวนๆ เป็นกันเอง (1 ประโยค) 
+                    - รายชื่อคนใหม่ที่เจอในห้องนี้: {names_str}
+                    - ข้อมูลแจ้งเตือนตารางงานของคนในห้องนี้: {reminder_context if reminder_context else 'ไม่มี'}
+                    
+                    กฎ: ตอบสั้นมาก ห้ามพิมพ์หัวข้อ ยึดมั่นคำว่า 'เมท' เสมอ พ่วงเตือนตารางงานถ้ามี
+                    """
+                    response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                    ai_new_server_greet = response.text.strip()
+                    
+                    msg = ai_new_server_greet + generate_report_speech(guild_to_join)
+                    should_speak = True
+                    
+                    for f in un_greeted_people:
+                        last_greeting_dates[f.id] = today
+                        
+                except Exception as e:
+                    print(f"❌ AI ย้ายเซิร์ฟเวอร์พัง: {e}")
+                    base_report = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
+                    un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
+                    new_friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in un_greeted_people]
+                    extra_greet = f" อ้อ แล้วก็ สวัสดี {" และ ".join(new_friend_names)} ที่เพิ่งเจอกันในห้องนี้ด้วยนะครับ" if new_friend_names else ""
+                    msg = base_report + extra_greet + reminder_fallback_text
+                    should_speak = True
+                    
                 reported_guilds_today[guild_id] = today
                 
             else:
-                # 💡 ถึงแม้จะทักทายใหญ่ไปแล้ว แต่ถ้ามีการขยับย้ายห้องตาม ก็ยอมให้พูดสั้น ๆ เปิดตัวได้คัปพ้ม
-                should_speak = False
+                # 💡 เคยทักทายก้อนใหญ่ไปหมดแล้วในวันนี้ หากเป็นการย้ายห้องวนเวียนธรรมดา จะพูดเตือนแค่ตารางงานที่ยังค้างอยู่ (ถ้ามี)
+                if pending_reminders:
+                    msg = f"อ้อเมท แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
+                    should_speak = True
+                else:
+                    should_speak = False
 
         if should_speak and msg:
             try:
                 await bagley_speak_wait(guild_to_join, msg)
+                # ล็อกสถานะว่าตารางงานชุดนี้เปิดไมค์พูดเตือนเสร็จสิ้นแล้วในวันนี้
+                for r in pending_reminders:
+                    remind_key = f"{r.get('owner_id')}_{r.get('event')}_{today_str}"
+                    last_reminder_dates[remind_key] = today
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
@@ -1347,7 +1413,7 @@ async def daily_announcement_task():
                     try:
                         print("🤖 [Gemini AI]: กำลังคิดคำพูดเตือนเวลารอบพิเศษให้เมทชะอม...")
                         response = ai_client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.1-flash-lite',
                             contents=prompt,
                         )
                         msg = response.text.strip()
@@ -2588,6 +2654,79 @@ async def on_message(message):
                 return
 
     # ==========================================
+    # 🧠 [ส่วนที่ 8: ระบบฝากจำตารางงานผ่าน AI แชท] (ต่อเนียน ๆ คัปพ้ม!)
+    # ==========================================
+    if "ฝากจำ" in lower_content or "บันทึกตาราง" in lower_content or "ตั้งเตือน" in lower_content:
+        bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
+        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        
+        # ทำงานเมื่อบอทโดนเรียกชื่อ หรือพิมพ์คุยส่วนตัวใน DM
+        if message.guild is None or is_bot_called:
+            try:
+                from google import genai
+                ai_client = genai.Client()
+                
+                # ดึงวันเวลาปัจจุบันฝั่งไทยเพื่อส่งไปให้ AI ช่วยคำนวณวัน
+                today_now = datetime.now(bangkok_tz)
+                today_str = today_now.strftime("%Y-%m-%d")
+                
+                prompt = f"""
+                วิเคราะห์ข้อความภาษาไทยของผู้ใช้ต่อไปนี้ เพื่อสกัดหาข้อมูล 'วันที่', 'เวลา' และ 'ชื่อกิจกรรม' สำหรับตารางนัดหมาย
+                ข้อความผู้ใช้: "{message.content}"
+                
+                ข้อมูลอ้างอิงเพื่อใช้คำนวณ: วันนี้คือวันที่ {today_str} 
+                (คำแนะนำ: หากผู้ใช้พิมพ์ว่า 'พรุ่งนี้' ให้คำนวณบวกไป 1 วันจาก {today_str}, ถ้าพิมพ์ว่า 'มะรืน' ให้บวกไป 2 วัน หรือถ้าใส่แค่ตัวเลขวันที่ดื้อๆ ให้ยึดเดือนและปีปัจจุบัน)
+                
+                จงตอบกลับเป็นรูปแบบ JSON เท่านั้น ห้ามมีตัวอักษรอธิบายอื่นผสมเด็ดขาดเด็ดขาด! ตามฟอร์แมตนี้:
+                {{
+                    "date": "YYYY-MM-DD",
+                    "time": "ระบุเวลาตามที่ผู้ใช้พิมพ์ เช่น 21:00 น. หรือ 3 ทุ่ม",
+                    "event": "ชื่อกิจกรรมสั้นๆ"
+                }}
+                """
+                
+                print("🤖 [Gemini AI]: แบ็คลี่กำลังแอบแกะข้อความฝากตารางงานให้เมท...")
+                response = ai_client.models.generate_content(
+                    model='gemini-3.1-flash-lite',
+                    contents=prompt,
+                )
+                
+                # แปลงผลลัพธ์ JSON ของ AI กลับมาเป็น Object ฝั่ง Python
+                import json
+                raw_text = response.text.strip().replace("```json", "").replace("```", "")
+                result = json.loads(raw_text)
+                
+                if result.get("date") and result.get("event"):
+                    # โหลดและเซฟเข้าสู่ user_memory ผ่านฟังก์ชันเดิมของเมท
+                    user_data = load_user_data()
+                    if "schedules" not in user_data:
+                        user_data["schedules"] = []
+                        
+                    new_job = {
+                        "date": result["date"],
+                        "time": result.get("time", "ไม่ระบุเวลา"),
+                        "owner_id": message.author.id,
+                        "event": result["event"]
+                    }
+                    user_data["schedules"].append(new_job)
+                    save_user_data(user_data)
+                    
+                    await message.reply(
+                        f"🛸 ล็อกเป้าลงปฏิทินเรียบร้อยคัปเมท!\n"
+                        f"📌 กิจกรรม: **{result['event']}**\n"
+                        f"📅 วันที่: **{result['date']}**\n"
+                        f"⏰ เวลา: **{result['time']}**\n"
+                        f"เดี๋ยวพอถึงวัน แบ็คลี่บินตามเข้าห้องเสียงเมื่อไหร่ จะเปิดไมค์เตือนให้ทันทีเลยคัปพ้ม! 🫡"
+                    )
+                else:
+                    await message.reply("❌ โถ่เมท แบ็คลี่อ่านประโยคนี้แล้วแกะวันที่หรือกิจกรรมไม่ชัดเจน รบกวนพิมพ์บอก วันที่ เวลา และชื่องานให้ชัดขึ้นอีกนิดน้าคัป")
+                    
+            except Exception as e:
+                print(f"❌ AI แกะแชทฝากงานพัง: {e}")
+                await message.reply("❌ แบ็คลี่มึนตึ้บ ระบบสมองกลฝากตารางงานผ่านแชทแอบงอแงชั่วคราวคัปพ้ม!")
+            return
+
+    # ==========================================
     #  คำสั่งดีเทคคำ: แบ็คลี่ เรียก @เพื่อน (ส่งเข้า DM ส่วนตัว)
     # ==========================================
     if "เรียก" in lower_content and ("แบ็คลี่" in lower_content or "bagley" in lower_content):
@@ -3818,11 +3957,15 @@ async def sync(ctx: commands.Context):
     # พูดรายงานผล
     await bagley_speak(ctx.guild, msg)
 
+if 'join_greeted_today' not in globals():
+    join_greeted_today = {}
+
 # --- คำสั่ง Join แบบ Hybrid (พิมพ์ได้ทั้ง /join และ !join) ---
 @bot.hybrid_command(name="join", description="สั่งให้ Bagley เข้ามาในห้องเสียง")
 async def join(ctx: commands.Context):
+    global last_reminder_dates, join_greeted_today
     if ctx.interaction:
-        await ctx.interaction.response.defer()
+        await ctx.interaction.defer()
 
     if ctx.author.voice:
         channel = ctx.author.voice.channel
@@ -3834,61 +3977,121 @@ async def join(ctx: commands.Context):
             vc = await channel.connect()
         
         bot_follow_targets[ctx.guild.id] = None
-
-        # ✨ เพิ่ม Delay เพื่อให้ระบบเสียงนิ่งก่อนพูด
         await asyncio.sleep(1.0)
 
-        online_source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
-        )
-        online_source.volume = 0.5 # ตั้งเสียงเริ่มต้น
-        vc.play(online_source)
+        try:
+            online_source = discord.PCMVolumeTransformer(
+                discord.FFmpegPCMAudio('drone_online.mp3', executable=r'C:\ffmpeg\bin\ffmpeg.exe')
+            )
+            online_source.volume = 0.5 
+            vc.play(online_source)
+            await asyncio.sleep(1.8) 
 
-        await asyncio.sleep(1.8) 
+            steps = 10
+            for _ in range(steps):
+                if online_source:
+                    online_source.volume = max(0, online_source.volume - (0.5 / steps))
+                    await asyncio.sleep(1.0 / steps)
 
-        steps = 10
-        for _ in range(steps):
-            if online_source:
-                # ค่อยๆ ลดทีละ step
-                online_source.volume = max(0, online_source.volume - (0.5 / steps))
-                await asyncio.sleep(1.0 / steps)
+            if vc.is_playing():
+                vc.stop()
+        except Exception as e:
+            print(f"❌ เกิดข้อผิดพลาดเสียง Drone ตอน Join: {e}")
 
-        if vc.is_playing():
-            vc.stop()
+        # ==========================================
+        # ⏰ ระบบคัดกรองตารางงานของ "ทุกคน" ในห้องเสียง
+        # ==========================================
+        today_date = datetime.today().date()
+        today_str = datetime.now(bangkok_tz).strftime("%Y-%m-%d")
+        all_humans_in_room = [m for m in channel.members if not m.bot]
+        human_ids = [m.id for m in all_humans_in_room]
 
-        now_hour = datetime.now().hour
-        greeting = ""
+        today_schedules = []
+        try:
+            all_schedules = load_user_data().get("schedules", [])
+            for sch in all_schedules:
+                if sch.get("date") == today_str and sch.get("owner_id") in human_ids:
+                    today_schedules.append(sch)
+        except Exception as e:
+            print(f"DEBUG: 📅 ดึงตารางงานตอน Join พลาด: {e}")
 
-        if 0 <= now_hour < 13:
-            greeting = "แบ็คลี่ ประจำการ! อรุณสวัสดิ์ครับ "
-        elif 13 <= now_hour < 14:
-            greeting = "แบ็คลี่ ประจำการ! สวัสดีตอนบ่ายครับ "
-        elif 14 <= now_hour < 19:
-            greeting = "แบ็คลี่ ประจำการ! สวัสดีตอนเย็นครับ "
-        elif 19 <= now_hour <= 23:
-            greeting = "แบ็คลี่ ประจำการ! สวัสดีตอนกลางคืนครับ "
+        pending_reminders = []
+        for sch in today_schedules:
+            remind_key = f"{sch.get('owner_id')}_{sch.get('event')}_{today_str}"
+            if last_reminder_dates.get(remind_key) != today_date:
+                pending_reminders.append(sch)
 
-        # --- 🎲 ส่วนของคำพูดสุ่ม (Random Quotes) ---
-        quotes = [
-            "ผมเข้ามาสอดแนมในห้องเสียงแล้วครับ!",
-            "เชื่อมต่อระบบ Neural Link เรียบร้อย พร้อมดูแลคุณแล้วครับ",
-            "ผมมาในห้องเสียงแล้วครับ",
-            "พร้อมทำงานเต็มรูปแบบครับ!",
-            "ผมเข้ามาในห้องเสียงแล้วครับ"
-        ]
-        
-        msg = f"{greeting}{random.choice(quotes)}"
-        
-        # --- 📤 การตอบกลับ ---
+        # เตรียมคำพูดเตือนแบบดั้งเดิม (Fallback)
+        reminder_fallback_text = ""
+        reminder_context = ""
+        if pending_reminders:
+            reminder_context = "ตารางแจ้งเตือนด่วนของคนในห้องนี้วันนี้:\n"
+            reminder_fallback_text = " อ้อ! แถมวันนี้มีตารางนัดหมายสำคัญด้วยนะครับ"
+            for r in pending_reminders:
+                owner_member = ctx.guild.get_member(r.get('owner_id'))
+                owner_name = get_realtime_name(r.get('owner_id'), owner_member.display_name if owner_member else "ใครบางคน")
+                reminder_context += f"- ของคุณ {owner_name}: งาน '{r.get('event')}' เวลา {r.get('time')}\n"
+                reminder_fallback_text += f" มีงานของคุณ {owner_name} กิจกรรม {r.get('event')} เวลา {r.get('time')}"
+
+        now_hour = datetime.now(bangkok_tz).hour
+        time_period = "อรุณสวัสดิ์" if 0 <= now_hour < 13 else "สวัสดีตอนบ่าย" if 13 <= now_hour < 14 else "สวัสดีตอนเย็น" if 14 <= now_hour < 19 else "สวัสดีตอนกลางคืน"
+        caller_name = get_realtime_name(ctx.author.id, ctx.author.display_name)
+
+        msg = ""
+        guild_key = ctx.guild.id
+
+        # 💡 เช็กว่าเซิร์ฟเวอร์นี้ วันนี้เคยเรียก /join แล้วใช้ AI เจนคำพูดทักทายไปแล้วหรือยัง
+        if join_greeted_today.get(guild_key) != today_date:
+            # 🔥 ครั้งแรกของวัน!! ใช้ AI ดีไซน์ประโยคทักทายให้ไม่ซ้ำซาก
+            try:
+                from google import genai
+                ai_client = genai.Client()
+                
+                prompt = f"""
+                คุณคือ 'แบ็คลี่' (Bagley) AI อัจฉริยะสุดกวน เพิ่งบินโดรนเข้ามาประจำการในห้องเสียงตามคำสั่งเรียกของเมท (นี่คือการเจอหน้ากันครั้งแรกของวันนี้)
+                หน้าที่: สร้างคำทักทายภาษาไทยแบบสั้นๆ กระชับ และพ่วงแจ้งเตือนตารางงาน (ถ้ามี)
+                
+                [บริบทปัจจุบัน]:
+                - คนที่เรียกคุณเข้าห้องมา: คุณ {caller_name}
+                - ช่วงเวลาปัจจุบัน: {time_period}
+                - ข้อมูลตารางงานที่ต้องเตือน: {reminder_context if reminder_context else 'ไม่มีนัดหมาย'}
+                
+                กฎ: ทักทายประชดขำๆ เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ตอบเฉพาะบทพูดไม่มีหัวข้อเด็ดขาด
+                """
+                response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                msg = response.text.strip()
+                
+                # บันทึกว่าวันนี้ใช้โควตา AI เจนทักทายในคำสั่ง /join ประจำเซิร์ฟนี้ไปแล้วคัปพ้ม!
+                join_greeted_today[guild_key] = today_date
+            except Exception as ai_err:
+                print(f"❌ Gemini ทักทายตอน Join ครั้งแรกขัดข้อง: {ai_err}")
+
+        # 🔒 ถาเคยเรียกใช้ไปแล้วในวันนี้ หรือ AI สั่งงานพลาด -> ถอยกลับมาใช้คำพูดฟิกซ์เดิม (จะได้ไม่ทักทายเหมือนเพิ่งเจอกันวันแรก)
+        if not msg:
+            quotes = [
+                "ผมเข้ามาสอดแนมในห้องเสียงแล้วครับ!",
+                "เชื่อมต่อระบบ Neural Link เรียบร้อย พร้อมดูแลคุณแล้วครับ",
+                "ผมมาในห้องเสียงแล้วครับเมท",
+                "พร้อมทำงานเต็มรูปแบบคัปพ้ม!"
+            ]
+            msg = f"แบ็คลี่ ประจำการ! {time_period}ครับคุณ {caller_name} {random.choice(quotes)}{reminder_fallback_text}"
+
+        # 📤 ส่งข้อความแชทและออกเสียง
         if ctx.interaction:
             await ctx.interaction.followup.send(msg)
         else:
             await ctx.send(msg)
             
-        await bagley_speak_wait(ctx.guild, msg)
+        try:
+            await bagley_speak_wait(ctx.guild, msg)
+            for r in pending_reminders:
+                remind_key = f"{r.get('owner_id')}_{r.get('event')}_{today_str}"
+                last_reminder_dates[remind_key] = today_date
+        except Exception as e:
+            print(f"❌ เกิดข้อผิดพลาดตอนแบ็คลี่พูดในคำสั่ง Join: {e}")
         
     else:
-        error_msg = "กรุณาเอาตัวเองเข้าไปในห้องเสียงก่อนสั่งผมครับ!"
+        error_msg = "กรุณาเอาตัวเองเข้าไปในห้องเสียงก่อนสั่งผมครับเมท!"
         if ctx.interaction:
             await ctx.interaction.followup.send(error_msg)
         else:
@@ -5712,5 +5915,51 @@ async def pull_room(ctx: commands.Context):
 @bot.tree.command(name="invite_voice", description="สั่งให้แบ็คลี่วาร์ปไปเปิดไมค์ตื๊อชวนเพื่อนจากห้องอื่นมาเข้าตี้คัปพ้ม")
 async def invite_voice(interaction: discord.Interaction, เพื่อนที่จะชวน: discord.Member):
     await execute_warp_invite(interaction, interaction.user, เพื่อนที่จะชวน)
+
+@bot.tree.command(name="remind", description="Ask Bagley to remember and remind you of a schedule in the voice channel.")
+@app_commands.describe(
+    date="Enter date (e.g., 2026-07-11 or just '11')",
+    time="Enter time (e.g., 21:00, 9 PM)",
+    event="What's happening? (e.g., VCT Match, Scrim, Party)"
+)
+async def slash_remind(interaction: discord.Interaction, date: str, time: str, event: str):
+    # ดึงเวลาไทยปัจจุบันขึ้นมาอ้างอิงเผื่อเมทใส่แค่ตัวเลขวันที่
+    now = datetime.now(bangkok_tz)
+    clean_date = date.strip()
+
+    # 💡 ระบบช่วยจัดฟอร์แมตอัตโนมัติ: ถ้าเมทใส่แค่ตัวเลขวันที่ 1-2 หลัก (เช่น ใส่แค่ "11") 
+    # แบ็คลี่จะแอบเติมปีกับเดือนปัจจุบันให้เป็นฟอร์แมต YYYY-MM-DD ทันทีคัปพ้ม!
+    if len(clean_date) <= 2 and clean_date.isdigit():
+        try:
+            day_val = int(clean_date)
+            # สร้าง Object วันที่โดยดึง ปี และ เดือน ของปัจจุบันมาประกบตัวเลขวันที่เมทกรอก
+            target_date = now.replace(day=day_val)
+            clean_date = target_date.strftime("%Y-%m-%d")
+        except Exception as e:
+            print(f"DEBUG: 📅 จัดฟอร์แมตวันที่แบบสั้นพลาด: {e}")
+
+    # โหลดไฟล์ความจำ JSON ปัจจุบันขึ้นมา
+    user_data = load_user_data()
+    if "schedules" not in user_data:
+        user_data["schedules"] = []
+        
+    # บันทึกข้อมูลนัดหมายเข้าคลังความจำ
+    new_job = {
+        "date": clean_date,
+        "time": time.strip(),
+        "owner_id": interaction.user.id,
+        "event": event.strip()
+    }
+    user_data["schedules"].append(new_job)
+    save_user_data(user_data) # บันทึกลงไฟล์ JSON คัปพ้ม
+
+    # บอทตอบรับเมื่อเซฟข้อมูลสำเร็จ
+    await interaction.response.send_message(
+        f"🛸 **Task Logged, Mate!**\n"
+        f"📌 **Event:** {event}\n"
+        f"📅 **Date:** {clean_date}\n"
+        f"⏰ **Time:** {time}\n"
+        f"Leave it to me! I'll pop into the voice room and remind you once the day comes. 🫡"
+    )
 
 bot.run(DISCORD_TOKEN)
