@@ -2233,6 +2233,8 @@ async def on_ready():
 async def on_message(message):
     global is_webhook_enabled, conn, is_tts_enabled, is_playing_music
 
+    is_from_my_webhook = False
+
     if message.webhook_id:
         # 🔒 ล็อก ID จริงของ Webhook "Bagley-ears"
         ALLOWED_WEBHOOK_ID = 1525103815890571325  
@@ -2240,21 +2242,19 @@ async def on_message(message):
         if not is_webhook_enabled or message.webhook_id != ALLOWED_WEBHOOK_ID:
             return
             
-        # 💬 เก็บข้อความดั้งเดิม (Lower) ไว้สำหรับเช็กด่านชวนคุยเล่นทั่วไป
+        is_from_my_webhook = True  # ยืนยันว่าเป็นเว็บบุคที่ถูกต้อง
         original_lower = message.content.strip().lower()
 
         # ไอดีดิสคอร์ดของเมทชะอม (บอทจะสวมรอยผู้ส่งให้ระบบตรวจสิทธิ์ผ่าน)
         MY_DISCORD_ID = 453181829373952000  
-        
         member_author = message.guild.get_member(MY_DISCORD_ID) if message.guild else None
         if member_author:
             message.author = member_author
 
-        # ✂️ ตัดคำปลุก "แบ็คลี่" ออก เพื่อเตรียมประโยคไปเช็กคีย์เวิร์ดคำสั่งระบบ
+        # ✂️ เตรียมประโยคสำหรับเช็กคีย์เวิร์ดคำสั่งระบบ
         clean_content = message.content.replace("แบ็คลี่", "").replace("bagley", "").strip()
         clean_lower = clean_content.lower()
 
-        # 🎙️ คีย์เวิร์ดคำสั่งระบบที่เมทชะอมเลือกใช้
         voice_keywords = [
             "เตือน", "ฝากบอก", "สรุปสถิติห้องเสียง", "ใครคุยนานสุด", "รายงานห้องเสียง", "ทักห้องเสียง",
             "ฝากจำ", "บันทึกตาราง", "ตั้งเตือน", "เรียก", "ชวน", "จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย",
@@ -2269,24 +2269,21 @@ async def on_message(message):
             "เช็คการทำงาน", "คุณโอเคมั้ย", "คุณโอเคไหม", "ตรวจสอบสถานะการทำงาน"
         ]
         
-        # 1. เช็กว่าเป็นคำสั่งระบบไหม (มีคีย์เวิร์ดซ่อนอยู่)
+        # 1.1 เช็กว่าเป็นคำสั่งระบบไหม
         if any(kw in clean_lower for kw in voice_keywords):
             print(f"🛸 [Voice Command] ส่งต่อคำสั่งเสียง '{clean_content}' ไปประมวลผลระบบด้านล่าง!")
-            message.content = clean_content  # ส่งข้อความที่ตัดชื่อบอทแล้วลงไปทำงาน
-            pass 
+            message.content = clean_content  
             
-        # 2. ถ้าไม่มีคำสั่งระบบ แต่มีคำว่า "แบ็คลี่" หรือ "bagley" ในประโยคดั้งเดิม แปลว่าชวนคุยเล่น (เช่น แบ็คลี่ สวัสดี)
-        elif "แบ็คลี่" in original_lower or "bagley" in original_lower or bot.user.mentioned_in(message):
-            print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหา AI ด้านล่างคัป!")
-            pass # ปล่อยให้ไหลลงไปหาตัว AI คุยเล่นตอบกลับตามปกติ
-            
+        # 1.2 [ปรับปรุงใหม่]: ถ้าไม่ใช่คำสั่งระบบ "รับจบทุกเรื่อง" ส่งให้ AI คุยเล่นตอบทันที!
         else:
-            return # ไม่ใช่เรื่องที่บอทต้องยุ่ง ตัดจบ
-        
+            print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหา AI ด้านล่างคัป!")
+            pass  # ไหลลงไปประมวลผลคุยเล่นด้านล่างต่อทันที
+
     # ========================================================
-    # 🛑 [ด่านที่ 2]: ดักจับบอททั่วไปตัวอื่น ๆ (ที่ไม่ใช่ Webhook ที่เราอนุญาต)
+    # 🛑 [ด่านที่ 2]: ดักจับบอทตัวอื่น (ยกเว้นเว็บบุคของเรา)
     # ========================================================
-    if message.author.bot and not message.webhook_id: 
+    # ถ้าเป็นบอทตัวอื่นที่ไม่ใช่เว็บบุคของเมทชะอม ให้ดีดออกทันที
+    if message.author.bot and not is_from_my_webhook: 
         return
 
     if message.mention_everyone:
