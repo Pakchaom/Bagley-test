@@ -2241,7 +2241,7 @@ async def on_message(message):
     is_from_my_webhook = False
 
     if message.webhook_id:
-        # 🔒 ล็อก ID จริงของ Webhook "Bagley-ears"
+        # 🔒 ล็อก ID จริงของ Webhook "Bagley-ears" สำหรับใช้ควบคุมด้วยเสียง
         ALLOWED_WEBHOOK_ID = 1525103815890571325  
         
         if not is_webhook_enabled or message.webhook_id != ALLOWED_WEBHOOK_ID:
@@ -2965,76 +2965,136 @@ async def on_message(message):
                 if not can_act:
                     return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
 
+                target = None
+
+                # 🔍 Step A: ถ้ามีการ @แท็ก ให้ใช้ตัวแท็กก่อน
                 if message.mentions:
                     target = next((m for m in message.mentions if m.id != bot.user.id), None)
-                    if target and target.voice and target.voice.channel:
+                    
+                # 🔍 Step B: ถ้าไม่ได้แท็ก ให้ค้นหาจากคลังความจำก่อน -> แล้วค่อยหาจากชื่อดิสคอร์ดปัจจุบัน
+                else:
+                    # ลบคีย์เวิร์ดออกเพื่อให้เหลือเฉพาะข้อความที่เป็นชื่อคน
+                    clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "").strip()
+                    for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย", "หน่อย", "ที"]:
+                        clean_name = clean_name.replace(k, "")
+                    clean_name = clean_name.strip()
+
+                    if clean_name:
+                        data_memory = load_user_data()
+                        for m in message.guild.members:
+                            special_info = data_memory.get(str(m.id))
+                            # แกะหาชื่อเรียกตามลอจิกคลังความจำที่มีอยู่แล้ว
+                            if special_info and isinstance(special_info, dict):
+                                calling_name = special_info.get("nickname", m.display_name)
+                            elif special_info:
+                                calling_name = special_info
+                            else:
+                                calling_name = m.display_name
+                            
+                            if calling_name == "ยังไม่ระบุ": 
+                                calling_name = m.display_name
+
+                            # ตรวจสอบแมตช์: เทียบกับชื่อจากคลังก่อน ถ้าไม่ตรงค่อยเทียบกับ display_name และ name ในดิสคอร์ด
+                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
+                                target = m
+                                break
+
+                # 🚀 ทำการเตะเป้าหมาย
+                if target:
+                    if target.voice and target.voice.channel:
                         try:
                             await target.move_to(None)
                             await message.channel.send(f"⚡ เรียบร้อยครับเมท! ผมจัดการเขี่ย {target.mention} ออกไปแล้ว")
                             if message.guild.voice_client:
-                                await bagley_speak(message.guild, f"จัดการเชิญคุณ {target.display_name} ออกไปเรียบร้อย")
+                                if not message.guild.voice_client.is_playing():
+                                    await bagley_speak(message.guild, f"จัดการเชิญคุณ {target.display_name} ออกไปเรียบร้อย")
                         except Exception as e:
                             await message.channel.send(f"❌ ผมจัดการไม่ได้ครับ: {e}")
                     else:
-                        await message.channel.send("เป้าหมายไม่ได้อยู่ในห้องเสียงครับเมท")
+                        await message.channel.send(f"เป้าหมาย ({target.display_name}) ไม่ได้อยู่ในห้องเสียงครับเมท")
                 else:
-                    await message.channel.send("ช่วยแท็กชื่อคนที่จะให้ผมจัดการด้วยครับ")
+                    await message.channel.send("ช่วยบอกชื่อหรือแท็กคนที่จะให้ผมจัดการให้ชัดเจนหน่อยครับเมท")
                 return
 
-            # 2. คำสั่งย้ายห้องเสียง
+            # 3. คำสั่งตั้งค่าห้องแจ้งเตือน
             elif any(k in lower_content for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
                     return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
                     
+                target_member = None
+
+                # 🔍 Step A: ถ้ามีการ @แท็ก ให้ใช้ตัวแท็กก่อน
                 if message.mentions:
                     target_member = next((m for m in message.mentions if m.id != bot.user.id), None)
-                    room_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                    for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง", "ไปห้อง", "ที", "หน่อย"]:
-                        room_name = room_name.replace(k, "")
+                    
+                # แกะข้อความเพื่อแยก "ชื่อคน" และ "ชื่อห้อง"
+                raw_text = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
+                for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง", "ไปห้อง", "ที", "หน่อย"]:
+                    raw_text = raw_text.replace(k, "")
+                    
+                # ลบ Tag ออกจากข้อความดิบ (ถ้ามี)
+                if message.mentions:
                     for mention in message.mentions:
-                        room_name = room_name.replace(f"<@{mention.id}>", "").replace(f"<@!{mention.id}>", "").strip()
+                        raw_text = raw_text.replace(f"<@{mention.id}>", "").replace(f"<@!{mention.id}>", "")
+                        
+                raw_text = raw_text.strip() # เหลือเศษข้อความ เช่น "ชื่อคน ชื่อห้อง" หรือ "ชื่อห้อง" (กรณีแท็กมา)
 
+                # 🔍 Step B: ถ้าไม่ได้แท็ก ให้ค้นหาชื่อคนโดยเทียบจากคลังความจำก่อน -> ค่อยเทียบชื่อปัจจุบันในดิส
+                if not target_member and raw_text:
+                    data_memory = load_user_data()
+                    
+                    for member in message.guild.members:
+                        special_info = data_memory.get(str(member.id))
+                        # ดึงชื่อเล่นจากคลังความจำ
+                        if special_info and isinstance(special_info, dict):
+                            calling_name = special_info.get("nickname", member.display_name)
+                        elif special_info:
+                            calling_name = special_info
+                        else:
+                            calling_name = member.display_name
+                        
+                        if calling_name == "ยังไม่ระบุ": 
+                            calling_name = member.display_name
+
+                        c_name_lower = calling_name.lower().strip()
+                        m_name = member.name.lower()
+                        m_disp = member.display_name.lower() if member.display_name else ""
+                        
+                        # 1. เช็กชื่อจากคลังก่อน เผื่อตั้งชื่อดิสแปลกๆ
+                        if c_name_lower and raw_text.startswith(c_name_lower):
+                            target_member = member
+                            raw_text = raw_text.replace(calling_name, "", 1).strip()
+                            break
+                        # 2. ถ้าชื่อจากคลังไม่ตรง เช็กชื่อเล่น/ชื่อจริงในดิสคอร์ดปัจจุบัน
+                        elif (m_disp and raw_text.startswith(m_disp)) or raw_text.startswith(m_name):
+                            target_member = member
+                            actual_name = m_disp if raw_text.startswith(m_disp) else m_name
+                            raw_text = raw_text.replace(actual_name, "", 1).strip()
+                            break
+
+                # 🔍 Step C: ค้นหาห้องเสียงจากข้อความส่วนที่เหลือ
+                room_name = raw_text.strip()
+                
+                if target_member:
                     if room_name:
-                        voice_channel = discord.utils.get(message.guild.voice_channels, name=room_name)
+                        # ค้นหาห้องเสียงที่ตรงกัน
+                        voice_channel = discord.utils.find(lambda c: room_name in c.name.lower(), message.guild.voice_channels)
                         if voice_channel:
-                            ctx = await bot.get_context(message)
-                            await ctx.invoke(bot.get_command('move'), member=target_member, channel=voice_channel)
+                            if target_member.voice and target_member.voice.channel:
+                                ctx = await bot.get_context(message)
+                                await ctx.invoke(bot.get_command('move'), member=target_member, channel=voice_channel)
+                            else:
+                                await message.reply(f"คุณ {target_member.display_name} ไม่ได้อยู่ในห้องเสียงครับเมท")
                             return 
                         else:
-                            await message.reply(f"❌ ผมหาห้อง '{room_name}' ไม่เจอครับเมท ลองเช็คตัวสะกดดูนะ")
+                            await message.reply(f"❌ ผมหาห้องที่มีคำว่า '{room_name}' ไม่เจอครับเมท ลองเช็คตัวสะกดดูนะ")
                             return
                     else:
-                        await message.reply("จะให้ย้ายไปห้องไหน รบกวนระบุชื่อห้องด้วยครับ")
+                        await message.reply("จะให้ย้ายไปห้องไหน รบกวนระบุชื่อห้องต่อท้ายชื่อเพื่อนด้วยครับ")
                         return
                 else:
-                    await message.reply("จะให้จัดการใคร รบกวน @แท็กชื่อ ให้ผมหน่อยครับเมท")
-                    return
-
-            # 3. คำสั่งตั้งค่าห้องแจ้งเตือน
-            elif any(k in lower_content for k in ["เซ็ตห้องแจ้งเตือน", "ตั้งค่าห้องแจ้งเตือน", "เปลี่ยนห้องแจ้งเตือน"]):
-                can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
-                if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
-
-                room_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                for k in ["เซ็ตห้องแจ้งเตือน", "ตั้งค่าห้องแจ้งเตือน", "เปลี่ยนห้องแจ้งเตือน", "เป็นห้อง", "ที่ห้อง", "ที", "หน่อย"]:
-                    room_name = room_name.replace(k, "")
-                room_name = room_name.strip()
-
-                if room_name:
-                    target_channel = discord.utils.get(message.guild.text_channels, name=room_name)
-                    if target_channel:
-                        settings = load_settings()
-                        settings[str(message.guild.id)] = target_channel.id
-                        save_settings(settings)
-                        await message.reply(f"✅ เรียบร้อยครับเมท! ผมจะส่งการแจ้งเตือนไปที่ห้อง **#{target_channel.name}** ครับ")
-                        return
-                    else:
-                        await message.reply(f"❌ ผมหาห้อง '{room_name}' ไม่เจอครับเมท")
-                        return
-                else:
-                    await message.reply("❓ เมทต้องบอกชื่อห้องด้วยนะครับ เช่น 'แบ็คลี่ เซ็ตห้องแจ้งเตือน ห้องแชททั่วไป'")
+                    await message.reply("จะให้ผมย้ายใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ให้ชัดเจนด้วยครับเมท")
                     return
 
             # ==========================================
@@ -3070,12 +3130,41 @@ async def on_message(message):
                 if not can_act:
                     return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
 
+                target = None
                 if message.mentions:
                     target = message.mentions[0]
+                else:
+                    clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
+                    for k in ["ปิดเสียง", "ปิดไมค์", "หน่อย", "ที"]:
+                        clean_name = clean_name.replace(k, "")
+                    clean_name = clean_name.strip()
+                    
+                    if clean_name:
+                        # 🔍 ลอจิกดึงชื่อเล่นจากคลังความจำมาสแกนเทียบ
+                        data_memory = load_user_data()
+                        for m in message.guild.members:
+                            special_info = data_memory.get(str(m.id))
+                            # แกะหาชื่อเรียกตามลอจิกของคลัง
+                            if special_info and isinstance(special_info, dict):
+                                calling_name = special_info.get("nickname", m.display_name)
+                            elif special_info:
+                                calling_name = special_info
+                            else:
+                                calling_name = m.display_name
+                            
+                            if calling_name == "ยังไม่ระบุ": 
+                                calling_name = m.display_name
+                            
+                            # ถ้าชื่อจากคลังหรือชื่อปัจจุบัน ตรงกับคำที่สั่งมา
+                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
+                                target = m
+                                break
+
+                if target:
                     ctx = await bot.get_context(message)
                     await ctx.invoke(bot.get_command('mute_sleep'), member=target)
                 else:
-                    await message.channel.send("จะให้ผมปิดไมค์ใคร รบกวน @แท็กชื่อ ให้ด้วยครับ")
+                    await message.channel.send("จะให้ผมปิดไมค์ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ให้ด้วยครับ")
                 return
 
             elif any(k in lower_content for k in ["เปิดเสียงให้ที", "เปิดเสียงให้หน่อย", "เปิดไมค์ให้หน่อย", "เปิดไมค์ให้ที"]):
@@ -3088,12 +3177,38 @@ async def on_message(message):
                 if not can_act:
                     return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
 
+                target = None
                 if message.mentions:
                     target = message.mentions[0]
+                else:
+                    clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
+                    for k in ["เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้", "หน่อย", "ที"]:
+                        clean_name = clean_name.replace(k, "")
+                    clean_name = clean_name.strip()
+                    
+                    if clean_name:
+                        data_memory = load_user_data()
+                        for m in message.guild.members:
+                            special_info = data_memory.get(str(m.id))
+                            if special_info and isinstance(special_info, dict):
+                                calling_name = special_info.get("nickname", m.display_name)
+                            elif special_info:
+                                calling_name = special_info
+                            else:
+                                calling_name = m.display_name
+                            
+                            if calling_name == "ยังไม่ระบุ": 
+                                calling_name = m.display_name
+                            
+                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
+                                target = m
+                                break
+
+                if target:
                     ctx = await bot.get_context(message)
                     await ctx.invoke(bot.get_command('unmute_member'), member=target)
                 else:
-                    await message.channel.send("จะให้ผมเปิดไมค์ให้ใคร รบกวน @แท็กชื่อ เพื่อนด้วยครับเมท")
+                    await message.channel.send("จะให้ผมเปิดไมค์ให้ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ เพื่อนด้วยครับเมท")
                 return
 
             elif any(k in lower_content for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ"]):
@@ -3101,12 +3216,38 @@ async def on_message(message):
                 if not can_act:
                     return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
 
+                target = None
                 if message.mentions:
                     target = message.mentions[0]
+                else:
+                    clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
+                    for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ", "หน่อย", "ที"]:
+                        clean_name = clean_name.replace(k, "")
+                    clean_name = clean_name.strip()
+                    
+                    if clean_name:
+                        data_memory = load_user_data()
+                        for m in message.guild.members:
+                            special_info = data_memory.get(str(m.id))
+                            if special_info and isinstance(special_info, dict):
+                                calling_name = special_info.get("nickname", m.display_name)
+                            elif special_info:
+                                calling_name = special_info
+                            else:
+                                calling_name = m.display_name
+                            
+                            if calling_name == "ยังไม่ระบุ": 
+                                calling_name = m.display_name
+                            
+                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
+                                target = m
+                                break
+
+                if target:
                     ctx = await bot.get_context(message)
                     await ctx.invoke(bot.get_command('deaf_work'), member=target)
                 else:
-                    await message.channel.send("จะให้ผมปิดหูฟังใคร รบกวน @แท็กชื่อ ด้วยครับ")
+                    await message.channel.send("จะให้ผมปิดหูฟังใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ด้วยครับ")
                 return
 
             elif any(k in lower_content for k in ["เปิดหูฟังให้ฉัน", "กลับมาแล้ว", "เลิกทำงานแล้ว"]):
@@ -3119,10 +3260,38 @@ async def on_message(message):
                 if not can_act:
                     return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
                 
+                target = None
                 if message.mentions:
                     target = message.mentions[0]
+                else:
+                    clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
+                    for k in ["เปิดหูฟังให้", "ปลดหูฟังให้", "หน่อย", "ที"]:
+                        clean_name = clean_name.replace(k, "")
+                    clean_name = clean_name.strip()
+                    
+                    if clean_name:
+                        data_memory = load_user_data()
+                        for m in message.guild.members:
+                            special_info = data_memory.get(str(m.id))
+                            if special_info and isinstance(special_info, dict):
+                                calling_name = special_info.get("nickname", m.display_name)
+                            elif special_info:
+                                calling_name = special_info
+                            else:
+                                calling_name = m.display_name
+                            
+                            if calling_name == "ยังไม่ระบุ": 
+                                calling_name = m.display_name
+                            
+                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
+                                target = m
+                                break
+
+                if target:
                     ctx = await bot.get_context(message)
                     await ctx.invoke(bot.get_command('undeaf_member'), member=target)
+                else:
+                    await message.channel.send("จะให้ผมเปิดหูฟังให้ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ด้วยครับเมท")
                 return
 
             # ==========================================
@@ -3134,13 +3303,40 @@ async def on_message(message):
                     return await message.reply(f"⚠️ ระบบประมวลผลกำลัง Overheat รอก่อนอีก {rem} วินาทีนะครับเมท")
 
                 ctx = await bot.get_context(message)
+                target = None
+
                 if message.mentions:
                     target = message.mentions[0]
-                    await ctx.invoke(bot.get_command('profile_scan'), member=target)
                 elif any(k in lower_content for k in ["ฉัน", "เรา", "ตัวเอง"]):
-                    await ctx.invoke(bot.get_command('profile_scan'), member=message.author)
+                    target = message.author
                 else:
-                    await message.channel.send("จะให้ผมสแกนใคร รบกวน @แท็กชื่อ หรือบอกว่า 'สแกนฉัน' ด้วยครับเมท")
+                    clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
+                    for k in ["สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ", "หน่อย", "ที"]:
+                        clean_name = clean_name.replace(k, "")
+                    clean_name = clean_name.strip()
+                    
+                    if clean_name:
+                        data_memory = load_user_data()
+                        for m in message.guild.members:
+                            special_info = data_memory.get(str(m.id))
+                            if special_info and isinstance(special_info, dict):
+                                calling_name = special_info.get("nickname", m.display_name)
+                            elif special_info:
+                                calling_name = special_info
+                            else:
+                                calling_name = m.display_name
+                            
+                            if calling_name == "ยังไม่ระบุ": 
+                                calling_name = m.display_name
+                            
+                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
+                                target = m
+                                break
+
+                if target:
+                    await ctx.invoke(bot.get_command('profile_scan'), member=target)
+                else:
+                    await message.channel.send("จะให้ผมสแกนใคร รบกวนระบุชื่อเล่น, @แท็กชื่อ หรือบอกว่า 'สแกนฉัน' ด้วยครับเมท")
                 return
 
             elif any(k in lower_content for k in ["ปิดคอมบริษัท", "ปิดเครื่องบริษัท", "shutdown"]):
