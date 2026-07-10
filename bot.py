@@ -2231,7 +2231,62 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot: 
+    global is_webhook_enabled, conn, is_tts_enabled, is_playing_music
+
+    if message.webhook_id:
+        # 🔒 ใส่ไอดี Webhook ของเมทชะอมที่นี่ครับ (เปลี่ยนเลขด้านล่างนี้ได้เลย)
+        ALLOWED_WEBHOOK_ID = 1525103815890571325  
+        
+        # ถ้าระบบปิดอยู่ หรือ Webhook ID ไม่ตรงกับของเมทชะอม ให้ตัดจบเพื่อความปลอดภัยคัป
+        if not is_webhook_enabled or message.webhook_id != ALLOWED_WEBHOOK_ID:
+            return
+            
+        content = message.content.strip()
+        lower_content = content.lower()
+
+        # ไอดีดิสคอร์ดของเมทชะอม (บอทจะปลอมตัวผู้ส่งให้เป็นเมทชะอมอัตโนมัติ)
+        MY_DISCORD_ID = 453181829373952000  
+        
+        member_author = message.guild.get_member(MY_DISCORD_ID) if message.guild else None
+        if member_author:
+            message.author = member_author
+
+        # ✂️ ตัดคำปลุก "แบ็คลี่" ออก เพื่อให้ประโยคที่เหลือไหลไปทำงานต่อได้เนียนๆ
+        clean_content = content.replace("แบ็คลี่", "").replace("bagley", "").strip()
+        clean_lower = clean_content.lower()
+
+        voice_keywords = [
+            "เตือน", "ฝากบอก", "สรุปสถิติห้องเสียง", "ใครคุยนานสุด", "รายงานห้องเสียง", "ทักห้องเสียง",
+            "ฝากจำ", "บันทึกตาราง", "ตั้งเตือน", "เรียก", "ชวน", "จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย",
+            "ย้าย", "เอาไปห้อง", "พาไปห้อง", "ปิดเสียง", "ปิดไมค์", "เปิดเสียงให้ที", "เปิดเสียงให้หน่อย", 
+            "เปิดไมค์ให้หน่อย", "เปิดไมค์ให้ที", "เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้", "ปิดหูฟัง", 
+            "ทำงานอยู่", "ขอความสงบ", "เปิดหูฟังให้ฉัน", "กลับมาแล้ว", "เลิกทำงานแล้ว", "เปิดหูฟังให้", 
+            "ปลดหูฟังให้", "สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ", "เฝ้าห้อง", "เลิกเฝ้า", 
+            "หยุดเฝ้า", "ฝากเฝ้า", "เข้ามา", "join", "มานี่", "เข้ามาในห้อง", "เข้ามาห้อง", "เปิดเพลง", 
+            "หาเพลง", "play", "เล่นเพลง", "หยุดเพลง", "ปิดเพลง", "stop", "ลำคาญ", "หนวกหู", "ออกไป", 
+            "ออกไปก่อน", "ขอคุยธุระ", "ออกจากห้อง", "เพลงถัดไป", "ข้ามเพลง", "เพลงต่อไป", "ข้าม", 
+            "ปิดล่าม", "เปิดล่าม", "หยุดพูด", "ไม่ต้องพูด", "พูดให้", "เช็คสถานะระบบ", "ตรวจสอบระบบ", 
+            "เช็คการทำงาน", "คุณโอเคมั้ย", "คุณโอเคไหม", "ตรวจสอบสถานะการทำงาน"
+        ]
+        
+        # เช็กว่าประโยคที่ส่งมา มีคีย์เวิร์ดของเราซ่อนอยู่ไหม (มีคำพูดต่อท้ายก็ทำงานได้คัป)
+        if any(kw in clean_lower for kw in voice_keywords):
+            print(f"🛸 [Voice Command] ส่งต่อคำสั่งเสียง '{clean_content}' ไปประมวลผลระบบด้านล่าง!")
+            message.content = clean_content  # ส่งประโยคที่ตัดชื่อบอทแล้วลงไปทำงานต่อ
+            pass 
+            
+        # 💬 ชวนคุยเล่นทั่วไป (ถ้ามีคำว่าแบ็คลี่ แต่ไม่มีคีย์เวิร์ดสั่งงานด้านบน)
+        elif "แบ็คลี่" in lower_content or "bagley" in lower_content or bot.user.mentioned_in(message):
+            print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{content}' ไปหา AI ด้านล่างคัป!")
+            pass 
+            
+        else:
+            return
+        
+    # ========================================================
+    # 🛑 [ด่านที่ 2]: ดักจับบอททั่วไปตัวอื่น ๆ (ที่ไม่ใช่ Webhook ที่เราอนุญาต)
+    # ========================================================
+    elif message.author.bot: 
         return
 
     if message.mention_everyone:
@@ -2265,7 +2320,7 @@ async def on_message(message):
     # 🚨 [ส่วนที่ 1: ระบบตรวจจับสแปม]
     # ==========================================
     current_content = message.content.strip()
-    if current_content:
+    if current_content and not message.webhook_id:
         if user_id in spam_check:
             data = spam_check[user_id]
             if data['content'] == current_content and (now - data['last_time']).total_seconds() < 60:
@@ -2893,7 +2948,7 @@ async def on_message(message):
     # ==========================================
     if message.guild is not None:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if any(keyword in lower_content for keyword in bot_keywords):
+        if message.webhook_id or any(keyword in lower_content for keyword in bot_keywords):
             
             # 1. คำสั่งเตะสาย/ตัดสาย/จัดการ
             if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
