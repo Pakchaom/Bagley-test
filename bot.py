@@ -2284,7 +2284,13 @@ async def on_message(message):
     # ========================================================
     # 🛑 [ด่านที่ 2]: ดักจับบอทตัวอื่น (ยกเว้นเว็บบุคของเรา)
     # ========================================================
-    if message.author.bot and not is_from_my_webhook: 
+    allowed_ids = [1133740216822267954] # <- ใส่ ID ของคุณชะอม และ ID ของตัวแอปเสียงลงไปในนี้
+    
+    is_allowed_voice_app = message.author.id in allowed_ids or message.author.name == "ชะอม"
+
+    # ปรับด่านตรวจ: ถ้าเป็นบอทตัวอื่น ที่ไม่ใช่วีไอพีของเรา ให้ดีดออกทันที!
+    if message.author.bot and not (is_from_my_webhook or is_allowed_voice_app): 
+        print(f"🛑 [ด่านที่ 2] ดักจับและดีดบอทแปลกหน้า ID: {message.author.id} ออกไปแล้วคัป!")
         return
 
     if message.mention_everyone:
