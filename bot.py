@@ -2277,8 +2277,7 @@ async def on_message(message):
         # 1.2 [แก้ไขให้คุยเล่นได้ 100%]: ถ้าไม่ใช่คำสั่งระบบ ให้แอบเติมคำปลุกบอทลงไปด้วย
         else:
             print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหา AI ด้านล่างคัป!")
-            # 🪄 แอบเติมคำว่า "แบ็คลี่ " นำหน้าข้อความเพื่อให้สมอง AI ด้านล่างยอมประมวลผลและยอมคุยด้วยครับ
-            message.content = f"แบ็คลี่ {message.content}"
+            pass
 
     # ========================================================
     # 🛑 [ด่านที่ 2]: ดักจับบอทตัวอื่น (ยกเว้นเว็บบุคของเรา)
@@ -2318,7 +2317,7 @@ async def on_message(message):
     # 🚨 [ส่วนที่ 1: ระบบตรวจจับสแปม]
     # ==========================================
     current_content = message.content.strip()
-    if current_content and not message.webhook_id:
+    if current_content and not is_from_my_webhook: 
         if user_id in spam_check:
             data = spam_check[user_id]
             if data['content'] == current_content and (now - data['last_time']).total_seconds() < 60:
@@ -2946,7 +2945,7 @@ async def on_message(message):
     # ==========================================
     if message.guild is not None:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        if message.webhook_id or any(keyword in lower_content for keyword in bot_keywords):
+        if is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords):
             
             # 1. คำสั่งเตะสาย/ตัดสาย/จัดการ
             if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
