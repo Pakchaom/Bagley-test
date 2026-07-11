@@ -1000,6 +1000,10 @@ async def follow_creator_task():
             reported_guilds_today[guild_id] = today
 
         else:
+            print(f"DEBUG: 🔍 [Follow Greeting Check] human_count={human_count}, greeting_key={greeting_key}, "
+                  f"last_greeting_dates.get={last_greeting_dates.get(greeting_key)}, today={today}, "
+                  f"reported_guilds_today.get={reported_guilds_today.get(guild_id)}, pending_reminders={len(pending_reminders)}")
+
             now_hour = datetime.now(bangkok_tz).hour
             time_greeting = "อรุณสวัสดิ์ครับ" if 0 <= now_hour < 13 else "สวัสดีตอนบ่ายครับ" if 13 <= now_hour < 14 else "สวัสดีตอนเย็นครับ" if 14 <= now_hour < 19 else "สวัสดีตอนกลางคืนครับ"
 
@@ -1106,7 +1110,10 @@ async def follow_creator_task():
                     should_speak = True
                 else:
                     should_speak = False
+                    print("DEBUG: 🤫 [Follow Greeting] เคยทักทายและรายงานเซิร์ฟนี้ไปหมดแล้ววันนี้ "
+                          "และไม่มีตารางงานค้าง -> อยู่เฉยๆ ไม่พูดอะไรโดยตั้งใจ")
 
+        print(f"DEBUG: 🗣️ [Follow Greeting] ก่อนพูด -> should_speak={should_speak}, msg_length={len(msg) if msg else 0}, msg_preview={msg[:80] if msg else '(ว่าง)'}")
         if should_speak and msg:
             try:
                 await bagley_speak_wait(guild_to_join, msg)
@@ -4429,7 +4436,8 @@ async def join(ctx: commands.Context):
                 กฎ: ทักทายประชดขำๆ เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ตอบเฉพาะบทพูดไม่มีหัวข้อเด็ดขาด
                 """
                 response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                msg = response.text.strip()
+                msg = (response.text or "").strip()
+                print(f"DEBUG: 🤖 [Join AI] Gemini ตอบกลับมา (length={len(msg)}): {msg[:80] if msg else '(ว่างเปล่า!)'}")
                 
                 # บันทึกว่าวันนี้ใช้โควตา AI เจนทักทายในคำสั่ง /join ประจำเซิร์ฟนี้ไปแล้วคัปพ้ม!
                 join_greeted_today[guild_key] = today_date
@@ -4438,6 +4446,7 @@ async def join(ctx: commands.Context):
 
         # 🔒 ถาเคยเรียกใช้ไปแล้วในวันนี้ หรือ AI สั่งงานพลาด -> ถอยกลับมาใช้คำพูดฟิกซ์เดิม (จะได้ไม่ทักทายเหมือนเพิ่งเจอกันวันแรก)
         if not msg:
+            print("DEBUG: 🔁 [Join] msg ว่างเปล่า (AI ไม่ได้พูดหรือเคยทักไปแล้ว) -> ใช้คำพูดฟิกซ์สำรอง")
             quotes = [
                 "ผมเข้ามาสอดแนมในห้องเสียงแล้วครับ!",
                 "เชื่อมต่อระบบ Neural Link เรียบร้อย พร้อมดูแลคุณแล้วครับ",
@@ -4447,6 +4456,7 @@ async def join(ctx: commands.Context):
             msg = f"แบ็คลี่ ประจำการ! {time_period}ครับคุณ {caller_name} {random.choice(quotes)}{reminder_fallback_text}"
 
         # 📤 ส่งข้อความแชทและออกเสียง
+        print(f"DEBUG: 📤 [Join] กำลังจะส่งข้อความและพูด -> msg_length={len(msg)}, msg_preview={msg[:80]}")
         if ctx.interaction:
             await ctx.interaction.followup.send(msg)
         else:
