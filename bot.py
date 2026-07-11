@@ -71,13 +71,8 @@ is_playing_music = False
 
 is_tts_enabled = False
 
-# 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ on_message เกิด
-# NameError ทุกครั้งที่มีข้อความจาก webhook เข้ามา ส่งผลให้บอทไม่ตอบสนอง
 is_webhook_enabled = True
 
-# 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ on_message เกิด
-# NameError ทุกครั้งที่มีข้อความจาก webhook เข้ามา (เพราะไปเช็ค is_webhook_enabled
-# ที่ยังไม่เคยถูกสร้างขึ้นมาก่อน) ส่งผลให้บอทไม่ตอบสนองต่อ webhook ของไมค์เลย
 is_webhook_enabled = True
 
 # ID Discord ของ Owner
@@ -101,9 +96,6 @@ ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกั�
 auto_follow_status = {uid: True for uid in ALLOWED_USERS}
 last_greeting_dates = {}
 
-# 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ follow_creator_task และ
-# คำสั่ง /join พังด้วย NameError ทันทีตอนเช็คตารางเตือนงาน ก่อนจะไปถึงส่วน
-# ทักทาย/พูด ส่งผลให้บอทเงียบไม่ทักทายเลยทั้งสองระบบ
 last_reminder_dates = {}
 pending_exit_after_music = {}
 
@@ -120,6 +112,66 @@ def print(*args, **kwargs):
 # เก็บข้อความล่าสุดของแต่ละคนเพื่อตรวจจับสแปม
 spam_check = {} 
 SPAM_THRESHOLD = 3  # พิมพ์ซ้ำครั้งที่ 3 เป็นต้นไปจะถูกลบ
+
+blocked_users = {}
+
+# คำหยาบขั้นต้นไว้กรองก่อนยิงไปให้ AI ช่วยตัดสิน (ลดการเรียก AI โดยไม่จำเป็น)
+RUDE_WORD_PATTERNS = [
+    "เหี้ย", "สัส", "สัตว์", "ควย", "เย็ด", "แม่ง", "แม่มึง", "พ่อมึง", "ห่า", "ไอ้สัส",
+    "ไอ้เหี้ย", "ไอ้ควย", "มึงโง่", "ตอแหล", "ชิบหาย", "อีดอก", "อีสัส", "กระหรี่",
+    "fuck", "shit", "bitch", "asshole", "stupid bot", "dumb bot", "retard"
+]
+
+def _bagley_get_next_midnight_bkk():
+    now = datetime.now(bangkok_tz)
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+def is_user_blocked(user_id: str) -> bool:
+    """เช็กว่า user_id นี้โดนแบนคำสั่งของแบ็คลี่อยู่หรือไม่ (ปลดอัตโนมัติเมื่อพ้นเที่ยงคืน)"""
+    block_until = blocked_users.get(user_id)
+    if block_until is None:
+        return False
+    if datetime.now(bangkok_tz) >= block_until:
+        del blocked_users[user_id]
+        return False
+    return True
+
+def block_user_for_today(user_id: str):
+    """แบนคำสั่ง/การตอบกลับของ user_id นี้ไปจนถึงเที่ยงคืน (เวลาไทย)"""
+    blocked_users[user_id] = _bagley_get_next_midnight_bkk()
+
+def is_message_addressed_to_bagley(lower_text: str) -> bool:
+    """เช็กว่าข้อความนี้เอ่ยถึง/เรียกแบ็คลี่ตรงๆ หรือไม่"""
+    mention_tag = f"<@{bot.user.id}>" if bot.user else None
+    return (
+        "แบ็คลี่" in lower_text
+        or "bagley" in lower_text
+        or (mention_tag is not None and mention_tag in lower_text)
+    )
+
+def has_potential_profanity(text: str) -> bool:
+    lowered = text.lower()
+    return any(word in lowered for word in RUDE_WORD_PATTERNS)
+
+async def ai_detect_insult_to_bagley(message_text: str) -> bool:
+    """ให้ AI ช่วยตัดสินว่าข้อความนี้เป็นการด่า/หยาบคายที่มุ่งเป้ามาที่แบ็คลี่โดยตรงหรือไม่"""
+    try:
+        prompt = (
+            "ข้อความต่อไปนี้มาจากผู้ใช้ใน Discord ที่กำลังพูดถึงหรือเรียกบอทชื่อ \"แบ็คลี่\" ในข้อความเดียวกัน\n"
+            f'ข้อความ: "{message_text}"\n\n'
+            "หน้าที่ของคุณ: พิจารณาว่าข้อความนี้เป็นการด่าทอ/หยาบคาย/ดูหมิ่น ที่มุ่งเป้ามาที่แบ็คลี่โดยตรง "
+            "(ไม่ใช่แค่พูดคำหยาบทั่วไปที่ไม่ได้เจาะจงใส่บอท) หรือไม่\n"
+            "ตอบกลับมาเพียงคำเดียวเท่านั้น: YES ถ้าใช่ หรือ NO ถ้าไม่ใช่ ห้ามอธิบายเพิ่มเติมใดๆ ทั้งสิ้น"
+        )
+        response = await client.aio.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt
+        )
+        result_text = (getattr(response, "text", "") or "").strip().upper()
+        return result_text.startswith("YES")
+    except Exception as e:
+        print(f"⚠️ [ระบบตรวจคำหยาบ] AI ตรวจจับพลาด: {e}")
+        return False
 
 # --- โหลดค่า Config ---
 load_dotenv()
@@ -2185,6 +2237,21 @@ intents.voice_states = True
 intents.guild_messages = True   
 intents.dm_messages = True     
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# 🚫 ดักคำสั่ง slash (/) ทั้งหมดตั้งแต่ก่อนจะรันจริง ถ้าคนนั้นโดนแบนคำสั่งอยู่ ให้ตอบปฏิเสธแทน
+async def _bagley_tree_interaction_check(interaction: discord.Interaction) -> bool:
+    if is_user_blocked(str(interaction.user.id)):
+        try:
+            await interaction.response.send_message(
+                f"{interaction.user.mention} ขอไม่รับคำสั่งนะครับ 🙅‍♂️",
+                ephemeral=True
+            )
+        except Exception:
+            pass
+        return False
+    return True
+
+bot.tree.interaction_check = _bagley_tree_interaction_check
 tree = bot.tree
 
 # ============================================================
@@ -2396,6 +2463,45 @@ async def on_message(message):
 
     if message.mention_everyone:
         return
+
+    # ==========================================
+    # 🚫 [ด่านที่ 3: เช็กว่าโดนแบนคำสั่งของแบ็คลี่อยู่ไหม]
+    # ==========================================
+    if not message.author.bot and is_user_blocked(str(message.author.id)):
+        stripped_content = message.content.strip()
+        # ถ้าเป็นการพิมพ์คำสั่ง (สไตล์ prefix "!") ให้ตอบปฏิเสธสั้นๆ
+        if stripped_content.startswith(bot.command_prefix):
+            try:
+                await message.channel.send(
+                    f"{message.author.mention} ขอไม่รับคำสั่งนะครับ 🙅‍♂️",
+                    delete_after=10
+                )
+            except Exception:
+                pass
+        # ถ้าเป็นการพิมพ์คุยเล่นทั่วไป แบ็คลี่จะเมินไม่ตอบกลับเลย
+        return
+
+    # ==========================================
+    # 🚨 [ด่านที่ 4: ตรวจจับคำหยาบที่พิมเจาะจงใส่แบ็คลี่ตรงๆ]
+    # ==========================================
+    if (
+        not message.author.bot
+        and not is_from_my_webhook
+        and message.author.id != OWNER_DISCORD_ID
+        and message.content.strip()
+    ):
+        _lower_check = message.content.lower()
+        if is_message_addressed_to_bagley(_lower_check) and has_potential_profanity(message.content):
+            try:
+                if await ai_detect_insult_to_bagley(message.content):
+                    await message.channel.send(
+                        f"{message.author.mention} คำพูดที่คุณพูดมาดูไม่ดีเลยนะครับ 😔 "
+                        f"ขออนุญาตแบนคำสั่งของคุณไปก่อนจนกว่าจะถึงเที่ยงคืนนะครับ"
+                    )
+                    block_user_for_today(str(message.author.id))
+                    return
+            except Exception as e:
+                print(f"⚠️ [ด่านที่ 4] ระบบตรวจคำหยาบทำงานผิดพลาด: {e}")
 
     user_message = message.content.lower().strip()
 
