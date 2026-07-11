@@ -903,6 +903,41 @@ async def check_friend_reminders():
     if has_changed:
         save_reminders(updated_reminders)
 
+@tasks.loop(minutes=1)
+async def check_expired_schedules():
+    """เคลียร์ตารางนัดหมาย (schedules ที่ฝากไว้ผ่าน /remind) ที่ถึงวัน-เวลาที่กำหนดไว้แล้วออกจากคลังความจำอัตโนมัติ
+    เพื่อไม่ให้ค้างอยู่ใน /schedule_list หรือถูกพูดซ้ำอีกหลังจากที่เวลานั้นผ่านไปแล้ว"""
+    try:
+        now = datetime.now(bangkok_tz)
+        data = load_user_data()
+        schedules = data.get("schedules", [])
+        if not schedules:
+            return
+
+        remaining_schedules = []
+        removed_any = False
+        for sch in schedules:
+            try:
+                sch_dt = datetime.strptime(f"{sch.get('date', '')} {sch.get('time', '')}", "%Y-%m-%d %H:%M")
+                sch_dt = sch_dt.replace(tzinfo=bangkok_tz)
+            except Exception:
+                # ถ้าพาร์สวันที่/เวลาไม่ได้ (เช่น '3 ทุ่ม') ให้เก็บไว้ก่อน ไม่ลบทิ้งมั่วครับ
+                remaining_schedules.append(sch)
+                continue
+
+            if sch_dt <= now:
+                removed_any = True
+                print(f"🗑️ [Schedule Reset] ลบตารางงาน '{sch.get('event')}' ของ {sch.get('owner_id')} ที่ถึงเวลา {sch.get('time')} วันที่ {sch.get('date')} แล้วออกจากระบบเรียบร้อยครับ")
+            else:
+                remaining_schedules.append(sch)
+
+        if removed_any:
+            data["schedules"] = remaining_schedules
+            save_user_data(data)
+    except Exception as e:
+        print(f"❌ ERROR check_expired_schedules: {e}")
+        print(traceback.format_exc())
+
 @tasks.loop(hours=6.0)
 async def auto_brain_cleanup():
     before, after, saved = perform_cleanup(bot)
@@ -2485,6 +2520,10 @@ async def on_ready():
 
     if not check_friend_reminders.is_running():
         check_friend_reminders.start()
+
+    if not check_expired_schedules.is_running():
+        check_expired_schedules.start()
+        print("🗑️ ระบบ Reset ตารางนัดหมายที่ถึงเวลาแล้ว: Started.")
 
     if not follow_creator_task.is_running():
         follow_creator_task.start()
