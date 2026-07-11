@@ -1011,9 +1011,6 @@ async def follow_creator_task():
             # 🟢 [กรณีที่ 1: ทักทายก้อนแรกแรกของวัน]
             if last_greeting_dates.get(greeting_key) != today:
                 try:
-                    from google import genai
-                    ai_client = genai.Client()
-                    
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
                     friend_names_list = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
                     friends_context = " และมีเพื่อนในห้องคือ " + " กับ ".join(friend_names_list) if friend_names_list else ""
@@ -1031,8 +1028,8 @@ async def follow_creator_task():
                     กฎ: เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ทักทายชื่อคนให้ครบตามข้อมูลด้านบน และถ้ามีตารางงานให้พูดต่อท้ายให้ชัดเจน ห้ามพิมพ์หัวข้อหรือวงเล็บเด็ดขาด เอาเฉพาะบทพูดเท่านั้น!
                     """
                     
-                    response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                    ai_greet = response.text.strip()
+                    response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
+                    ai_greet = (response.text or "").strip()
                     msg = ai_greet + generate_report_speech(guild_to_join)
                     should_speak = True
                     
@@ -1057,9 +1054,6 @@ async def follow_creator_task():
             # 🔵 [กรณีที่ 2: บอทย้ายเซิร์ฟเวอร์ในวันเดียวกัน]
             elif reported_guilds_today.get(guild_id) != today:
                 try:
-                    from google import genai
-                    ai_client = genai.Client()
-                    
                     un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
                     new_friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in un_greeted_people]
                     names_str = " กับ ".join(new_friend_names) if new_friend_names else "ทุกคนในห้องใหม่"
@@ -1072,8 +1066,8 @@ async def follow_creator_task():
                     
                     กฎ: ตอบสั้นมาก ห้ามพิมพ์หัวข้อ ยึดมั่นคำว่า 'เมท' เสมอ พ่วงเตือนตารางงานถ้ามี
                     """
-                    response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                    ai_new_server_greet = response.text.strip()
+                    response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
+                    ai_new_server_greet = (response.text or "").strip()
                     
                     msg = ai_new_server_greet + generate_report_speech(guild_to_join)
                     should_speak = True
@@ -1371,15 +1365,8 @@ async def daily_announcement_task():
         print(f"DEBUG: ⏰ ข้ามการแจ้งเตือนเนื่องจากระบบทำงานนอกเวลาเป้าหมาย (เวลาปัจจุบัน: {now.strftime('%H:%M')})")
         return
 
-    # 🧠 เรียกใช้สมอง AI (เช็กว่าตัวแปร ai มีการตั้งค่าไว้ที่ global หรือยัง ถ้ายังให้ดึงมาใช้คัป)
-    try:
-        # ใช้เครื่องมือเจนข้อความของ Google Gen AI
-        # (หมายเหตุ: หากใน bot.py เมทตั้งชื่อตัวแปร client ไว้เป็นชื่ออื่น สามารถปรับให้ตรงกันได้นะคัป เช่น ai_client)
-        from google import genai
-        ai_client = genai.Client() 
-    except Exception as e:
-        print(f"❌ ไม่สามารถเรียกใช้งาน Google Gen AI Client ได้: {e}")
-        ai_client = None
+    # 🧠 เรียกใช้สมอง AI (ใช้ client กลางแบบ async ตัวเดียวกับส่วนอื่นในไฟล์)
+    ai_ready = True
 
     for voice_client in bot.voice_clients:
         if voice_client and voice_client.channel and voice_client.is_connected():
@@ -1418,14 +1405,14 @@ async def daily_announcement_task():
 
                 # 🚀 ยิงคำสั่งให้ Google Gen AI คิดคำพูดสุดเจ๋งให้
                 msg = ""
-                if ai_client:
+                if ai_ready:
                     try:
                         print("🤖 [Gemini AI]: กำลังคิดคำพูดเตือนเวลารอบพิเศษให้เมทชะอม...")
-                        response = ai_client.models.generate_content(
+                        response = await client.aio.models.generate_content(
                             model='gemini-3.1-flash-lite',
                             contents=prompt,
                         )
-                        msg = response.text.strip()
+                        msg = (response.text or "").strip()
                     except Exception as ai_err:
                         print(f"❌ Gemini AI ขัดข้อง: {ai_err} (จะสลับไปใช้ระบบสำรองดั้งเดิม)")
                 
@@ -2836,9 +2823,6 @@ async def on_message(message):
         # ทำงานเมื่อบอทโดนเรียกชื่อ หรือพิมพ์คุยส่วนตัวใน DM
         if message.guild is None or is_bot_called:
             try:
-                from google import genai
-                ai_client = genai.Client()
-                
                 # ดึงวันเวลาปัจจุบันฝั่งไทยเพื่อส่งไปให้ AI ช่วยคำนวณวัน
                 today_now = datetime.now(bangkok_tz)
                 today_str = today_now.strftime("%Y-%m-%d")
@@ -2859,14 +2843,14 @@ async def on_message(message):
                 """
                 
                 print("🤖 [Gemini AI]: แบ็คลี่กำลังแอบแกะข้อความฝากตารางงานให้เมท...")
-                response = ai_client.models.generate_content(
+                response = await client.aio.models.generate_content(
                     model='gemini-3.1-flash-lite',
                     contents=prompt,
                 )
                 
                 # แปลงผลลัพธ์ JSON ของ AI กลับมาเป็น Object ฝั่ง Python
                 import json
-                raw_text = response.text.strip().replace("```json", "").replace("```", "")
+                raw_text = (response.text or "").strip().replace("```json", "").replace("```", "")
                 result = json.loads(raw_text)
                 
                 if result.get("date") and result.get("event"):
@@ -4415,9 +4399,6 @@ async def join(ctx: commands.Context):
         # 💡 เช็กว่าเซิร์ฟเวอร์นี้ วันนี้เคยเรียก /join แล้วใช้ AI เจนคำพูดทักทายไปแล้วหรือยัง
         if join_greeted_today.get(guild_key) != today_date:
             try:
-                from google import genai
-                ai_client = genai.Client()
-                
                 prompt = f"""
                 คุณคือ 'แบ็คลี่' (Bagley) AI อัจฉริยะสุดกวน เพิ่งบินโดรนเข้ามาประจำการในห้องเสียงตามคำสั่งเรียกของเมท (นี่คือการเจอหน้ากันครั้งแรกของวันนี้)
                 หน้าที่: สร้างคำทักทายภาษาไทยแบบสั้นๆ กระชับ และพ่วงแจ้งเตือนตารางงาน (ถ้ามี)
@@ -4429,7 +4410,7 @@ async def join(ctx: commands.Context):
                 
                 กฎ: ทักทายประชดขำๆ เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ตอบเฉพาะบทพูดไม่มีหัวข้อเด็ดขาด
                 """
-                response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
                 msg = (response.text or "").strip()
                 print(f"DEBUG: 🤖 [Join AI] Gemini ตอบกลับมา (length={len(msg)}): {msg[:80] if msg else '(ว่างเปล่า!)'}")
                 
