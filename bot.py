@@ -2788,56 +2788,70 @@ async def on_message(message):
                         await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌")
                         return
                     
-                    # ผ่านฉลุยแสดงข้อความทั้งหมดใน DM
-                    response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
+                    # ผ่านฉลุยแสดงข้อความทั้งหมดใน DM (ใช้ตัวเพจแบบเดียวกับ /memberlist กันข้อความยาวเกิน 2000 ตัวอักษร)
+                    title_text = "👁️ คลังระบบตาทิพย์: รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟ"
+                    formatted_list = []
                     for user_id_str, data in user_data.items():
-                        if user_id_str == "reminders": continue
+                        if not user_id_str.isdigit(): continue  # ข้าม key ที่ไม่ใช่ user id เช่น "reminders", "schedules"
                         nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
                         birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
-                        response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
-                    
-                    await message.reply(response_msg)
+                        formatted_list.append(f"<@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})")
+
+                    if not formatted_list:
+                        await message.reply("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+                        return
+
+                    view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
+                    view.message = await message.reply(embed=view.create_embed(), view=view)
                     return
 
                 # --- เคสที่ 2: คุยในเซิร์ฟเวอร์กลุ่มปกติ ---
                 else:
                     # ถ้าอยู่ในกลุ่มดันพิมพ์คำว่า "ทั้งหมด" มาด้วย และคนพิมพ์คือมาสเตอร์
                     if is_master_command and message.author.id == MY_MASTER_ID:
-                        response_msg = "👁️ **[ระบบตาทิพย์ของเมท] รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟเวอร์ในคลังสมองครับ:**\n"
+                        title_text = "👁️ คลังระบบตาทิพย์: รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟ"
+                        formatted_list = []
                         for user_id_str, data in user_data.items():
-                            if user_id_str == "reminders": continue
+                            if not user_id_str.isdigit(): continue  # ข้าม key ที่ไม่ใช่ user id เช่น "reminders", "schedules"
                             nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
                             birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
-                            response_msg += f"• <@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})\n"
-                        await message.reply(response_msg)
+                            formatted_list.append(f"<@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})")
+
+                        if not formatted_list:
+                            await message.reply("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+                            return
+
+                        view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
+                        view.message = await message.reply(embed=view.create_embed(), view=view)
                         return
                     
                     # กรณีเรียกดูรายชื่อเฉพาะคนในเซิร์ฟเวอร์นั้น ๆ (ไม่ว่าจะเป็นมาสเตอร์หรือสมาชิกทั่วไป)
                     guild = message.guild
-                    response_msg = f"📊 **รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้ในคลังสมองครับเมท:**\n"
-                    has_anyone_here = False
+                    title_text = f"📊 รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้"
+                    formatted_list = []
                     
                     for user_id_str, data in user_data.items():
-                        if user_id_str == "reminders": continue
+                        if not user_id_str.isdigit(): continue  # ข้าม key ที่ไม่ใช่ user id เช่น "reminders", "schedules"
                         member = guild.get_member(int(user_id_str))
                         if not member: continue
                         
-                        has_anyone_here = True
                         nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
                         birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
                         
                         if birthday != "ยังไม่ได้ระบุ":
-                            response_msg += f"• <@{user_id_str}>: {nickname} (วันเกิด: {birthday})\n"
+                            formatted_list.append(f"<@{user_id_str}>: {nickname} (วันเกิด: {birthday})")
                         else:
-                            response_msg += f"• <@{user_id_str}>: {nickname}\n"
+                            formatted_list.append(f"<@{user_id_str}>: {nickname}")
                     
-                    if has_anyone_here:
-                        await message.reply(response_msg)
+                    if formatted_list:
+                        view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
+                        view.message = await message.reply(embed=view.create_embed(), view=view)
                     else:
                         await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
                     return
             except Exception as e:
                 print(f"🚨 ERROR ระบบรายชื่อ: {e}")
+                print(traceback.format_exc())
                 await message.reply("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท")
                 return
 
