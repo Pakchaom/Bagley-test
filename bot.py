@@ -100,6 +100,11 @@ ALLOWED_TEACH_USERS = [
 ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกับชาช่า
 auto_follow_status = {uid: True for uid in ALLOWED_USERS}
 last_greeting_dates = {}
+
+# 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ follow_creator_task และ
+# คำสั่ง /join พังด้วย NameError ทันทีตอนเช็คตารางเตือนงาน ก่อนจะไปถึงส่วน
+# ทักทาย/พูด ส่งผลให้บอทเงียบไม่ทักทายเลยทั้งสองระบบ
+last_reminder_dates = {}
 pending_exit_after_music = {}
 
 active_alarms = {}
