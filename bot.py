@@ -2226,6 +2226,12 @@ class VoiceRelayMessage:
         self.mention_everyone = False
         self.attachments = []
         self.embeds = []
+        # 🔧 [แก้บั๊ก] discord.py ภายใน (เช่น ctx.send() ที่ใช้กับคำสั่งที่เรียก
+        # ผ่าน bot.get_command()+ctx.invoke() อย่าง leave/move/mute) ต้องพึ่ง
+        # message._state (ConnectionState) เพื่อไปอ่าน .allowed_mentions ฯลฯ
+        # ถ้าไม่มีจะพังด้วย "'NoneType' object has no attribute 'allowed_mentions'"
+        # ยืมมาจาก guild._state ได้เลยเพราะเป็น ConnectionState ตัวเดียวกัน
+        self._state = guild._state
         # สวมรอยเป็นเว็บฮุคที่ระบบอนุญาตไว้อยู่แล้ว เพื่อให้ไหลเข้า
         # เส้นทางเดิม (is_from_my_webhook) โดยไม่ต้องแก้ on_message เพิ่ม
         self.webhook_id = 1525103815890571325
