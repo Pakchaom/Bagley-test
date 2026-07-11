@@ -49,6 +49,14 @@ song_queue = []
 user_join_times = {}
 
 voice_report_status = {}
+# 🔒 ล็อกสำหรับกันไม่ให้แบ็คลี่พูด 2 ประโยคทับกันตอนมีคนเข้าห้องพร้อมกัน
+# (ป้องกัน race condition ที่ 2 event ยิงมาพร้อมกันแล้วเช็ค is_playing() ไม่ทัน)
+voice_speak_locks = {}
+
+def _get_voice_speak_lock(guild_id):
+    if guild_id not in voice_speak_locks:
+        voice_speak_locks[guild_id] = asyncio.Lock()
+    return voice_speak_locks[guild_id]
 
 reported_guilds_today = {}
 
@@ -325,49 +333,53 @@ async def bagley_speak_wait(guild, text, filename=None):
     if not guild: return
     vc = guild.voice_client
     if vc and vc.is_connected():
-        while vc.is_playing():
-            await asyncio.sleep(0.1)
-            
-        unique_name = f"speak_{int(time.time() * 1000)}.mp3"
-        file_created = False
-        
-        try:
-            voice = "th-TH-NiwatNeural"
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(unique_name)
-            file_created = True
-            
-            await asyncio.sleep(0.5)
-
-            executable_path = r'C:\ffmpeg\bin\ffmpeg.exe'
-            source = discord.FFmpegPCMAudio(unique_name, executable=executable_path)
-            
-            vc.play(source)
-            
+        # 🔒 ล็อกกันคนอื่นพูดแซง/ทับกันตอนมีหลาย event เรียกมาพร้อมกัน
+        # (เช่น คนเข้าห้องเสียงพร้อมกันหลายคน) ทำให้เล่นเรียงต่อกันแทน
+        lock = _get_voice_speak_lock(guild.id)
+        async with lock:
             while vc.is_playing():
                 await asyncio.sleep(0.1)
 
-        except Exception as e:
-            print(f"Error ในการพูดด้วยเสียง Niwat: {e}")
-            
-        finally:
-            # 🛡️ 1. สั่งเคลียร์และคลายล็อกไฟล์เสียงจาก FFmpeg ก่อนเลยคัปพ้ม
+            unique_name = f"speak_{int(time.time() * 1000)}.mp3"
+            file_created = False
+
             try:
-                if 'source' in locals() and source:
-                    source.cleanup()
-            except Exception as src_err:
-                print(f"Error ตอนสั่ง cleanup source: {src_err}")
+                voice = "th-TH-NiwatNeural"
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(unique_name)
+                file_created = True
 
-            # ⏳ 2. หน่วงเวลานิดนึง (0.5 วินาที) ให้ระบบปฏิบัติการ Windows คืนสิทธิ์ไฟล์เสร็จสรรพ
-            await asyncio.sleep(0.5)
+                await asyncio.sleep(0.5)
 
-            # 🗑️ 3. สั่งทำลายไฟล์ขยะทิ้ง
-            if file_created and os.path.exists(unique_name):
+                executable_path = r'C:\ffmpeg\bin\ffmpeg.exe'
+                source = discord.FFmpegPCMAudio(unique_name, executable=executable_path)
+
+                vc.play(source)
+
+                while vc.is_playing():
+                    await asyncio.sleep(0.1)
+
+            except Exception as e:
+                print(f"Error ในการพูดด้วยเสียง Niwat: {e}")
+
+            finally:
+                # 🛡️ 1. สั่งเคลียร์และคลายล็อกไฟล์เสียงจาก FFmpeg ก่อนเลยคัปพ้ม
                 try:
-                    os.remove(unique_name)
-                    print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับเมท!")
-                except Exception as clean_error:
-                    print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
+                    if 'source' in locals() and source:
+                        source.cleanup()
+                except Exception as src_err:
+                    print(f"Error ตอนสั่ง cleanup source: {src_err}")
+
+                # ⏳ 2. หน่วงเวลานิดนึง (0.5 วินาที) ให้ระบบปฏิบัติการ Windows คืนสิทธิ์ไฟล์เสร็จสรรพ
+                await asyncio.sleep(0.5)
+
+                # 🗑️ 3. สั่งทำลายไฟล์ขยะทิ้ง
+                if file_created and os.path.exists(unique_name):
+                    try:
+                        os.remove(unique_name)
+                        print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับเมท!")
+                    except Exception as clean_error:
+                        print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
 
 async def bagley_hijack_alert(voice_channel, message_text):
     vc = None
@@ -4254,7 +4266,16 @@ async def on_voice_state_update(member, before, after):
     # 📢 [ส่วนที่ 3] ตรวจสอบและรายงานเสียง คนเข้า-ออกห้องเสียงยามปกติ
     if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
-        if voice_client.is_playing():
+        # 🔧 [แก้บั๊ก] เดิมเช็ค voice_client.is_playing() ตรงๆ ทำให้ถ้ามีคนเข้าห้อง
+        # พร้อมกันหลายคน (Discord ยิง event แยกทีละคน) คนที่ 2 เป็นต้นไปจะโดน
+        # return ทิ้งไปเลยเพราะเสียงทักทายของคนแรกกำลังเล่นอยู่ (is_playing()=True)
+        # ทำให้ประกาศหายไปเงียบๆ ไม่ได้พูดถึงเลย
+        # เปลี่ยนมาเช็คแค่ is_playing_music แทน (ไม่อยากแทรกตอนกำลังเปิดเพลงอยู่
+        # ตามเจตนาเดิม) ส่วนกรณีที่แค่มีเสียงทักทายคนอื่นเล่นอยู่ ให้ปล่อยไหลลง
+        # ไปเรียก bagley_speak_wait ตามปกติ เพราะฟังก์ชันนั้นมีลูปรอเสียงเดิม
+        # เล่นจบก่อนอยู่แล้ว (while vc.is_playing(): await asyncio.sleep(0.1))
+        # ทำให้คนที่เข้ามาพร้อมกันถูกพูดเรียงต่อกันไปเรื่อยๆ ไม่ถูกทิ้งอีกต่อไป
+        if is_playing_music:
             return
 
         is_reporting_enabled = voice_report_status.get(guild_id, True)
