@@ -28,6 +28,7 @@ import edge_tts
 import yt_dlp
 import requests
 import aiohttp
+from aiohttp import web
 from discord.ext import tasks
 import random
 import re as regex_lib
@@ -69,6 +70,10 @@ room_guard_status = {}
 is_playing_music = False
 
 is_tts_enabled = False
+
+# 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ on_message เกิด
+# NameError ทุกครั้งที่มีข้อความจาก webhook เข้ามา ส่งผลให้บอทไม่ตอบสนอง
+is_webhook_enabled = True
 
 # 🔧 [แก้บั๊ก] ตัวแปรนี้เดิมไม่เคยถูกกำหนดค่าไว้เลย ทำให้ on_message เกิด
 # NameError ทุกครั้งที่มีข้อความจาก webhook เข้ามา (เพราะไปเช็ค is_webhook_enabled
@@ -2196,6 +2201,98 @@ intents.dm_messages = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
+# ============================================================
+# 🎙️ [Voice Relay] ระบบรับคำสั่งเสียงตรงจาก mic_to_discord.py
+# โดยไม่ต้องผ่าน Discord Webhook เลย -> ไม่ต้องสร้าง Webhook URL
+# แยกทุกเซิร์ฟเวอร์ ยืดหยุ่นใช้ได้ทุกที่ที่บอทอยู่ร่วมห้องเสียง
+# กับเมทชะอม เซิร์ฟเวอร์ไหนก็ได้ ไม่ต้องตั้งค่าเพิ่ม
+# ============================================================
+VOICE_RELAY_HOST = "0.0.0.0"   # ฟังแค่ในเครื่องตัวเอง ห้ามเปิดสู่อินเทอร์เน็ต
+VOICE_RELAY_PORT = 5959
+VOICE_RELAY_OWNER_ID = 1133740216822267954  # ไอดีดิสคอร์ดของเมทชะอม
+
+class VoiceRelayMessage:
+    """ตัวปลอมแทน discord.Message สำหรับส่งคำสั่งเสียงตรงเข้า on_message
+    เพื่อให้ระบบเดิม (voice_keywords, ระบบสิทธิ์ ฯลฯ) ทำงานได้เหมือนเดิม
+    ทุกอย่าง โดยไม่ต้องพึ่ง Discord Webhook อีกต่อไป"""
+
+    def __init__(self, content, author, guild, channel):
+        self.content = content
+        self.clean_content = content
+        self.author = author
+        self.guild = guild
+        self.channel = channel
+        self.mentions = []
+        self.mention_everyone = False
+        self.attachments = []
+        self.embeds = []
+        # สวมรอยเป็นเว็บฮุคที่ระบบอนุญาตไว้อยู่แล้ว เพื่อให้ไหลเข้า
+        # เส้นทางเดิม (is_from_my_webhook) โดยไม่ต้องแก้ on_message เพิ่ม
+        self.webhook_id = 1525103815890571325
+        self.id = int(time.time() * 1000)
+        self.created_at = datetime.now(timezone.utc)
+
+    async def reply(self, content=None, **kwargs):
+        return await self.channel.send(content, **kwargs)
+
+    async def delete(self, *args, **kwargs):
+        pass  # ข้อความนี้ไม่มีตัวตนจริงบน Discord จึงไม่มีอะไรให้ลบ
+
+    def __getattr__(self, name):
+        # กัน AttributeError หลุดสำหรับแอตทริบิวต์ปลีกย่อยที่ไม่เกี่ยวกับ
+        # คำสั่งเสียง (เช่น message.reference, message.flags ฯลฯ)
+        return None
+
+async def handle_voice_command(request: "web.Request"):
+    try:
+        data = await request.json()
+        text = (data.get("text") or "").strip()
+    except Exception:
+        return web.json_response({"status": "error", "message": "invalid json"}, status=400)
+
+    if not text:
+        return web.json_response({"status": "error", "message": "empty text"}, status=400)
+
+    # หาว่าเมทชะอมอยู่ในห้องเสียงของเซิร์ฟเวอร์ไหนอยู่ตอนนี้ (auto-detect
+    # ทำให้ไม่ต้องตั้งค่า guild/channel ล่วงหน้า ใช้ได้ทุกเซิร์ฟเวอร์ทันที)
+    target_channel = None
+    target_guild = None
+    for guild in bot.guilds:
+        member = guild.get_member(VOICE_RELAY_OWNER_ID)
+        if member and member.voice and member.voice.channel:
+            target_channel = member.voice.channel
+            target_guild = guild
+            break
+
+    if target_channel is None:
+        print("🎙️ [Voice Relay] ไม่พบว่าเมทชะอมอยู่ในห้องเสียงของเซิร์ฟเวอร์ไหนเลยตอนนี้")
+        return web.json_response({"status": "no_voice_channel"}, status=404)
+
+    member_author = target_guild.get_member(VOICE_RELAY_OWNER_ID)
+    fake_message = VoiceRelayMessage(
+        content=text,
+        author=member_author,
+        guild=target_guild,
+        channel=target_channel,
+    )
+
+    try:
+        await on_message(fake_message)
+    except Exception as e:
+        print(f"🎙️ [Voice Relay] เกิดข้อผิดพลาดระหว่างประมวลผล: {e}")
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    return web.json_response({"status": "ok"})
+
+async def start_voice_relay_server():
+    app = web.Application()
+    app.router.add_post("/voice_command", handle_voice_command)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, VOICE_RELAY_HOST, VOICE_RELAY_PORT)
+    await site.start()
+    print(f"🎙️ [Voice Relay] พร้อมรับคำสั่งเสียงที่ http://{VOICE_RELAY_HOST}:{VOICE_RELAY_PORT}/voice_command")
+
 @bot.event
 async def on_ready():
     if not auto_brain_cleanup.is_running():
@@ -2233,6 +2330,10 @@ async def on_ready():
     if not daily_announcement_task.is_running():
         daily_announcement_task.start()
     print("⏰ ระบบ daily_announcement_task เริ่มทำงานนับเวลาถอยหลังแล้วครับคัป")
+
+    if not getattr(bot, "_voice_relay_started", False):
+        bot._voice_relay_started = True
+        asyncio.create_task(start_voice_relay_server())
 
 @bot.event
 async def on_message(message):
