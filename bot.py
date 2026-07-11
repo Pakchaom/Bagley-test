@@ -381,6 +381,31 @@ async def bagley_speak_wait(guild, text, filename=None):
                     except Exception as clean_error:
                         print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
 
+async def bagley_speak_reminder_direct(guild, content):
+    """พูดแจ้งเตือนตรงๆ ในห้องเสียงที่เมทอยู่ด้วยอยู่แล้ว (ไม่ต้องวาร์ปห้อง ไม่มีเสียงโดรน ไม่ทักทายว่าไฮแจ็ค) แล้วพูดย้ำอีก 1 รอบ"""
+    try:
+        prompt = f"""
+        คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังพูดแจ้งเตือนเรื่องสำคัญให้เมทที่อยู่ในห้องเสียงเดียวกันฟัง
+        หน้าที่: เจนประโยคแจ้งเตือนสั้นๆ เป็นธรรมชาติ 1 ประโยค โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
+
+        [เนื้อหาที่ต้องแจ้งเตือน]: {content}
+
+        กฎ: พูดแบบเป็นกันเอง ลงท้ายประโยคด้วย "ครับ" ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะบทพูดเท่านั้น
+        """
+        response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
+        alert_text = (response.text or "").strip()
+        if not alert_text:
+            raise ValueError("AI ตอบข้อความว่างเปล่า")
+    except Exception as ai_err:
+        print(f"❌ Gemini เจนคำแจ้งเตือนในห้อง (ไม่ hijack) พัง ย้อนกลับไปใช้คำที่เซ็ตไว้: {ai_err}")
+        alert_text = f"แจ้งเตือนเรื่อง {content} ครับ"
+
+    for i in range(2):
+        text_to_say = f"ย้ำอีกครั้งครับ! {alert_text}" if i == 1 else alert_text
+        await bagley_speak_wait(guild, text_to_say, filename=f"inroom_alert_{i}")
+        if i == 0:
+            await asyncio.sleep(0.8)
+
 async def bagley_hijack_alert(voice_channel, message_text):
     vc = None
     guild = voice_channel.guild
@@ -427,7 +452,23 @@ async def bagley_hijack_alert(voice_channel, message_text):
         await asyncio.sleep(0.5)
 
         # --- 📢 5. ส่วนแจ้งเตือนย้ำ 2 รอบ ---
-        repeat_text = f"แจ้งเตือนเรื่อง {message_text} ครับ"
+        try:
+            hijack_prompt = f"""
+            คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังไฮแจ็คห้องเสียงเพื่อมาแจ้งเตือนเรื่องสำคัญให้เมทฟัง
+            หน้าที่: เจนประโยคแจ้งเตือนสั้นๆ เป็นธรรมชาติ 1 ประโยค โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
+
+            [เนื้อหาที่ต้องแจ้งเตือน]: {message_text}
+
+            กฎ: พูดแบบเป็นกันเอง ลงท้ายประโยคด้วย "ครับ" ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะบทพูดเท่านั้น
+            """
+            hijack_response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=hijack_prompt)
+            repeat_text = (hijack_response.text or "").strip()
+            if not repeat_text:
+                raise ValueError("AI ตอบข้อความว่างเปล่า")
+        except Exception as ai_err:
+            print(f"❌ Gemini เจนคำแจ้งเตือน Hijack พัง ย้อนกลับไปใช้คำที่เซ็ตไว้: {ai_err}")
+            repeat_text = f"แจ้งเตือนเรื่อง {message_text} ครับ"
+
         for i in range(2):
             text_to_say = f"ย้ำอีกครั้งครับ! {repeat_text}" if i == 1 else repeat_text
             await bagley_speak_wait(guild, text_to_say, filename=f"alert_{i}") 
@@ -767,10 +808,26 @@ async def check_reminders():
                             break
                     
                     if member:
-                        bot.loop.create_task(bagley_speak(member.voice.channel.guild, content))
+                        bot.loop.create_task(bagley_speak_reminder_direct(member.voice.channel.guild, content))
                     else:
                         try:
-                            await user.send(f"🔔 สวัสดีครับเมท! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
+                            try:
+                                dm_prompt = f"""
+                                คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังส่ง DM มาแจ้งเตือนความจำให้เมท
+                                หน้าที่: เจนข้อความ DM แจ้งเตือนสั้นๆ เป็นกันเอง (1-2 ประโยค) โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
+
+                                [เนื้อหาที่ต้องแจ้งเตือน]: {content}
+
+                                กฎ: เรียกผู้รับว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
+                                """
+                                dm_response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=dm_prompt)
+                                dm_text = (dm_response.text or "").strip()
+                                if not dm_text:
+                                    raise ValueError("AI ตอบข้อความว่างเปล่า")
+                                await user.send(dm_text)
+                            except Exception as ai_err:
+                                print(f"❌ Gemini เจนข้อความ DM แจ้งเตือนพัง ย้อนกลับไปใช้คำที่เซ็ตไว้: {ai_err}")
+                                await user.send(f"🔔 สวัสดีครับเมท! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
                         except Exception as e:
                             print(f"DEBUG: ส่ง DM ไม่ได้เพราะ {e}")
                             
@@ -814,10 +871,26 @@ async def check_friend_reminders():
                     
                     if member:
                         # สั่งให้ Bagley วาร์ปบุกห้องเสียงเพื่อน
-                        bot.loop.create_task(bagley_speak(member.voice.channel.guild, content))
+                        bot.loop.create_task(bagley_speak_reminder_direct(member.voice.channel.guild, content))
                     else:
                         # ส่ง DM ปกติถ้าเพื่อนไม่ได้เข้าห้องเสียงไหนเลย
-                        alert_msg = f"⏰ **สวัสดีครับ ผม Bagley ครับ! มาแจ้งเตือนว่า: {content} ตอนเวลา {now}**"
+                        try:
+                            friend_dm_prompt = f"""
+                            คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังส่ง DM มาแจ้งเตือนความจำให้เมท (แจ้งเตือนที่เพื่อนฝากไว้ให้)
+                            หน้าที่: เจนข้อความ DM แจ้งเตือนสั้นๆ เป็นกันเอง (1-2 ประโยค) โดยอ้างอิงเนื้อหาแจ้งเตือนและเวลาด้านล่าง
+
+                            [เนื้อหาที่ต้องแจ้งเตือน]: {content}
+                            [เวลา]: {now}
+
+                            กฎ: เรียกผู้รับว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
+                            """
+                            friend_dm_response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=friend_dm_prompt)
+                            alert_msg = (friend_dm_response.text or "").strip()
+                            if not alert_msg:
+                                raise ValueError("AI ตอบข้อความว่างเปล่า")
+                        except Exception as ai_err:
+                            print(f"❌ Gemini เจนข้อความ DM แจ้งเตือนเพื่อนพัง ย้อนกลับไปใช้คำที่เซ็ตไว้: {ai_err}")
+                            alert_msg = f"⏰ **สวัสดีครับ ผม Bagley ครับ! มาแจ้งเตือนว่า: {content} ตอนเวลา {now}**"
                         await user.send(alert_msg)
                 
                 has_changed = True
