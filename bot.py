@@ -2226,9 +2226,10 @@ class VoiceRelayMessage:
         # ถ้าไม่มีจะพังด้วย "'NoneType' object has no attribute 'allowed_mentions'"
         # ยืมมาจาก guild._state ได้เลยเพราะเป็น ConnectionState ตัวเดียวกัน
         self._state = guild._state
-        # สวมรอยเป็นเว็บฮุคที่ระบบอนุญาตไว้อยู่แล้ว เพื่อให้ไหลเข้า
-        # เส้นทางเดิม (is_from_my_webhook) โดยไม่ต้องแก้ on_message เพิ่ม
-        self.webhook_id = 1525103815890571325
+        # ✅ ใช้ตัวบอกสถานะของตัวเองแทนการสวมรอยเป็น Webhook ID จริง เพื่อไม่ให้
+        # ปนกับ Discord Webhook จริงจากภายนอก (ที่ปิดใช้งานไปแล้วด้านล่างใน on_message)
+        self.is_voice_relay_command = True
+        self.webhook_id = None
         self.id = int(time.time() * 1000)
         self.created_at = datetime.now(timezone.utc)
 
@@ -2341,14 +2342,10 @@ async def on_message(message):
 
     is_from_my_webhook = False
 
-    if message.webhook_id:
-        # 🔒 ล็อก ID จริงของ Webhook "Bagley-ears" สำหรับใช้ควบคุมด้วยเสียง
-        ALLOWED_WEBHOOK_ID = 1525103815890571325  
-        
-        if not is_webhook_enabled or message.webhook_id != ALLOWED_WEBHOOK_ID:
-            return
-            
-        is_from_my_webhook = True  # ยืนยันว่าเป็นเว็บบุคที่ถูกต้อง
+    if getattr(message, "is_voice_relay_command", False):
+        # ✅ นี่คือคำสั่งเสียงจาก mic_to_discord.py ที่มาผ่าน Local Voice Relay
+        # ในเครื่องเท่านั้น (ไม่ใช่ Discord Webhook จริง) ยืนยันว่าใช้ได้
+        is_from_my_webhook = True
         original_lower = message.content.strip().lower()
 
         # ไอดีดิสคอร์ดของเมทชะอม (บอทจะสวมรอยผู้ส่งให้ระบบตรวจสิทธิ์ผ่าน)
@@ -2386,6 +2383,12 @@ async def on_message(message):
             print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหาระบบด้านล่างคัป!")
             # 🌟 ลบ bot.process_commands และ return ออกไปเลยครับ! 
             # ปล่อยให้โค้ดมันไหลทะลุลงไปทำงานในส่วน Teach Memory และ Free Chat ด้านล่างตามธรรมชาติ
+
+    elif message.webhook_id:
+        # 🚫 [ปิดใช้งานแล้ว] Discord Webhook จริงจากภายนอกถูกปิดไปแล้วตามที่ขอ
+        # ให้บอทรับคำสั่งได้เฉพาะจากคนจริงๆ ในดิสคอร์ด หรือผ่าน Local Voice
+        # Relay (mic_to_discord.py ในเครื่องเดียวกัน) เท่านั้น
+        return
 
     # ========================================================
     # 🛑 [ด่านที่ 2]: ดักจับบอทตัวอื่น (ยกเว้นเว็บบุคของเรา)
@@ -4329,7 +4332,7 @@ if 'join_greeted_today' not in globals():
 async def join(ctx: commands.Context):
     global last_reminder_dates, join_greeted_today
     if ctx.interaction:
-        await ctx.interaction.defer()
+        await ctx.defer()
 
     if ctx.author.voice:
         channel = ctx.author.voice.channel
@@ -6090,7 +6093,7 @@ async def member_list(ctx: commands.Context, scope: str = "current"):
             title_text = "👁️ คลังระบบตาทิพย์: รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟ"
             
             for user_id_str, data in user_data.items():
-                if user_id_str == "reminders": continue
+                if not user_id_str.isdigit(): continue  # ข้าม key ที่ไม่ใช่ user id เช่น "reminders", "schedules"
                 nickname = data.get("nickname", "ยังไม่มีชื่อเล่น") if isinstance(data, dict) else data
                 birthday = data.get("birthday", "ยังไม่ได้ระบุ") if isinstance(data, dict) else "ยังไม่ได้ระบุ"
                 formatted_list.append(f"<@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})")
@@ -6100,7 +6103,7 @@ async def member_list(ctx: commands.Context, scope: str = "current"):
             title_text = f"📊 รายชื่อพรรคพวกในดิส '{guild.name}' ที่ผมจำได้"
             
             for user_id_str, data in user_data.items():
-                if user_id_str == "reminders": continue
+                if not user_id_str.isdigit(): continue  # ข้าม key ที่ไม่ใช่ user id เช่น "reminders", "schedules"
                 
                 member = guild.get_member(int(user_id_str))
                 if not member: continue
