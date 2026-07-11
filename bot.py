@@ -6463,4 +6463,37 @@ async def slash_remind(interaction: discord.Interaction, date: str, time: str, e
         f"ปล่อยเป็นหน้าที่ของแบ็คลี่ได้เลย! พอถึงวันเดี๋ยวผมบินโดรนแวะเข้าห้องเสียงไปเปิดไมค์แจ้งเตือนให้คัปพ้ม! 🫡"
     )
 
+@bot.hybrid_command(name="schedule_list", description="ดูตารางนัดหมาย/งานทั้งหมดที่คุณฝากแบ็คลี่จำไว้ (จาก /remind)")
+async def schedule_list(ctx: commands.Context):
+    try:
+        user_data = load_user_data()
+        schedules = user_data.get("schedules", [])
+
+        my_schedules = [s for s in schedules if str(s.get("owner_id")) == str(ctx.author.id)]
+
+        if not my_schedules:
+            return await ctx.send("ตอนนี้คุณยังไม่มีตารางนัดหมายที่ฝากผมจำไว้เลยครับเมท! ลองฝากไว้ด้วย `/remind` ได้เลยครับ")
+
+        # 🗂️ เรียงตามวันที่ + เวลาก่อน-หลัง (นัดที่ใกล้ถึงก่อนจะขึ้นก่อน)
+        def _schedule_sort_key(s):
+            try:
+                return datetime.strptime(f"{s.get('date', '')} {s.get('time', '')}", "%Y-%m-%d %H:%M")
+            except Exception:
+                return datetime.max  # ถ้าเวลาไม่ได้เป็นรูปแบบมาตรฐาน (เช่น '3 ทุ่ม') ให้ไปต่อท้ายสุด
+
+        my_schedules_sorted = sorted(my_schedules, key=_schedule_sort_key)
+
+        formatted_list = [
+            f"📅 **{s.get('date', 'ไม่ระบุวันที่')}** ⏰ **{s.get('time', 'ไม่ระบุเวลา')}** — 📌 {s.get('event', 'ไม่ระบุกิจกรรม')}"
+            for s in my_schedules_sorted
+        ]
+        title_text = f"🗂️ ตารางนัดหมายของคุณ {ctx.author.display_name}"
+
+        view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
+        view.message = await ctx.send(embed=view.create_embed(), view=view)
+
+    except Exception as e:
+        print(f"🚨 ERROR ระบบดูตารางงาน: {e}")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงตารางนัดหมายครับเมท")
+
 bot.run(DISCORD_TOKEN)
