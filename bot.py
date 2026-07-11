@@ -32,6 +32,7 @@ from aiohttp import web
 from discord.ext import tasks
 import random
 import re as regex_lib
+import traceback
 
 # --- RAM Cleaner ---
 import gc
@@ -878,12 +879,17 @@ async def follow_creator_task():
             voice_client = active_targets[0][2].guild.voice_client
             if voice_client:
                 try:
-                    await voice_client.disconnect()
+                    # 🛠️ [แก้บั๊ก] เดิมใช้ disconnect() แบบไม่ force ซึ่งบางครั้งดิสคอร์ดค้าง
+                    # ทำให้ guild.voice_client ยังเหลือ client ตัวเก่าที่พังอยู่ในระบบ
+                    # ผลคือรอบถัดไปที่ควรจะบินเข้าไปหาอีกคน กลับเชื่อมต่อไม่ติดเงียบๆ
+                    # เปลี่ยนเป็น force=True ให้เหมือนกับจุดอื่นๆ ที่รีคอนเน็กต์ปกติ
+                    await voice_client.disconnect(force=True)
                     voice_report_status.pop(active_targets[0][2].id, None)
                     bot_follow_targets[active_targets[0][2].id] = None 
                     print(f"DEBUG: ⚖️ ถอนกำลังออกจากห้องเดิมเรียบร้อย เพื่อความเท่าเทียมคัปพ้ม!")
                 except Exception as e:
                     print(f"❌ เกิดข้อผิดพลาดตอนสั่งบอทถอนกำลังโหมดไม่ลำเอียง: {e}")
+                    print(traceback.format_exc())
             return
 
         if active_targets[0][1] == active_targets[1][1]:
@@ -925,6 +931,7 @@ async def follow_creator_task():
             print(f"🛸 [Auto Follow Success] บินตามมาถึงห้อง {target_channel.name} เรียบร้อยคัปพ้ม!")
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเข้าห้องเสียง: {e}")
+            print(traceback.format_exc())
             return
 
         await asyncio.sleep(1.0)
