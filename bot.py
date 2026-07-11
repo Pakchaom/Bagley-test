@@ -2267,9 +2267,14 @@ tree = bot.tree
 # แยกทุกเซิร์ฟเวอร์ ยืดหยุ่นใช้ได้ทุกที่ที่บอทอยู่ร่วมห้องเสียง
 # กับเมทชะอม เซิร์ฟเวอร์ไหนก็ได้ ไม่ต้องตั้งค่าเพิ่ม
 # ============================================================
-VOICE_RELAY_HOST = "0.0.0.0"   # ฟังแค่ในเครื่องตัวเอง ห้ามเปิดสู่อินเทอร์เน็ต
+VOICE_RELAY_HOST = "0.0.0.0"   # ฟังจากทุก IP ของเครื่องนี้ (รองรับ Tailscale/เครื่องอื่น)
 VOICE_RELAY_PORT = 5959
-VOICE_RELAY_OWNER_ID = 1133740216822267954  # ไอดีดิสคอร์ดของเมทชะอม
+# 🎤 รายชื่อคนที่มีสิทธิ์พูดสั่งงานผ่าน Voice Relay ได้ (แต่ละคนรัน mic_to_discord.py
+# ของตัวเอง แล้วระบุ SPEAKER_DISCORD_ID เป็นไอดีของตัวเองในไฟล์นั้น)
+VOICE_RELAY_ALLOWED_OWNER_IDS = [
+    1133740216822267954,  # เมทชะอม
+    1073827310026903612,  # ลุงกร
+]
 
 class VoiceRelayMessage:
     """ตัวปลอมแทน discord.Message สำหรับส่งคำสั่งเสียงตรงเข้า on_message
@@ -2314,28 +2319,34 @@ async def handle_voice_command(request: "web.Request"):
     try:
         data = await request.json()
         text = (data.get("text") or "").strip()
+        owner_id_raw = data.get("owner_id")
+        owner_id = int(owner_id_raw) if owner_id_raw is not None else None
     except Exception:
         return web.json_response({"status": "error", "message": "invalid json"}, status=400)
 
     if not text:
         return web.json_response({"status": "error", "message": "empty text"}, status=400)
 
-    # หาว่าเมทชะอมอยู่ในห้องเสียงของเซิร์ฟเวอร์ไหนอยู่ตอนนี้ (auto-detect
+    if owner_id not in VOICE_RELAY_ALLOWED_OWNER_IDS:
+        print(f"🔒 [Voice Relay] มีคนพยายามส่งคำสั่งเสียงด้วย owner_id ที่ไม่ได้รับอนุญาต: {owner_id_raw}")
+        return web.json_response({"status": "error", "message": "unauthorized owner_id"}, status=403)
+
+    # หาว่าคนที่พูด (owner_id) อยู่ในห้องเสียงของเซิร์ฟเวอร์ไหนอยู่ตอนนี้ (auto-detect
     # ทำให้ไม่ต้องตั้งค่า guild/channel ล่วงหน้า ใช้ได้ทุกเซิร์ฟเวอร์ทันที)
     target_channel = None
     target_guild = None
     for guild in bot.guilds:
-        member = guild.get_member(VOICE_RELAY_OWNER_ID)
+        member = guild.get_member(owner_id)
         if member and member.voice and member.voice.channel:
             target_channel = member.voice.channel
             target_guild = guild
             break
 
     if target_channel is None:
-        print("🎙️ [Voice Relay] ไม่พบว่าเมทชะอมอยู่ในห้องเสียงของเซิร์ฟเวอร์ไหนเลยตอนนี้")
+        print(f"🎙️ [Voice Relay] ไม่พบว่าเจ้าของไอดี {owner_id} อยู่ในห้องเสียงของเซิร์ฟเวอร์ไหนเลยตอนนี้")
         return web.json_response({"status": "no_voice_channel"}, status=404)
 
-    member_author = target_guild.get_member(VOICE_RELAY_OWNER_ID)
+    member_author = target_guild.get_member(owner_id)
     fake_message = VoiceRelayMessage(
         content=text,
         author=member_author,
@@ -2411,14 +2422,11 @@ async def on_message(message):
     if getattr(message, "is_voice_relay_command", False):
         # ✅ นี่คือคำสั่งเสียงจาก mic_to_discord.py ที่มาผ่าน Local Voice Relay
         # ในเครื่องเท่านั้น (ไม่ใช่ Discord Webhook จริง) ยืนยันว่าใช้ได้
+        # 🔧 message.author ถูกกำหนดถูกต้องแล้วตั้งแต่ตอนสร้าง VoiceRelayMessage
+        # (เป็นสมาชิกจริงตาม owner_id ที่ mic_to_discord.py ส่งมา เช่น ชะอม
+        # หรือ ลุงกร) ไม่ต้องสวมรอยทับด้วย ID คงที่อีกแล้ว
         is_from_my_webhook = True
         original_lower = message.content.strip().lower()
-
-        # ไอดีดิสคอร์ดของเมทชะอม (บอทจะสวมรอยผู้ส่งให้ระบบตรวจสิทธิ์ผ่าน)
-        MY_DISCORD_ID = 1133740216822267954  
-        member_author = message.guild.get_member(MY_DISCORD_ID) if message.guild else None
-        if member_author:
-            message.author = member_author
 
         # ✂️ เตรียมประโยคสำหรับเช็กคีย์เวิร์ดคำสั่งระบบ
         clean_content = message.content.replace("แบ็คลี่", "").replace("bagley", "").strip()
@@ -4739,25 +4747,27 @@ async def yt_remove(ctx: commands.Context, channel_id: str):
 # --- 2. ดูเป้าหมายสอดแนม (yt_list) ---
 @bot.hybrid_command(name="yt_list", description="ดูรายชื่อช่อง YouTube ทั้งหมดที่ติดตามอยู่")
 async def yt_list(ctx: commands.Context):
-    global conn
-    c = conn.cursor()
-    c.execute("SELECT name, yt_id FROM youtube_channels WHERE guild_id = ?", (str(ctx.guild.id),))
-    channels = c.fetchall()
+    try:
+        global conn
+        c = conn.cursor()
+        c.execute("SELECT name, yt_id FROM youtube_channels WHERE guild_id = ?", (str(ctx.guild.id),))
+        channels = c.fetchall()
 
-    if not channels:
-        msg = "ตอนนี้ยังไม่มีเป้าหมายในบัญชีเลยครับ!"
-    else:
-        list_text = "\n".join([f"- {name} (`{cid}`)" for name, cid in channels])
-        msg = f"📋 รายชื่อเป้าหมายที่ผมกำลังจับตาดูอยู่ในขณะนี้ครับ:\n{list_text}"
+        if not channels:
+            return await ctx.send("ตอนนี้ยังไม่มีเป้าหมายในบัญชีเลยครับ!")
 
-    # ตอบกลับให้ถูกช่องทาง (Check Interaction)
-    if ctx.interaction:
-        await ctx.interaction.response.send_message(msg)
-    else:
-        await ctx.send(msg)
-        
-    # ให้ Bagley พูดสรุป
-    await bagley_speak(ctx.guild, "นี่คือรายชื่อเป้าหมายทั้งหมดที่เรากำลังติดตามอยู่ครับ")
+        formatted_list = [f"**{name}** (`{cid}`)" for name, cid in channels]
+        title_text = f"📋 รายชื่อเป้าหมาย YouTube ที่กำลังจับตาดูอยู่ในเซิร์ฟ '{ctx.guild.name}'"
+
+        view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
+        view.message = await ctx.send(embed=view.create_embed(), view=view)
+
+        # ให้ Bagley พูดสรุป
+        await bagley_speak(ctx.guild, "นี่คือรายชื่อเป้าหมายทั้งหมดที่เรากำลังติดตามอยู่ครับ")
+
+    except Exception as e:
+        print(f"🚨 ERROR ระบบรายชื่อ YouTube: {e}")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อ YouTube ครับเมท")
 
 # --- 3. ล้างความจำ (clear_memory) ---
 @bot.hybrid_command(name="clear_memory", description="ล้างประวัติการสนทนาส่วนตัวของคุณกับ Bagley")
@@ -5952,24 +5962,24 @@ async def list_teach(ctx: commands.Context):
     global conn
     c = conn.cursor()
     
-    c.execute("SELECT keyword FROM teach_memory ORDER BY keyword ASC")
+    c.execute("SELECT keyword, response FROM teach_memory ORDER BY keyword ASC")
     rows = c.fetchall()
     
     if not rows:
         await ctx.send("🤖 ตอนนี้คลังสมองของแบ็คลี่ยังว่างเปล่า ไม่มีคีย์เวิร์ดที่เคยสอนไว้เลยครับเมท!")
         return
 
-    keyword_list = []
-    for index, row in enumerate(rows, start=1):
-        keyword_list.append(f"{index}. **{row[0]}**")
-    
-    all_keywords_text = "\n".join(keyword_list)
-    
-    await ctx.send(
-        f"🧠 **[BAGLEY MEMORY BANK]** \n"
-        f"นี่คือรายการคีย์เวิร์ดทั้งหมดที่ทีมพัฒนาเคยสอนผมไว้ครับ! 👇\n\n"
-        f"{all_keywords_text}"
-    )
+    formatted_list = []
+    for keyword, response in rows:
+        response_text = response if response else "*(ไม่มีคำตอบบันทึกไว้)*"
+        # ตัดคำตอบที่ยาวเกินไปกันข้อความในเอ็มเบดล้นหน้า
+        if len(response_text) > 150:
+            response_text = response_text[:150] + "..."
+        formatted_list.append(f"**{keyword}**\n> {response_text}")
+
+    title_text = "🧠 BAGLEY MEMORY BANK: รายการคีย์เวิร์ดที่ทีมพัฒนาเคยสอนไว้"
+    view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=5)
+    view.message = await ctx.send(embed=view.create_embed(), view=view)
 
 @bot.tree.command(name="report_voice", description="เปิดหรือปิดระบบพูดรายงานทักทายตอนคนเข้า-ออกห้องเสียง")
 @app_commands.choices(status=[
