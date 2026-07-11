@@ -785,7 +785,7 @@ async def fade_out_source(vc, duration=1.5, steps=15):
 # --- 🔄 1. ระบบ Loop เช็กทุก 1 นาที ---
 @tasks.loop(minutes=1)
 async def follow_creator_task():
-    global last_greeting_dates, reported_guilds_today, room_guard_status
+    global last_greeting_dates, reported_guilds_today, room_guard_status, last_reminder_dates
     today = datetime.today().date()
     active_targets = []
 
@@ -843,13 +843,11 @@ async def follow_creator_task():
     if target_channel and guild_to_join and target_member:
         voice_client = guild_to_join.voice_client
 
-        # 🎯 จุดปรับปรุง: เช็กให้ชัวร์จริง ๆ ว่าบอทเชื่อมต่ออยู่ห้องเดียวกับเป้าหมายปัจจุบันไหม
+        # เช็กสลับห้อง
         if voice_client and voice_client.is_connected():
             if voice_client.channel == target_channel:
-                # ถ้าอยู่ห้องเดียวกันเป๊ะอยู่แล้ว ไม่ต้องทำอะไรคัป
                 return
             else:
-                # ถ้าเจ้านายย้ายห้อง แต่บอทคาอยู่ห้องเก่า ให้สั่งย้ายตามทันทีคัปพ้ม!
                 print(f"🔄 [Auto Follow] เจ้านายย้ายห้องแล้ว! กำลังพาน้องแบ็คลี่บินจากห้อง {voice_client.channel.name} ไปห้อง {target_channel.name}")
         
         try:
@@ -857,7 +855,6 @@ async def follow_creator_task():
                 await voice_client.move_to(target_channel)
                 vc = voice_client
             else:
-                # ล้างสถานะที่ค้างคาเพื่อความสะอาด
                 if voice_client:
                     await voice_client.disconnect(force=True)
                     await asyncio.sleep(0.5)
@@ -890,11 +887,12 @@ async def follow_creator_task():
 
             if vc.is_playing():
                 vc.stop()
+            await asyncio.sleep(0.5) # 🌟 เคลียร์ช่องสัญญาณเสียงหลังโดรนดังเสร็จสิ้น
         except Exception as e:
             print(f"❌ [Bagley] เกิดข้อผิดพลาดขณะเล่นเสียง Drone เปิดตัว: {e}")
 
         # ==========================================
-        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด (ปรับปรุงเงื่อนไขให้รีพอร์ตได้เสมอเมื่อย้ายห้อง)
+        #  ส่วนประมวลผลลอจิกการส่งเสียงพูด
         # ==========================================
         greeting_key = "both_together" if both_present else target_member.id
         guild_id = guild_to_join.id
@@ -908,26 +906,22 @@ async def follow_creator_task():
 
         user_memory = load_user_data()
         
-        # 📅 [ลอจิกดักจับตารางงานของทุกคนที่นั่งอยู่ในห้อง]
         today_str = datetime.now(bangkok_tz).strftime("%Y-%m-%d")
         today_schedules = []
         try:
             all_schedules = user_memory.get("schedules", [])
             for sch in all_schedules:
-                # เช็กว่าตรงกับวันนี้ และ เจ้าของนัดหมายนั่งอยู่ในห้องนี้ไหมคัป!
                 if sch.get("date") == today_str and sch.get("owner_id") in human_ids:
                     today_schedules.append(sch)
         except Exception as e:
             print(f"DEBUG: 📅 ดึงตารางงานใน Loop พลาด: {e}")
 
-        # กรองเฉพาะงานที่ยังไม่ได้เตือนในวันนี้
         pending_reminders = []
         for sch in today_schedules:
             remind_key = f"{sch.get('owner_id')}_{sch.get('event')}_{today_str}"
             if last_reminder_dates.get(remind_key) != today:
                 pending_reminders.append(sch)
 
-        # เตรียมข้อความสรุปตารางงานส่งให้ AI หรือ ระบบสำรอง
         reminder_context = ""
         reminder_fallback_text = ""
         if pending_reminders:
@@ -1000,9 +994,7 @@ async def follow_creator_task():
             reported_guilds_today[guild_id] = today
 
         else:
-            print(f"DEBUG: 🔍 [Follow Greeting Check] human_count={human_count}, greeting_key={greeting_key}, "
-                  f"last_greeting_dates.get={last_greeting_dates.get(greeting_key)}, today={today}, "
-                  f"reported_guilds_today.get={reported_guilds_today.get(guild_id)}, pending_reminders={len(pending_reminders)}")
+            print(f"DEBUG: 🔍 [Follow Greeting Check] human_count={human_count}, greeting_key={greeting_key} ")
 
             now_hour = datetime.now(bangkok_tz).hour
             time_greeting = "อรุณสวัสดิ์ครับ" if 0 <= now_hour < 13 else "สวัสดีตอนบ่ายครับ" if 13 <= now_hour < 14 else "สวัสดีตอนเย็นครับ" if 14 <= now_hour < 19 else "สวัสดีตอนกลางคืนครับ"
@@ -1011,17 +1003,15 @@ async def follow_creator_task():
             other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
             chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
 
-            # 🟢 [กรณีที่ 1: เพิ่งเคยทักทายกันครั้งแรกของวันในดิสคอร์ด] -> ใช้ AI เจนเนอเรตคำพูด
+            # 🟢 [กรณีที่ 1: ทักทายก้อนแรกแรกของวัน]
             if last_greeting_dates.get(greeting_key) != today:
                 try:
                     from google import genai
                     ai_client = genai.Client()
                     
-                    # รวบรวมรายชื่อคนอื่นในห้องเพื่อส่งให้ AI ทักชื่อรายคน
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
                     friend_names_list = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
                     friends_context = " และมีเพื่อนในห้องคือ " + " กับ ".join(friend_names_list) if friend_names_list else ""
-                    
                     caller_context = f"คุณ {chaom_name} และคุณ {chacha_name}" if both_present else f"คุณ {get_realtime_name(target_member.id, target_member.display_name)}"
 
                     prompt = f"""
@@ -1038,18 +1028,14 @@ async def follow_creator_task():
                     
                     response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
                     ai_greet = response.text.strip()
-                    
-                    # บดรวมคำทักทาย AI เข้ากับรายงานสถิติเซิร์ฟเวอร์แบบเดิมของเมท
                     msg = ai_greet + generate_report_speech(guild_to_join)
                     should_speak = True
                     
-                    # มาร์กสถานะทักทายแล้ว
                     for m in all_humans_in_room:
                         last_greeting_dates[m.id] = today
                         
                 except Exception as ai_err:
                     print(f"❌ Gemini ใน Loop ขัดข้อง ย้อนกลับไปใช้คำพูดดั้งเดิม: {ai_err}")
-                    # ระบบ Fallback กันพังดั้งเดิมของเมท
                     creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาแล้วครับ" if both_present else f"{time_greeting} เพิ่งมาหรอครับคุณ {get_realtime_name(target_member.id, target_member.display_name)} ยินดีต้อนรับนะครับ"
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
                     friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
@@ -1063,16 +1049,14 @@ async def follow_creator_task():
                     for uid in ALLOWED_USERS: last_greeting_dates[uid] = today
                 reported_guilds_today[guild_id] = today
 
-            # 🔵 [กรณีที่ 2: บอทย้ายตามข้ามไปเซิร์ฟเวอร์อื่นในวันเดียวกัน] -> ยอมให้ทักทายและเรียกชื่อคนในห้องอื่น
+            # 🔵 [กรณีที่ 2: บอทย้ายเซิร์ฟเวอร์ในวันเดียวกัน]
             elif reported_guilds_today.get(guild_id) != today:
                 try:
                     from google import genai
                     ai_client = genai.Client()
                     
-                    # ลิสต์รายชื่อคนในเซิร์ฟเวอร์ใหม่ที่ยังไม่เคยเจอหน้ากันวันนี้
                     un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
                     new_friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in un_greeted_people]
-                    
                     names_str = " กับ ".join(new_friend_names) if new_friend_names else "ทุกคนในห้องใหม่"
                     
                     prompt = f"""
@@ -1104,27 +1088,30 @@ async def follow_creator_task():
                 reported_guilds_today[guild_id] = today
                 
             else:
-                # 💡 เคยทักทายก้อนใหญ่ไปหมดแล้วในวันนี้ หากเป็นการย้ายห้องวนเวียนธรรมดา จะพูดเตือนแค่ตารางงานที่ยังค้างอยู่ (ถ้ามี)
+                # 💡 ถ้าย้ายห้องธรรมดาภายในเซิร์ฟเวอร์เดิม และมีตารางงานค้าง -> ให้แจ้งเตือนงานนั้นเสมอ
                 if pending_reminders:
                     msg = f"อ้อเมท แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
                     should_speak = True
                 else:
                     should_speak = False
-                    print("DEBUG: 🤫 [Follow Greeting] เคยทักทายและรายงานเซิร์ฟนี้ไปหมดแล้ววันนี้ "
-                          "และไม่มีตารางงานค้าง -> อยู่เฉยๆ ไม่พูดอะไรโดยตั้งใจ")
 
-        print(f"DEBUG: 🗣️ [Follow Greeting] ก่อนพูด -> should_speak={should_speak}, msg_length={len(msg) if msg else 0}, msg_preview={msg[:80] if msg else '(ว่าง)'}")
+        print(f"DEBUG: 🗣️ [Follow Greeting] ก่อนพูด -> should_speak={should_speak}, msg_length={len(msg) if msg else 0}")
+        
+        # 🌟 บังคับเงื่อนไขการันตีเสียงพูดเมื่อมีข้อความและได้รับการอนุญาตให้ส่งเสียง
         if should_speak and msg:
             try:
+                # เคลียร์เสียงที่ค้างอยู่ก่อนเปิดเสียงพูด
+                if vc.is_playing():
+                    vc.stop()
+                await asyncio.sleep(0.2)
+                
                 await bagley_speak_wait(guild_to_join, msg)
-                # ล็อกสถานะว่าตารางงานชุดนี้เปิดไมค์พูดเตือนเสร็จสิ้นแล้วในวันนี้
                 for r in pending_reminders:
                     remind_key = f"{r.get('owner_id')}_{r.get('event')}_{today_str}"
                     last_reminder_dates[remind_key] = today
             except Exception as e:
                 print(f"❌ [Bagley] เกิดข้อผิดพลาดตอนส่งเสียงทักทายมนุษย์: {e}")
 
-    # 🎮 ลอจิกอื่น ๆ รันต่อท้ายสุดของลูปหลักตามปกติคัปพ้ม
     if active_targets:
         await check_and_warn_gamers(guild_to_join)
         await check_and_invite_party(guild_to_join)
@@ -4372,6 +4359,7 @@ async def join(ctx: commands.Context):
 
             if vc.is_playing():
                 vc.stop()
+            await asyncio.sleep(0.5) # 🌟 เพิ่มดีเลย์เพื่อให้ระบบ Discord เคลียร์ช่องสัญญาณเสียง
         except Exception as e:
             print(f"❌ เกิดข้อผิดพลาดเสียง Drone ตอน Join: {e}")
 
@@ -4398,7 +4386,6 @@ async def join(ctx: commands.Context):
             if last_reminder_dates.get(remind_key) != today_date:
                 pending_reminders.append(sch)
 
-        # เตรียมคำพูดเตือนแบบดั้งเดิม (Fallback)
         reminder_fallback_text = ""
         reminder_context = ""
         if pending_reminders:
@@ -4419,7 +4406,6 @@ async def join(ctx: commands.Context):
 
         # 💡 เช็กว่าเซิร์ฟเวอร์นี้ วันนี้เคยเรียก /join แล้วใช้ AI เจนคำพูดทักทายไปแล้วหรือยัง
         if join_greeted_today.get(guild_key) != today_date:
-            # 🔥 ครั้งแรกของวัน!! ใช้ AI ดีไซน์ประโยคทักทายให้ไม่ซ้ำซาก
             try:
                 from google import genai
                 ai_client = genai.Client()
@@ -4439,12 +4425,11 @@ async def join(ctx: commands.Context):
                 msg = (response.text or "").strip()
                 print(f"DEBUG: 🤖 [Join AI] Gemini ตอบกลับมา (length={len(msg)}): {msg[:80] if msg else '(ว่างเปล่า!)'}")
                 
-                # บันทึกว่าวันนี้ใช้โควตา AI เจนทักทายในคำสั่ง /join ประจำเซิร์ฟนี้ไปแล้วคัปพ้ม!
                 join_greeted_today[guild_key] = today_date
             except Exception as ai_err:
                 print(f"❌ Gemini ทักทายตอน Join ครั้งแรกขัดข้อง: {ai_err}")
 
-        # 🔒 ถาเคยเรียกใช้ไปแล้วในวันนี้ หรือ AI สั่งงานพลาด -> ถอยกลับมาใช้คำพูดฟิกซ์เดิม (จะได้ไม่ทักทายเหมือนเพิ่งเจอกันวันแรก)
+        # 🔒 ถ้าเคยเรียกใช้ไปแล้วในวันนี้ หรือ AI ทำงานพลาด -> ถอยกลับมาใช้คำพูดสำรอง (แต่บังคับให้พูดเสมอ)
         if not msg:
             print("DEBUG: 🔁 [Join] msg ว่างเปล่า (AI ไม่ได้พูดหรือเคยทักไปแล้ว) -> ใช้คำพูดฟิกซ์สำรอง")
             quotes = [
@@ -4463,6 +4448,11 @@ async def join(ctx: commands.Context):
             await ctx.send(msg)
             
         try:
+            # 🌟 การันตีหยุดเสียงเก่าก่อนพูด และเรียกใช้ฟังก์ชันพูด
+            if vc.is_playing():
+                vc.stop()
+            await asyncio.sleep(0.2)
+            
             await bagley_speak_wait(ctx.guild, msg)
             for r in pending_reminders:
                 remind_key = f"{r.get('owner_id')}_{r.get('event')}_{today_str}"
