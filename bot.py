@@ -329,6 +329,86 @@ def get_realtime_name(user_id, default_name):
         print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
     return default_name
 
+def find_member_by_name(guild, name_text, exclude_ids=None):
+    """
+    🔍 ค้นหาสมาชิกจากชื่อที่พิมพ์เฉยๆ (ไม่ต้อง @แท็ก)
+    ลอจิก: เทียบกับชื่อเล่นที่เก็บไว้ใน "คลังความจำ" (user_data) ก่อน
+    ถ้าไม่เจอในคลัง ค่อยเทียบกับชื่อบนดิสคอร์ด (display_name / name) เหมือนเดิม
+    """
+    if not guild or not name_text:
+        return None
+
+    exclude_ids = exclude_ids or set()
+    clean = name_text.lower().strip()
+    if not clean:
+        return None
+
+    data_memory = load_user_data()
+
+    def get_calling_name(member):
+        special_info = data_memory.get(str(member.id))
+        if special_info and isinstance(special_info, dict):
+            calling_name = special_info.get("nickname", member.display_name)
+        elif special_info:
+            calling_name = special_info
+        else:
+            calling_name = member.display_name
+        if not calling_name or calling_name == "ยังไม่ระบุ":
+            calling_name = member.display_name
+        return (calling_name or "").lower().strip()
+
+    # รอบที่ 1: หาแบบตรงตัวเป๊ะๆ ก่อน (กันแมตช์มั่วจากชื่อสั้นๆ) — เช็คคลังก่อนเสมอ
+    for m in guild.members:
+        if m.id in exclude_ids:
+            continue
+        c_name = get_calling_name(m)
+        m_disp = (m.display_name or "").lower()
+        m_name = (m.name or "").lower()
+        if clean == c_name or clean == m_disp or clean == m_name:
+            return m
+
+    # รอบที่ 2: หาแบบเข้าใกล้เคียง/มีคำอยู่ในข้อความ (บางส่วนของชื่อ)
+    for m in guild.members:
+        if m.id in exclude_ids:
+            continue
+        c_name = get_calling_name(m)
+        m_disp = (m.display_name or "").lower()
+        m_name = (m.name or "").lower()
+        if (c_name and (c_name in clean or clean in c_name)) or \
+           (m_disp and (m_disp in clean or clean in m_disp)) or \
+           (m_name and clean in m_name):
+            return m
+
+    return None
+
+def resolve_target_member(message, remove_keywords=None, exclude_bot=True):
+    """
+    🎯 หาสมาชิกเป้าหมายจากข้อความคำสั่ง:
+    1. ถ้ามีการ @แท็ก ให้ใช้คนที่ถูกแท็กก่อนเหมือนเดิม
+    2. ถ้าไม่ได้แท็ก ให้แกะข้อความ (ตัดคีย์เวิร์ดคำสั่งออก) แล้วค้นจากคลังความจำ/ชื่อดิสคอร์ดแทน
+    คืนค่าเป็น (target_member หรือ None, ข้อความที่เหลือหลังตัดชื่อ/แท็กออกแล้ว)
+    """
+    exclude_ids = {bot.user.id} if exclude_bot else set()
+
+    if message.mentions:
+        target = next((m for m in message.mentions if m.id not in exclude_ids), None)
+        if target:
+            leftover = message.content
+            for mention in message.mentions:
+                leftover = leftover.replace(f"<@{mention.id}>", "").replace(f"<@!{mention.id}>", "")
+            return target, leftover.strip()
+
+    if not message.guild:
+        return None, message.content
+
+    clean_text = message.content.lower()
+    for kw in (remove_keywords or []):
+        clean_text = clean_text.replace(kw.lower(), "")
+    clean_text = clean_text.strip()
+
+    target = find_member_by_name(message.guild, clean_text, exclude_ids=exclude_ids)
+    return target, clean_text
+
 async def bagley_speak_wait(guild, text, filename=None):
     if not guild: return
     vc = guild.voice_client
@@ -2733,6 +2813,15 @@ async def on_message(message):
                             target_display_name = f"คุณ {fetched_user.display_name}"
                     except:
                         target_display_name = f"พรรคพวก ID: {target_user_id}"
+                elif message.guild is not None:
+                    # 🔍 ไม่ได้แท็ก/ไม่มี ID ให้ลองแกะชื่อจากข้อความ เทียบกับคลังความจำ/ชื่อดิสคอร์ดแทน
+                    named_target, _ = resolve_target_member(
+                        message,
+                        remove_keywords=["แบ็คลี่", "bagley", "เตือน", "ตอน", "เวลา"]
+                    )
+                    if named_target:
+                        target_user_id = named_target.id
+                        target_display_name = f"คุณ {named_target.display_name}"
 
             if target_user_id:
                 try:
@@ -2877,6 +2966,12 @@ async def on_message(message):
                     return
             elif message.mentions:
                 target_user = message.mentions[0]
+            else:
+                # 🔍 ไม่ได้แท็ก/ไม่มี ID ให้ลองแกะชื่อจากข้อความ เทียบกับคลังความจำ/ชื่อดิสคอร์ดแทน
+                target_user, _ = resolve_target_member(
+                    message,
+                    remove_keywords=["แบ็คลี่", "bagley", "คนนี้คือใคร"]
+                )
 
             if target_user:
                 data_memory = load_user_data()
@@ -3159,8 +3254,12 @@ async def on_message(message):
         if not can_act:
             return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
         
-        if message.mentions:
-            target_user = message.mentions[0]
+        target_user, _ = resolve_target_member(
+            message,
+            remove_keywords=["แบ็คลี่", "bagley", "เรียก"]
+        )
+
+        if target_user:
             
             if target_user.id == bot.user.id:
                 await message.reply("🤖 เอ๋เมท... จะให้ผมส่ง DM หาตัวเองทำไมกันครับ! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
@@ -3227,11 +3326,13 @@ async def on_message(message):
 
         # 👥 ดึงคนสั่ง และคนที่จะให้ไปชวน (ขยับแท็บเข้ามาในบล็อกเงื่อนไขแล้วคัป)
         host_member = message.author
-        if not message.mentions:
-            await message.reply("❌ เมทต้องแท็กชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน @ชื่อเพื่อน หน่อย` น้า")
+        target_member, _ = resolve_target_member(
+            message,
+            remove_keywords=["แบ็คลี่", "bagley", "ชวน", "หน่อย"]
+        )
+        if not target_member:
+            await message.reply("❌ เมทต้องพิมพ์ชื่อเพื่อนหรือแท็ก @ชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน ชื่อเพื่อน หน่อย` น้า")
             return
-            
-        target_member = message.mentions[0]
 
         # 🕵️‍♂️ ดึงชื่อเล่นเรียลไทม์จากคลัง
         host_name = get_realtime_name(host_member.id, host_member.display_name)
@@ -3719,7 +3820,14 @@ async def on_message(message):
             elif any(k in lower_content for k in ["ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]):
                 print("DEBUG: ตรวจพบคำสั่งพิมพ์ปกติ กำลังเชื่อมโยงไปที่ระบบ Slash Command (/forget)...")
                 
-                target_user = message.mentions[0] if message.mentions else None
+                if message.mentions:
+                    target_user = message.mentions[0]
+                else:
+                    # 🔍 ไม่ได้แท็ก ให้ลองแกะชื่อจากข้อความ เทียบกับคลังความจำ/ชื่อดิสคอร์ดแทน
+                    target_user, _ = resolve_target_member(
+                        message,
+                        remove_keywords=["แบ็คลี่", "bagley", "ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]
+                    )
                 forget_cmd = bot.tree.get_command("forget")
                 
                 if forget_cmd:
