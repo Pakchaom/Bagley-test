@@ -15,6 +15,7 @@ import zoneinfo
 from typing import Union, Optional
 import json
 import time
+import secrets
 import collections
 import urllib.parse
 
@@ -97,7 +98,6 @@ ALLOWED_SHUTDOWN_USERS = [
 ALLOWED_TEACH_USERS = [
     1133740216822267954,  # ชะอม
     856568101919653918,    # ชาช่า
-    732953446172327956,    # คุณบอล
     1073827310026903612    # ลุงกร
 ]
 
@@ -2467,13 +2467,19 @@ tree = bot.tree
 # แยกทุกเซิร์ฟเวอร์ ยืดหยุ่นใช้ได้ทุกที่ที่บอทอยู่ร่วมห้องเสียง
 # กับเมทชะอม เซิร์ฟเวอร์ไหนก็ได้ ไม่ต้องตั้งค่าเพิ่ม
 # ============================================================
-VOICE_RELAY_HOST = "0.0.0.0"   # ฟังจากทุก IP ของเครื่องนี้ (รองรับ Tailscale/เครื่องอื่น)
+VOICE_RELAY_HOST = "0.0.0.0"   # ฟังจากทุก IP ของเครื่องนี้ (รองรับต่อตรงจากอินเทอร์เน็ต/Tailscale/เครื่องอื่น)
 VOICE_RELAY_PORT = 5959
+# 🔑 [ความปลอดภัย] รหัสลับที่ต้องตรงกันเป๊ะๆกับ VOICE_RELAY_API_KEY ในฝั่ง
+# mic_to_bagley.py ทุกเครื่อง ตั้งใหม่เป็นของตัวเอง (สุ่มยาวๆ) แล้วห้ามบอกใคร
+# จำเป็นมากเป็นพิเศษถ้าจะเปิดพอร์ตต่อตรงออกอินเทอร์เน็ต (ไม่ผ่าน VPN) เพราะ
+# จะมีแค่รหัสนี้เท่านั้นที่กันคนอื่นทั่วอินเทอร์เน็ตไม่ให้ยิงคำสั่งเสียงเข้ามาได้
+VOICE_RELAY_API_KEY = "010525690426"
 # 🎤 รายชื่อคนที่มีสิทธิ์พูดสั่งงานผ่าน Voice Relay ได้ (แต่ละคนรัน mic_to_discord.py
 # ของตัวเอง แล้วระบุ SPEAKER_DISCORD_ID เป็นไอดีของตัวเองในไฟล์นั้น)
 VOICE_RELAY_ALLOWED_OWNER_IDS = [
-    1133740216822267954,  # เมทชะอม
+    1133740216822267954,  # ชะอม
     1073827310026903612,  # ลุงกร
+    856568101919653918,   # ชาช่า
 ]
 
 class VoiceRelayMessage:
@@ -2521,8 +2527,13 @@ async def handle_voice_command(request: "web.Request"):
         text = (data.get("text") or "").strip()
         owner_id_raw = data.get("owner_id")
         owner_id = int(owner_id_raw) if owner_id_raw is not None else None
+        api_key = data.get("api_key") or ""
     except Exception:
         return web.json_response({"status": "error", "message": "invalid json"}, status=400)
+
+    if not secrets.compare_digest(api_key, VOICE_RELAY_API_KEY):
+        print(f"🔒 [Voice Relay] มีคนพยายามยิงคำสั่งเข้ามาโดยรหัส API Key ไม่ตรง! บล็อกไว้แล้ว (IP: {request.remote})")
+        return web.json_response({"status": "error", "message": "invalid api_key"}, status=403)
 
     if not text:
         return web.json_response({"status": "error", "message": "empty text"}, status=400)
