@@ -258,6 +258,10 @@ def start_bot():
         child_env = os.environ.copy()
         child_env["PYTHONUTF8"] = "1"
         child_env["PYTHONIOENCODING"] = "utf-8"
+        # 🔧 [แก้บั๊ก] ตอนรันผ่าน pipe (ไม่ใช่ Terminal ตรงๆ) Python จะเปลี่ยนไป
+        # ใช้ block-buffering กับ stdout ทำให้ print() ไปค้างอยู่ในบัฟเฟอร์
+        # ยังไม่ถูกส่งออกมาให้เห็นทันที ต้องสั่ง unbuffered ไว้ตรงๆด้วย
+        child_env["PYTHONUNBUFFERED"] = "1"
 
         try:
             _proc = subprocess.Popen(

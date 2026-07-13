@@ -2467,13 +2467,8 @@ tree = bot.tree
 # แยกทุกเซิร์ฟเวอร์ ยืดหยุ่นใช้ได้ทุกที่ที่บอทอยู่ร่วมห้องเสียง
 # กับเมทชะอม เซิร์ฟเวอร์ไหนก็ได้ ไม่ต้องตั้งค่าเพิ่ม
 # ============================================================
-VOICE_RELAY_HOST = "0.0.0.0"   # ฟังจากทุก IP ของเครื่องนี้ (รองรับต่อตรงจากอินเทอร์เน็ต/Tailscale/เครื่องอื่น)
+VOICE_RELAY_HOST = "0.0.0.0"   # ฟังจากทุก IP ของเครื่องนี้ (รองรับ Radmin VPN/เครื่องอื่นในเครือข่ายเดียวกัน)
 VOICE_RELAY_PORT = 5959
-# 🔑 [ความปลอดภัย] รหัสลับที่ต้องตรงกันเป๊ะๆกับ VOICE_RELAY_API_KEY ในฝั่ง
-# mic_to_bagley.py ทุกเครื่อง ตั้งใหม่เป็นของตัวเอง (สุ่มยาวๆ) แล้วห้ามบอกใคร
-# จำเป็นมากเป็นพิเศษถ้าจะเปิดพอร์ตต่อตรงออกอินเทอร์เน็ต (ไม่ผ่าน VPN) เพราะ
-# จะมีแค่รหัสนี้เท่านั้นที่กันคนอื่นทั่วอินเทอร์เน็ตไม่ให้ยิงคำสั่งเสียงเข้ามาได้
-VOICE_RELAY_API_KEY = "010525690426"
 # 🎤 รายชื่อคนที่มีสิทธิ์พูดสั่งงานผ่าน Voice Relay ได้ (แต่ละคนรัน mic_to_discord.py
 # ของตัวเอง แล้วระบุ SPEAKER_DISCORD_ID เป็นไอดีของตัวเองในไฟล์นั้น)
 VOICE_RELAY_ALLOWED_OWNER_IDS = [
@@ -2527,13 +2522,8 @@ async def handle_voice_command(request: "web.Request"):
         text = (data.get("text") or "").strip()
         owner_id_raw = data.get("owner_id")
         owner_id = int(owner_id_raw) if owner_id_raw is not None else None
-        api_key = data.get("api_key") or ""
     except Exception:
         return web.json_response({"status": "error", "message": "invalid json"}, status=400)
-
-    if not secrets.compare_digest(api_key, VOICE_RELAY_API_KEY):
-        print(f"🔒 [Voice Relay] มีคนพยายามยิงคำสั่งเข้ามาโดยรหัส API Key ไม่ตรง! บล็อกไว้แล้ว (IP: {request.remote})")
-        return web.json_response({"status": "error", "message": "invalid api_key"}, status=403)
 
     if not text:
         return web.json_response({"status": "error", "message": "empty text"}, status=400)
@@ -5759,14 +5749,26 @@ async def update_bot(ctx: commands.Context):
             if conn: conn.close()
         except: pass
 
-        await bot.close()
-        await asyncio.sleep(1.0)
+        # 🔧 [แก้บั๊ก] เดิม await bot.close() เฉยๆไม่มีการจำกัดเวลา ถ้ามันค้าง
+        # (เช่น task เบื้องหลังบางตัวไม่ยอมจบ) โค้ดจะไม่มีทางไปถึง os._exit(87)
+        # เลย -> Discord เห็นบอทออฟไลน์ (gateway ถูกปิดไปแล้ว) แต่ตัวโปรเซสจริงๆ
+        # ยังไม่ตาย ทำให้ bagley_tray.py ไม่เห็นว่ามันปิดไปแล้ว เลยไม่สั่งเริ่มใหม่
+        # ให้ ต้องไปเปิดเองจากไอคอน ตอนนี้จำกัดเวลาไว้ 5 วิ ไม่ว่า bot.close()
+        # จะสำเร็จ ค้าง หรือ error ก็ตาม การันตีว่าจะไปถึง os._exit(87) เสมอ
+        try:
+            await asyncio.wait_for(bot.close(), timeout=5.0)
+        except Exception as close_err:
+            print(f"⚠️ [Update Bot] bot.close() ไม่สำเร็จ/ค้างเกิน 5 วิ ({close_err}) "
+                  f"แต่จะบังคับปิดตัวเองต่อไปอยู่ดี")
+
         # 🔧 [แก้ไข] เดิมใช้ start_hidden.bat + DETACHED_PROCESS สั่งรีสตาร์ทเอง
         # แต่วิธีนั้นจะสร้างโปรเซสใหม่ที่ bagley_tray.py (ตัวคุมไอคอนถาด) ไม่รู้จัก
         # ทำให้ไอคอนถาดหลุดการติดตามสถานะบอทไปทุกครั้งที่ /update_bot ทำงาน
         # ตอนนี้เปลี่ยนมาแค่ "ปิดตัวเอง" ด้วย exit code พิเศษ (87) แทน แล้วให้
         # bagley_tray.py เป็นคนตรวจจับรหัสนี้แล้วสั่งเริ่มบอทใหม่ให้เองอัตโนมัติ
         # (ถ้ารันบอทตรงๆไม่ผ่าน bagley_tray.py จะแค่ปิดไปเฉยๆ ต้องเปิดขึ้นมาใหม่เอง)
+        print("🛸 [Update Bot] กำลังปิดตัวเองด้วย exit code 87 ทันที...")
+        sys.stdout.flush()
         os._exit(87)  # 87 = รหัสลับ "ปิดเพื่ออัปเดต ให้เริ่มใหม่ได้เลย" ไม่ใช่ crash
 
     except Exception as e:
