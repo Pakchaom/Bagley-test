@@ -26,3 +26,6 @@ run_bagley.vbs
 *.exe
 
 *.spec
+
+build/
+dist/

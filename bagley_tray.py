@@ -42,6 +42,7 @@ bagley_tray.py
 
 import os
 import sys
+import socket
 import subprocess
 import threading
 import time
@@ -50,7 +51,37 @@ from collections import deque
 import pystray
 from PIL import Image, ImageDraw
 
+# 🔧 [แก้บั๊ก] Windows console/exe แบบ windowed มักใช้ codec cp1252 (อังกฤษ)
+# เป็นค่าเริ่มต้น ซึ่งเข้ารหัสภาษาไทยไม่ได้ ทำให้ print() ข้อความไทย crash
+# ทั้งโปรแกรมด้วย UnicodeEncodeError บังคับให้ stdout/stderr ใช้ UTF-8 เสมอ
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None:
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+# 🔒 [กันรันซ้ำ] ถ้าเปิด bagley_tray.exe มากกว่า 1 ตัว จะเปิดไอคอนถาดซ้อนกัน
+# หลายอัน แต่ละอันพยายามรัน bot.py ของตัวเอง ชนกันที่พอร์ต Voice Relay ทันที
+# ใช้การ bind socket ที่พอร์ตนี้เป็น "กลอนล็อก" ถ้า bind ไม่ได้ แปลว่ามีตัวอื่น
+# รันอยู่แล้ว จะเลิกเปิดตัวใหม่ทันที (ไม่ต้องพึ่งไลบรารีเสริมอะไรเพิ่ม)
+_SINGLE_INSTANCE_LOCK_PORT = 58959
+_lock_socket = None
+
+
+def _acquire_single_instance_lock() -> bool:
+    global _lock_socket
+    try:
+        _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        _lock_socket.bind(("127.0.0.1", _SINGLE_INSTANCE_LOCK_PORT))
+        _lock_socket.listen(1)
+        return True
+    except OSError:
+        return False
+
 BOT_SCRIPT_NAME = "bot.py"
+
 
 def resource_path(relative_path: str) -> str:
     """หา path ของไฟล์แนบ (เช่น tray_icon.png) ทั้งตอนรันเป็น .py ธรรมดา
@@ -61,14 +92,17 @@ def resource_path(relative_path: str) -> str:
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
+
 def get_app_dir() -> str:
     """โฟลเดอร์ที่ไฟล์นี้ (หรือ .exe) อยู่จริงๆ ต้องเป็นโฟลเดอร์เดียวกับ bot.py"""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
+
 BOT_DIR = get_app_dir()
 BOT_SCRIPT_PATH = os.path.join(BOT_DIR, BOT_SCRIPT_NAME)
+
 
 # ==================== ระบบบันทึกกิจกรรม (เหมือน mic_to_bagley.py) ====================
 _log_lines = deque(maxlen=500)
@@ -80,12 +114,18 @@ _tk_ready_event = threading.Event()
 
 _tray_icon_obj = None  # อ้างอิงถึง pystray.Icon ตัวจริง เพื่ออัปเดตสี/tooltip ทีหลังได้
 
+
 def log(msg: str):
-    """พิมพ์ลง console เผื่อรันแบบเห็นหน้าต่าง และเก็บไว้โชว์ในหน้าต่างบันทึกด้วย"""
-    print(msg)
+    """พิมพ์ลง console เผื่อรันแบบเห็นหน้าต่าง และเก็บไว้โชว์ในหน้าต่างบันทึกด้วย
+    (กัน error การพิมพ์เอาไว้ ไม่ให้ทำโปรแกรมทั้งตัว crash แม้เจอ encoding แปลกๆ)"""
+    try:
+        print(msg)
+    except Exception:
+        pass
     with _log_lock:
         _log_lines.append(msg)
     _refresh_log_widget()
+
 
 def _start_gui():
     global _tk_root, _tk_text_widget
@@ -107,6 +147,7 @@ def _start_gui():
     _tk_root.withdraw()
     _tk_ready_event.set()
     _tk_root.mainloop()
+
 
 def _refresh_log_widget():
     if _tk_root is None:
@@ -145,15 +186,18 @@ def toggle_log_window(icon=None, item=None):
     _tk_root.after(0, _toggle)
 # =========================================================================
 
+
 # ==================== ระบบควบคุมโปรเซสของ bot.py ====================
 _proc = None                    # subprocess.Popen ของบอทที่กำลังรันอยู่ (หรือ None)
 _proc_lock = threading.Lock()
 _desired_running = True         # เจตนาว่าอยากให้บอทรันอยู่ไหม (แยกจากอาการ crash เอง)
 _watchdog_started = False
 
+
 def is_bot_running() -> bool:
     with _proc_lock:
         return _proc is not None and _proc.poll() is None
+
 
 def _read_bot_output(proc):
     """อ่าน stdout/stderr ของบอทแบบสดๆทีละบรรทัด ป้อนเข้า log ของเรา"""
@@ -163,6 +207,25 @@ def _read_bot_output(proc):
     except Exception:
         pass
     log("📴 ช่องอ่าน log ของบอทถูกปิดแล้ว (บอทหยุดทำงานแล้ว)")
+
+
+def _find_python_executable():
+    """หา python interpreter ตัวจริงสำหรับรัน bot.py
+    🔧 [แก้บั๊กสำคัญ] ตอน bagley_tray.py ถูก build เป็น .exe แล้ว (frozen)
+    sys.executable จะไม่ได้ชี้ไปที่ python.exe จริง แต่ชี้กลับมาที่ bagley_tray.exe
+    ตัวเอง! ถ้าใช้ sys.executable ตรงๆจะเท่ากับสั่ง "bagley_tray.exe bot.py"
+    ซึ่งเปิด bagley_tray.exe ซ้อนขึ้นมาอีกตัวโดยไม่ได้ตั้งใจ (ไม่ได้รัน bot.py
+    เลย!) ต้องหา python.exe ตัวจริงจาก PATH ของระบบแทนเมื่อรันเป็น .exe"""
+    if not getattr(sys, "frozen", False):
+        return sys.executable  # รันเป็น .py ธรรมดา sys.executable ถูกอยู่แล้ว
+
+    import shutil
+    for candidate in ("python", "python3", "py"):
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
 
 def start_bot():
     global _proc, _desired_running
@@ -175,13 +238,30 @@ def start_bot():
                 f"bagley_tray.py ไปไว้โฟลเดอร์เดียวกับ bot.py ก่อนนะครับ")
             return
 
+        python_exe = _find_python_executable()
+        if not python_exe:
+            log("❌ หา python.exe ไม่เจอในระบบ (PATH) กรุณาติดตั้ง Python และ "
+                "เลือก 'Add python.exe to PATH' ตอนติดตั้งด้วย ไม่งั้นตัวคุมนี้ "
+                "จะรันบอทไม่ได้เลย")
+            return
+
         _desired_running = True
         log("🟢 กำลังสั่งเริ่มบอท Bagley...")
 
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+        # 🔧 [แก้บั๊ก] encoding="utf-8" ด้านล่างมีผลแค่ฝั่งที่เราอ่าน stdout ของ
+        # บอทเท่านั้น ไม่ได้บอกให้ "ตัวบอทเอง" (โปรเซสลูก) ใช้ UTF-8 ด้วย พอบอท
+        # สั่ง print() ข้อความไทย/อีโมจิ เลยยังไปชน cp1252 ของ Windows เหมือนเดิม
+        # ต้องส่ง PYTHONUTF8=1 ผ่าน environment variable เข้าไปในโปรเซสลูกด้วย
+        # เพื่อบังคับให้ Python ของบอทใช้ UTF-8 ทั้ง stdout/stderr ตั้งแต่เริ่มรัน
+        child_env = os.environ.copy()
+        child_env["PYTHONUTF8"] = "1"
+        child_env["PYTHONIOENCODING"] = "utf-8"
+
         try:
             _proc = subprocess.Popen(
-                [sys.executable, BOT_SCRIPT_PATH],
+                [python_exe, BOT_SCRIPT_PATH],
                 cwd=BOT_DIR,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -189,6 +269,7 @@ def start_bot():
                 encoding="utf-8",
                 errors="replace",
                 creationflags=creationflags,
+                env=child_env,
             )
         except Exception as e:
             log(f"❌ เริ่มบอทไม่ได้: {e}")
@@ -197,6 +278,7 @@ def start_bot():
         threading.Thread(target=_read_bot_output, args=(_proc,), daemon=True).start()
 
     _update_tray_icon()
+
 
 def stop_bot():
     global _proc, _desired_running
@@ -223,11 +305,13 @@ def stop_bot():
 
     _update_tray_icon()
 
+
 # รหัสลับที่ bot.py ใช้ตอนปิดตัวเองเพราะสั่ง /update_bot (ต้องตรงกับที่ตั้งไว้
 # ในฝั่ง bot.py: os._exit(87) ที่ท้ายคำสั่ง /update_bot) เพื่อให้ตัวคุมนี้รู้ว่า
 # "ปิดเพื่ออัปเดตโค้ด ให้เริ่มใหม่ได้เลย" แยกออกจากกรณี crash จริงๆที่ไม่ควร
 # auto-restart ซ้ำๆ (กันเข้าลูปพังไม่เลิกถ้าโค้ดบอทมีปัญหาจริง)
 UPDATE_RESTART_EXIT_CODE = 87
+
 
 def _watchdog_loop():
     """คอยเช็คทุก 3 วิ ว่าบอทหยุดไปเองเพราะอะไร:
@@ -259,11 +343,13 @@ def _watchdog_loop():
             last_state = "running"
 # =========================================================================
 
+
 # ==================== หน้าต่างควบคุมบอท (สวิตช์เริ่ม/หยุด) ====================
 def open_control_window(icon=None, item=None):
     if _tk_root is None:
         return
     _tk_root.after(0, _build_control_window)
+
 
 def _build_control_window():
     import tkinter as tk
@@ -336,6 +422,7 @@ def _build_control_window():
     win.focus_force()
 # =========================================================================
 
+
 # ==================== ไอคอนถาด (System Tray) ====================
 def quit_app(icon, item):
     """ออกจากโปรแกรมจริงๆ: จะสั่งหยุดบอทให้อัตโนมัติก่อน ไม่ทิ้งโปรเซสค้าง"""
@@ -353,7 +440,13 @@ def quit_app(icon, item):
             _tk_root.after(0, _tk_root.quit)
     except Exception:
         pass
+    try:
+        if _lock_socket:
+            _lock_socket.close()
+    except Exception:
+        pass
     os._exit(0)
+
 
 def _create_tray_image(running: bool = True):
     """โหลดไอคอนถาดจากไฟล์ tray_icon.png ถ้ามี แล้วแต้มจุดสีบอกสถานะมุมขวาล่าง
@@ -381,6 +474,7 @@ def _create_tray_image(running: bool = True):
     draw.ellipse((w - r - 2, h - r - 2, w - 2, h - 2), fill=dot_color, outline=(43, 45, 49, 255), width=2)
     return img
 
+
 def _update_tray_icon():
     """อัปเดตสีจุดสถานะ + tooltip ของไอคอนถาดให้ตรงกับสถานะบอทล่าสุด"""
     if _tray_icon_obj is None:
@@ -391,6 +485,7 @@ def _update_tray_icon():
         _tray_icon_obj.title = "Bagley Tray - 🟢 บอททำงานอยู่" if running else "Bagley Tray - 🔴 บอทหยุดอยู่"
     except Exception:
         pass
+
 
 def start_tray_icon():
     global _tray_icon_obj
@@ -404,7 +499,25 @@ def start_tray_icon():
     _tray_icon_obj.run()
 # =========================================================================
 
+
 def main():
+    if not _acquire_single_instance_lock():
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            _warn_root = tk.Tk()
+            _warn_root.withdraw()
+            messagebox.showwarning(
+                "Bagley Tray",
+                "Bagley Tray กำลังทำงานอยู่แล้วครับ!\n\n"
+                "เช็คไอคอนเล็กๆที่มุมขวาล่างของจอ (ถ้าไม่เห็น ให้ลองกดลูกศร ▲ "
+                "ตรงช่อง 'ไอคอนที่ซ่อนอยู่' ก่อน) ไม่ต้องเปิดซ้ำอีกครับ",
+            )
+            _warn_root.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
+
     gui_thread = threading.Thread(target=_start_gui, daemon=True)
     gui_thread.start()
     _tk_ready_event.wait(timeout=5)
@@ -418,6 +531,7 @@ def main():
     threading.Thread(target=_watchdog_loop, daemon=True).start()
 
     start_tray_icon()  # บล็อกอยู่ตรงนี้จนกว่าจะกด "ออกจากโปรแกรม"
+
 
 if __name__ == "__main__":
     main()
