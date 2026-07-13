@@ -5746,36 +5746,31 @@ async def update_bot(ctx: commands.Context):
         await status_msg.edit(content=error_system)
         return
 
-    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งสลับสคริปต์...\n" + make_gradle_bar(90, "EXECUTING :runBatScript", start_time))
+    await status_msg.edit(content="🔄 โค้ดเวอร์ชันคลีนพร้อมใช้งานแล้ว! กำลังสั่งรีสตาร์ทตัวเอง...\n" + make_gradle_bar(90, "EXECUTING :restart", start_time))
     await asyncio.sleep(1.5)
-    
-    bot_dir = os.path.dirname(os.path.abspath(__file__))
-    bat_file = os.path.join(bot_dir, "start_hidden.bat")
 
     try:
-        if sys.platform == "win32":
-            subprocess.Popen(
-                [bat_file], 
-                cwd=bot_dir, 
-                shell=True,
-                creationflags=subprocess.DETACHED_PROCESS
-            )
-        
-        print("🛸 สั่งรันสคริปต์รีสตาร์ทสำเร็จ กำลังปิดโปรเซสเก่า...")
-        
+        print("🛸 [Update Bot] อัปเดตโค้ดสำเร็จ กำลังปิดตัวเองเพื่อให้ตัวคุม (bagley_tray.py) เริ่มบอทใหม่ให้อัตโนมัติ...")
+
         await status_msg.edit(content="✅ **[BUILD SUCCESSFUL]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!\n" + make_gradle_bar(100, "SUCCESSFUL", start_time))
-        
+
         try:
             global conn
             if conn: conn.close()
         except: pass
 
         await bot.close()
-        await asyncio.sleep(1.5) 
-        os._exit(0)
-        
+        await asyncio.sleep(1.0)
+        # 🔧 [แก้ไข] เดิมใช้ start_hidden.bat + DETACHED_PROCESS สั่งรีสตาร์ทเอง
+        # แต่วิธีนั้นจะสร้างโปรเซสใหม่ที่ bagley_tray.py (ตัวคุมไอคอนถาด) ไม่รู้จัก
+        # ทำให้ไอคอนถาดหลุดการติดตามสถานะบอทไปทุกครั้งที่ /update_bot ทำงาน
+        # ตอนนี้เปลี่ยนมาแค่ "ปิดตัวเอง" ด้วย exit code พิเศษ (87) แทน แล้วให้
+        # bagley_tray.py เป็นคนตรวจจับรหัสนี้แล้วสั่งเริ่มบอทใหม่ให้เองอัตโนมัติ
+        # (ถ้ารันบอทตรงๆไม่ผ่าน bagley_tray.py จะแค่ปิดไปเฉยๆ ต้องเปิดขึ้นมาใหม่เอง)
+        os._exit(87)  # 87 = รหัสลับ "ปิดเพื่ออัปเดต ให้เริ่มใหม่ได้เลย" ไม่ใช่ crash
+
     except Exception as e:
-        error_bat = f"❌ **[BAT FILE ERROR]** เกิดข้อผิดพลาดตอนเรียกสคริปต์ .bat รีสตาร์ท: {e}"
+        error_bat = f"❌ **[RESTART ERROR]** เกิดข้อผิดพลาดตอนสั่งรีสตาร์ทบอท: {e}"
         print(error_bat)
         await status_msg.edit(content=error_bat)
 
