@@ -3259,7 +3259,7 @@ async def on_message(message):
         
         target_user, _ = resolve_target_member(
             message,
-            remove_keywords=["แบ็คลี่", "bagley", "เรียก"]
+            remove_keywords=["แบ็คลี่", "bagley", "คุณ", "หน่อย", "เรียก"]
         )
 
         if target_user:
@@ -3331,7 +3331,7 @@ async def on_message(message):
         host_member = message.author
         target_member, _ = resolve_target_member(
             message,
-            remove_keywords=["แบ็คลี่", "bagley", "ชวน", "หน่อย"]
+            remove_keywords=["แบ็คลี่", "bagley", "ชวน", "คุณ", "หน่อย"]
         )
         if not target_member:
             await message.reply("❌ เมทต้องพิมพ์ชื่อเพื่อนหรือแท็ก @ชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน ชื่อเพื่อน หน่อย` น้า")
@@ -3440,7 +3440,7 @@ async def on_message(message):
                 else:
                     # ลบคีย์เวิร์ดออกเพื่อให้เหลือเฉพาะข้อความที่เป็นชื่อคน
                     clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "").strip()
-                    for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย", "หน่อย", "ที"]:
+                    for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย", "หน่อย", "คุณ", "ที"]:
                         clean_name = clean_name.replace(k, "")
                     clean_name = clean_name.strip()
 
@@ -3495,7 +3495,7 @@ async def on_message(message):
                     
                 # แกะข้อความเพื่อแยก "ชื่อคน" และ "ชื่อห้อง"
                 raw_text = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง", "ไปห้อง", "ที", "หน่อย"]:
+                for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง", "ไปห้อง", "ที", "คุณ", "หน่อย"]:
                     raw_text = raw_text.replace(k, "")
                     
                 # ลบ Tag ออกจากข้อความดิบ (ถ้ามี)
@@ -3600,7 +3600,7 @@ async def on_message(message):
                     target = message.mentions[0]
                 else:
                     clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                    for k in ["ปิดเสียง", "ปิดไมค์", "หน่อย", "ที"]:
+                    for k in ["ปิดเสียง", "ปิดไมค์", "หน่อย", "คุณ", "ที"]:
                         clean_name = clean_name.replace(k, "")
                     clean_name = clean_name.strip()
                     
@@ -3647,7 +3647,7 @@ async def on_message(message):
                     target = message.mentions[0]
                 else:
                     clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                    for k in ["เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้", "หน่อย", "ที"]:
+                    for k in ["เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้", "คุณ", "หน่อย", "ที"]:
                         clean_name = clean_name.replace(k, "")
                     clean_name = clean_name.strip()
                     
@@ -3686,7 +3686,7 @@ async def on_message(message):
                     target = message.mentions[0]
                 else:
                     clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                    for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ", "หน่อย", "ที"]:
+                    for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ", "คุณ", "หน่อย", "ที"]:
                         clean_name = clean_name.replace(k, "")
                     clean_name = clean_name.strip()
                     
@@ -3730,7 +3730,7 @@ async def on_message(message):
                     target = message.mentions[0]
                 else:
                     clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                    for k in ["เปิดหูฟังให้", "ปลดหูฟังให้", "หน่อย", "ที"]:
+                    for k in ["เปิดหูฟังให้", "ปลดหูฟังให้", "หน่อย", "คุณ", "ที"]:
                         clean_name = clean_name.replace(k, "")
                     clean_name = clean_name.strip()
                     
@@ -3776,7 +3776,7 @@ async def on_message(message):
                     target = message.author
                 else:
                     clean_name = lower_content.replace("แบ็คลี่", "").replace("bagley", "")
-                    for k in ["สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ", "หน่อย", "ที"]:
+                    for k in ["สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ", "คุณ", "หน่อย", "ที"]:
                         clean_name = clean_name.replace(k, "")
                     clean_name = clean_name.strip()
                     
@@ -3829,7 +3829,7 @@ async def on_message(message):
                     # 🔍 ไม่ได้แท็ก ให้ลองแกะชื่อจากข้อความ เทียบกับคลังความจำ/ชื่อดิสคอร์ดแทน
                     target_user, _ = resolve_target_member(
                         message,
-                        remove_keywords=["แบ็คลี่", "bagley", "ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้"]
+                        remove_keywords=["แบ็คลี่", "bagley", "ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "คุณ", "ลบข้อมูลคนนี้"]
                     )
                 forget_cmd = bot.tree.get_command("forget")
                 
