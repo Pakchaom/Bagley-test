@@ -4251,9 +4251,21 @@ async def on_message(message):
                 
                 chat_log = ""
                 for msg in messages:
+                    # 🎙️ [แก้บั๊ก] กันไม่ให้ข้อความปัจจุบันซ้ำ ถ้าดันติดมาใน history() แล้ว (กรณีพิมพ์ปกติ)
+                    # เพราะด้านล่างเราจะเติมข้อความปัจจุบันต่อท้ายเองอยู่แล้วเสมอ
+                    if msg.id == message.id:
+                        continue
                     if msg.content.strip():
                         speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
                         chat_log += f"[{speaker}]: {msg.clean_content}\n"
+
+                # 🎙️ [แก้บั๊ก] เติมข้อความปัจจุบันต่อท้าย chat_log เองเสมอ แทนที่จะพึ่งพา
+                # message.channel.history() อย่างเดียว เพราะคำสั่งเสียงที่มาจาก Voice Relay
+                # (VoiceRelayMessage) ไม่ใช่ข้อความจริงที่เคยถูกโพสต์ลง Discord เลยไม่ติดมาใน
+                # history() ทำให้ AI มองไม่เห็นว่าเมทเพิ่งพูดอะไร แล้วดันไปหยิบหัวข้อเก่าจาก
+                # ประวัติแชทข้างบนมาตอบแทน (บั๊กนี้เกิดเฉพาะตอนใช้เสียง เพราะตอนพิมพ์ข้อความ
+                # จะถูกบันทึกลง Discord ก่อน on_message ทำงาน จึงติดมาใน history() อยู่แล้ว)
+                chat_log += f"[{message.author.display_name}]: {message.clean_content}\n"
 
                 author_id = message.author.id
                 special_role = ""
