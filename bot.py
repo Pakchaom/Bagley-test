@@ -6265,7 +6265,7 @@ async def list_teach(ctx: commands.Context):
 
 @bot.hybrid_command(name="remember", description="[Developer Only] สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดของสมาชิกลงคลังความจำ")
 @app_commands.describe(
-    member="สมาชิกที่ต้องการให้แบ็คลี่จดจำข้อมูลไว้",
+    member="แท็กสมาชิก (@ชื่อ) หรือใส่ User ID ตรง ๆ ก็ได้ (เหมือนตอนพิมพ์ 'จำไว้ว่า')",
     category="ประเภทข้อมูลที่จะบันทึก",
     info="ข้อมูลที่ต้องการบันทึก (เช่น ชื่อเล่น หรือ วันเกิด)"
 )
@@ -6273,7 +6273,7 @@ async def list_teach(ctx: commands.Context):
     app_commands.Choice(name="ชื่อเล่น (Nickname)", value="nickname"),
     app_commands.Choice(name="วันเกิด (Birthday)", value="birthday"),
 ])
-async def remember(ctx: commands.Context, member: discord.Member, category: str, info: str):
+async def remember(ctx: commands.Context, member: str, category: str, info: str):
     """เวอร์ชันสแลชคอมมานด์ของคำสั่งพูดคุย 'จำไว้ว่า' — จำกัดสิทธิ์เฉพาะทีมพัฒนา (ALLOWED_TEACH_USERS) เท่านั้น
     ผู้ใช้ทั่วไปที่ต้องการแก้ไขชื่อเล่น/วันเกิดของตัวเอง ให้ใช้ /register แทนครับ"""
     await ctx.defer()
@@ -6286,7 +6286,26 @@ async def remember(ctx: commands.Context, member: discord.Member, category: str,
         )
         return
 
-    target_id_str = str(member.id)
+    # 🔍 รองรับทั้งการแท็ก @สมาชิก และการใส่ User ID ตรง ๆ (ดึงตัวเลข ID ออกมาแบบเดียวกับคำสั่ง "จำไว้ว่า")
+    has_id = regex_lib.search(r'(\d{17,19})', member)
+    if not has_id:
+        await ctx.send("❌ ไม่พบผู้ใช้ที่ระบุครับเมท กรุณาแท็ก (@) สมาชิก หรือใส่ User ID ให้ถูกต้องนะครับ!")
+        return
+
+    target_id = int(has_id.group(1))
+    target_user = ctx.guild.get_member(target_id) if ctx.guild else None
+    if target_user is None:
+        try:
+            target_user = await bot.fetch_user(target_id)
+        except Exception:
+            target_user = None
+
+    if target_user is None:
+        await ctx.send(f"❌ แบ็คลี่หาผู้ใช้ ID `{target_id}` ไม่เจอเลยครับเมท ลองเช็ก ID อีกทีนะครับ!")
+        return
+
+    target_id_str = str(target_user.id)
+    target_display_name = getattr(target_user, "display_name", None) or target_user.name
     clean_info = info.strip()
 
     if not clean_info:
@@ -6301,11 +6320,11 @@ async def remember(ctx: commands.Context, member: discord.Member, category: str,
     if category == "birthday":
         user_data[target_id_str]["birthday"] = clean_info
         save_user_data(user_data)
-        await ctx.send(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {member.display_name} ว่าเกิดวันที่ **{clean_info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
+        await ctx.send(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{clean_info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
     else:
         user_data[target_id_str]["nickname"] = clean_info
         save_user_data(user_data)
-        await ctx.send(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {member.display_name} ว่าคือ **{clean_info}** เรียบร้อยครับ! 🤠")
+        await ctx.send(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{clean_info}** เรียบร้อยครับ! 🤠")
 
 @bot.tree.command(name="report_voice", description="เปิดหรือปิดระบบพูดรายงานทักทายตอนคนเข้า-ออกห้องเสียง")
 @app_commands.choices(status=[
