@@ -1748,6 +1748,16 @@ async def generate_and_send_image(ctx_or_interaction, prompt: str):
 
 async def execute_remember_logic(message):
     print("DEBUG: ตรวจพบคำสั่งจำไว้ว่า!")
+
+    # 🔒 จำกัดสิทธิ์: คำสั่ง "จำไว้ว่า" (แก้ข้อมูลคนอื่นในคลังความจำ) ให้เฉพาะทีมพัฒนาเท่านั้น
+    # ผู้ใช้ทั่วไปที่ต้องการแก้ไขชื่อเล่น/วันเกิดของตัวเอง ให้ใช้ระบบ /register แทน
+    if message.author.id not in ALLOWED_TEACH_USERS:
+        await message.reply(
+            "❌ **[ACCESS DENIED]** ขออภัยครับเมท คำสั่งจำข้อมูลนี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
+            "หากต้องการแก้ไขชื่อเล่นหรือวันเกิดของตัวเอง สามารถพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
+        )
+        return
+
     target_user = None
     target_display_name = "เพื่อนเมท"
     
@@ -6252,6 +6262,50 @@ async def list_teach(ctx: commands.Context):
     title_text = "🧠 BAGLEY MEMORY BANK: รายการคีย์เวิร์ดที่ทีมพัฒนาเคยสอนไว้"
     view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=5)
     view.message = await ctx.send(embed=view.create_embed(), view=view)
+
+@bot.hybrid_command(name="remember", description="[Developer Only] สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดของสมาชิกลงคลังความจำ")
+@app_commands.describe(
+    member="สมาชิกที่ต้องการให้แบ็คลี่จดจำข้อมูลไว้",
+    category="ประเภทข้อมูลที่จะบันทึก",
+    info="ข้อมูลที่ต้องการบันทึก (เช่น ชื่อเล่น หรือ วันเกิด)"
+)
+@app_commands.choices(category=[
+    app_commands.Choice(name="ชื่อเล่น (Nickname)", value="nickname"),
+    app_commands.Choice(name="วันเกิด (Birthday)", value="birthday"),
+])
+async def remember(ctx: commands.Context, member: discord.Member, category: str, info: str):
+    """เวอร์ชันสแลชคอมมานด์ของคำสั่งพูดคุย 'จำไว้ว่า' — จำกัดสิทธิ์เฉพาะทีมพัฒนา (ALLOWED_TEACH_USERS) เท่านั้น
+    ผู้ใช้ทั่วไปที่ต้องการแก้ไขชื่อเล่น/วันเกิดของตัวเอง ให้ใช้ /register แทนครับ"""
+    await ctx.defer()
+
+    # 🔒 จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้น เหมือนกับคำสั่ง teach
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(
+            f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
+            f"หากต้องการแก้ไขชื่อเล่นหรือวันเกิดของตัวเอง สามารถพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
+        )
+        return
+
+    target_id_str = str(member.id)
+    clean_info = info.strip()
+
+    if not clean_info:
+        await ctx.send("⚠️ **[REMEMBER REJECTED]** ข้อมูลที่จะให้จำต้องไม่ว่างเปล่านะครับเมท! ❌")
+        return
+
+    user_data = load_user_data()
+
+    if target_id_str not in user_data or isinstance(user_data[target_id_str], str):
+        user_data[target_id_str] = {"nickname": "ยังไม่มีชื่อเล่น", "birthday": "ยังไม่ได้ระบุ"}
+
+    if category == "birthday":
+        user_data[target_id_str]["birthday"] = clean_info
+        save_user_data(user_data)
+        await ctx.send(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {member.display_name} ว่าเกิดวันที่ **{clean_info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
+    else:
+        user_data[target_id_str]["nickname"] = clean_info
+        save_user_data(user_data)
+        await ctx.send(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {member.display_name} ว่าคือ **{clean_info}** เรียบร้อยครับ! 🤠")
 
 @bot.tree.command(name="report_voice", description="เปิดหรือปิดระบบพูดรายงานทักทายตอนคนเข้า-ออกห้องเสียง")
 @app_commands.choices(status=[
