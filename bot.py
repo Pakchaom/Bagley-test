@@ -740,16 +740,26 @@ async def check_queue(ctx):
             print("คิวว่างแล้วครับเมท Bagley พูดรายงานเรียบร้อย")
 
 # --- YouTube Surveillance System ---
-@tasks.loop(minutes=3)
-async def check_youtube_updates():
-    await bot.wait_until_ready()
+# 🔄 [เปลี่ยนระบบแล้ว] เดิมฟังก์ชันนี้เป็นลูปอัตโนมัติที่วนเช็คทุก 3 นาที (@tasks.loop)
+# ตอนนี้เปลี่ยนเป็นฟังก์ชันเช็คตามคำสั่งเท่านั้น ไม่มีการวนลูปพื้นหลังอีกต่อไปแล้ว
+# เรียกใช้ผ่านคำสั่ง /yt_check หรือพิมพ์ "แชร์สตรีมล่าสุดให้หน่อย" คุยกับแบ็คลี่
+async def check_youtube_updates(guild_id=None):
+    """เช็คว่าช่อง YouTube ที่ติดตามอยู่มีไลฟ์สดใหม่ หรือคลิปใหม่หรือไม่
+    ถ้าระบุ guild_id จะเช็คเฉพาะช่องที่ผูกกับเซิร์ฟนั้น ถ้าไม่ระบุจะเช็คทุกช่องของทุกเซิร์ฟ
+    เมื่อเจอของใหม่ จะยิงแจ้งเตือน (send_yt_alert) เข้าห้องที่ตั้งไว้ให้อัตโนมัติเหมือนเดิม
+    คืนค่าเป็น list ของ dict สรุปผลลัพธ์รายการที่เจอการอัปเดตใหม่"""
     global conn
     c = conn.cursor()
 
-    c.execute("SELECT yt_id, name, last_video_id, guild_id FROM youtube_channels")
+    if guild_id:
+        c.execute("SELECT yt_id, name, last_video_id, guild_id FROM youtube_channels WHERE guild_id = ?", (str(guild_id),))
+    else:
+        c.execute("SELECT yt_id, name, last_video_id, guild_id FROM youtube_channels")
     channels = c.fetchall()
 
-    for channel_id, name, last_id, guild_id in channels:
+    updates_found = []
+
+    for channel_id, name, last_id, g_id in channels:
         try:
             if str(channel_id).startswith("@"):
                 live_url = f"https://www.youtube.com/{channel_id}/live"
@@ -769,15 +779,6 @@ async def check_youtube_updates():
                 except:
                     pass
 
-            is_live = False
-            live_video_id = None
-            if '{"liveStreamabilityRenderer"' in html and '"videoId":"' in html:
-                try:
-                    live_video_id = html.split('"videoId":"')[1].split('"')[0]
-                    is_live = True
-                except:
-                    pass
-
             if is_live and live_video_id:
                 if live_video_id != last_id:
                     status_url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={live_video_id}&part=snippet"
@@ -788,16 +789,17 @@ async def check_youtube_updates():
                         live_title = status_res["items"][0]["snippet"]["title"]
 
                     try:
-                        await send_yt_alert(guild_id, name, live_title, live_video_id, is_live=True)
+                        await send_yt_alert(g_id, name, live_title, live_video_id, is_live=True)
                     except Exception as alert_err:
                         print(f"⚠️ [YouTube Live Alert Error] ส่งแจ้งเตือนหรือพูดพลาด แต่จะเซฟ DB ต่อเพื่อกันลูป: {alert_err}")
 
                     c.execute(
                         "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
-                        (live_video_id, channel_id, guild_id)
+                        (live_video_id, channel_id, g_id)
                     )
                     conn.commit()
                     print(f"🔴 [YouTube Live] บันทึกความจำไลฟ์สำเร็จ: {name} -> {live_video_id}")
+                    updates_found.append({"name": name, "type": "live", "title": live_title, "video_id": live_video_id})
                 
                 continue
 
@@ -817,19 +819,22 @@ async def check_youtube_updates():
                     
                     if current_video_id and current_video_id != last_id:
                         try:
-                            await send_yt_alert(guild_id, name, title, current_video_id, is_live=False)
+                            await send_yt_alert(g_id, name, title, current_video_id, is_live=False)
                         except Exception as alert_err:
                             print(f"⚠️ [YouTube Video Alert Error] ส่งคลิปใหม่พลาด แต่จะเซฟ DB ต่อเพื่อกันลูป: {alert_err}")
 
                         c.execute(
                             "UPDATE youtube_channels SET last_video_id = ? WHERE yt_id = ? AND guild_id = ?", 
-                            (current_video_id, channel_id, guild_id)
+                            (current_video_id, channel_id, g_id)
                         )
                         conn.commit()
                         print(f"💾 [YouTube] พบคลิปใหม่สำเร็จ: {name} -> {current_video_id}")
+                        updates_found.append({"name": name, "type": "video", "title": title, "video_id": current_video_id})
 
         except Exception as e:
-            print(f"❌ YouTube Loop Error for channel {name}: {e}")
+            print(f"❌ YouTube Check Error for channel {name}: {e}")
+
+    return updates_found
 
 # 🛠️ ฟังก์ชันเสริมแยกออกมาช่วยพิมพ์และส่งเสียงพูด
 async def send_yt_alert(guild_id, channel_name, video_title, video_id, is_live):
@@ -2602,9 +2607,9 @@ async def on_ready():
     except Exception as e: 
         print(f"Sync Error: {e}")
         
-    if not check_youtube_updates.is_running():
-        check_youtube_updates.start()
-        print("📺 YouTube Monitoring: Started.")
+    # 🔄 [เปลี่ยนระบบแล้ว] YouTube Monitoring ไม่วนลูปอัตโนมัติอีกต่อไป
+    # ใช้คำสั่ง /yt_check หรือพิมพ์ "แชร์สตรีมล่าสุดให้หน่อย" เพื่อเช็คทันทีแทน
+    print("📺 YouTube Monitoring: เปลี่ยนเป็นโหมดเช็คตามคำสั่ง (ใช้ /yt_check หรือพิมพ์ 'แชร์สตรีมล่าสุดให้หน่อย')")
 
     if not check_reminders.is_running():
         check_reminders.start()
@@ -2669,7 +2674,10 @@ async def on_message(message):
             "ปิดคอมบริษัท", "ปิดเครื่องบริษัท", "shutdown",
             "รีเซ็ตคำสั่ง", "ตรวจสอบคำสั่ง", "เช็คคำสั่ง",
             "ลืมฉันซะ", "ลบข้อมูลฉัน", "ลืมชื่อคนนี้", "ลบข้อมูลคนนี้",
-            "ตามคน", "ตามเพื่อน", "จัดประชุม"
+            "ตามคน", "ตามเพื่อน", "จัดประชุม",
+            # 🆕 เช็คไลฟ์สด/คลิปใหม่จาก YouTube ทันที (แทนระบบลูปอัตโนมัติเดิม)
+            "แชร์สตรีมล่าสุด", "แชร์คลิปล่าสุด", "เช็คสตรีมล่าสุด", "เช็คยูทูป", "เช็คคลิปใหม่",
+            "มีคลิปใหม่ไหม", "มีสตรีมใหม่ไหม"
         ]
         
         # 1.1 เช็กว่าเป็นคำสั่งระบบไหม
@@ -3930,6 +3938,14 @@ async def on_message(message):
                     await ctx.invoke(skip_command)
                 return
 
+            # 🔄 [ใหม่] เช็คไลฟ์สด/คลิปใหม่จาก YouTube ทันที แทนระบบลูปอัตโนมัติเดิม
+            elif any(word in lower_content for word in ["แชร์สตรีมล่าสุด", "แชร์คลิปล่าสุด", "เช็คสตรีมล่าสุด", "เช็คยูทูป", "เช็คคลิปใหม่", "มีคลิปใหม่ไหม", "มีสตรีมใหม่ไหม"]):
+                ctx = await bot.get_context(message)
+                yt_check_command = bot.get_command('yt_check')
+                if yt_check_command:
+                    await ctx.invoke(yt_check_command)
+                return
+
             elif any(word in lower_content for word in ["เรียกประชุม", "ตามคน", "ตามเพื่อน", "จัดประชุม", "ชวนคน", "ชวนเพื่อน"]):
                 ctx = await bot.get_context(message)
                 gather_command = bot.get_command('gather')
@@ -5043,6 +5059,51 @@ async def yt_list(ctx: commands.Context):
     except Exception as e:
         print(f"🚨 ERROR ระบบรายชื่อ YouTube: {e}")
         await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อ YouTube ครับเมท")
+
+# --- 4. เช็คไลฟ์สด/คลิปใหม่ทันที (yt_check) ---
+# 🔄 [ใหม่] ใช้แทนระบบลูปอัตโนมัติเดิม พิมพ์/สั่งเมื่อไหร่ก็เช็คทันทีตอนนั้นเลย
+@bot.hybrid_command(name="yt_check", description="เช็คช่อง YouTube ที่ติดตามอยู่ทันทีว่ามีไลฟ์สดหรือคลิปใหม่หรือยัง")
+async def yt_check(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("คำสั่งนี้ต้องใช้ในเซิร์ฟเวอร์เท่านั้นครับเมท!")
+        return
+
+    await ctx.defer()
+
+    global conn
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM youtube_channels WHERE guild_id = ?", (str(ctx.guild.id),))
+    total_channels = c.fetchone()[0]
+
+    if total_channels == 0:
+        await ctx.send("ยังไม่มีช่อง YouTube ที่ติดตามอยู่ในเซิร์ฟนี้เลยครับเมท ลองใช้ `/yt_add` เพิ่มช่องก่อนนะครับ!")
+        return
+
+    c.execute("SELECT target_channel_id FROM youtube_settings WHERE guild_id = ?", (str(ctx.guild.id),))
+    yt_setting = c.fetchone()
+    if not yt_setting or not bot.get_channel(int(yt_setting[0])):
+        await ctx.send("ยังไม่ได้ตั้งห้องแจ้งเตือน YouTube เลยครับเมท ใช้ `/set_yt_channel` เพื่อเลือกห้องก่อนนะครับ!")
+        return
+
+    await ctx.send(f"🔍 กำลังเช็คช่อง YouTube ที่ติดตามอยู่ {total_channels} ช่องให้ครับเมท รอแป๊บนึงนะ...")
+
+    try:
+        updates = await check_youtube_updates(guild_id=ctx.guild.id)
+    except Exception as e:
+        print(f"🚨 ERROR yt_check: {e}")
+        await ctx.send("เกิดข้อผิดพลาดตอนเช็ค YouTube ครับเมท ลองใหม่อีกทีนะครับ")
+        return
+
+    if updates:
+        summary_lines = []
+        for u in updates:
+            tag = "🔴 ไลฟ์สด" if u["type"] == "live" else "📢 คลิปใหม่"
+            summary_lines.append(f"{tag}: **{u['name']}** — {u['title']}")
+        await ctx.send(
+            "✅ เจอของใหม่แล้วครับเมท! (ส่งแจ้งเตือนเข้าห้องที่ตั้งไว้ให้เรียบร้อยแล้ว)\n" + "\n".join(summary_lines)
+        )
+    else:
+        await ctx.send("เช็คแล้วครับเมท ตอนนี้ยังไม่มีไลฟ์สดหรือคลิปใหม่จากช่องที่ติดตามอยู่เลยครับ 😴")
 
 # --- 3. ล้างความจำ (clear_memory) ---
 @bot.hybrid_command(name="clear_memory", description="ล้างประวัติการสนทนาส่วนตัวของคุณกับ Bagley")
