@@ -271,7 +271,7 @@ def load_voice_data():
 
 def save_voice_data(data):
     try:
-        # บันทึกไฟล์ข้อมูลอย่างปลอดภัยแบบเคลียร์ของเดิมทิ้งก่อนเขียนใหม่คัปเมท
+        # บันทึกไฟล์ข้อมูลอย่างปลอดภัยแบบเคลียร์ของเดิมทิ้งก่อนเขียนใหม่คัป
         with open('voice_stats.json', 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
     except Exception as e:
@@ -458,15 +458,15 @@ async def bagley_speak_wait(guild, text, filename=None):
                 if file_created and os.path.exists(unique_name):
                     try:
                         os.remove(unique_name)
-                        print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับเมท!")
+                        print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับ!")
                     except Exception as clean_error:
                         print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
 
 async def bagley_speak_reminder_direct(guild, content):
-    """พูดแจ้งเตือนตรงๆ ในห้องเสียงที่เมทอยู่ด้วยอยู่แล้ว (ไม่ต้องวาร์ปห้อง ไม่มีเสียงโดรน ไม่ทักทายว่าไฮแจ็ค) แล้วพูดย้ำอีก 1 รอบ"""
+    """พูดแจ้งเตือนตรงๆ ในห้องเสียงที่ผู้ใช้อยู่ด้วยอยู่แล้ว (ไม่ต้องวาร์ปห้อง ไม่มีเสียงโดรน ไม่ทักทายว่าไฮแจ็ค) แล้วพูดย้ำอีก 1 รอบ"""
     try:
         prompt = f"""
-        คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังพูดแจ้งเตือนเรื่องสำคัญให้เมทที่อยู่ในห้องเสียงเดียวกันฟัง
+        คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังพูดแจ้งเตือนเรื่องสำคัญให้คุณที่อยู่ในห้องเสียงเดียวกันฟัง
         หน้าที่: เจนประโยคแจ้งเตือนสั้นๆ เป็นธรรมชาติ 1 ประโยค โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
 
         [เนื้อหาที่ต้องแจ้งเตือน]: {content}
@@ -500,7 +500,7 @@ async def bagley_hijack_alert(voice_channel, message_text):
 
         # --- 🚀 2. ส่วนการเชื่อมต่อ/ย้ายห้องเสียงแบบปลอดภัย ---
         if guild.voice_client:
-            # ถ้าบอทอยู่ในห้องเสียงอยู่แล้ว (เช่น นั่งอยู่กับเมท) ให้ใช้สั่งย้ายห้องแทน
+            # ถ้าบอทอยู่ในห้องเสียงอยู่แล้ว (เช่น นั่งอยู่กับคุณ) ให้ใช้สั่งย้ายห้องแทน
             await guild.voice_client.move_to(voice_channel)
             vc = guild.voice_client
         else:
@@ -528,14 +528,14 @@ async def bagley_hijack_alert(voice_channel, message_text):
         if vc.is_playing(): vc.stop()
 
         # --- 💬 4. ส่วนทักทาย ---
-        greeting = "ไฮแจ๊คสำเร็จ สวัสดีครับเมท ผมแบ็คลี่นะครับ"
+        greeting = "ไฮแจ๊คสำเร็จ สวัสดีครับ ผมแบ็คลี่นะครับ"
         await bagley_speak_wait(guild, greeting, filename="greeting")
         await asyncio.sleep(0.5)
 
         # --- 📢 5. ส่วนแจ้งเตือนย้ำ 2 รอบ ---
         try:
             hijack_prompt = f"""
-            คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังไฮแจ็คห้องเสียงเพื่อมาแจ้งเตือนเรื่องสำคัญให้เมทฟัง
+            คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังไฮแจ็คห้องเสียงเพื่อมาแจ้งเตือนเรื่องสำคัญให้คุณฟัง
             หน้าที่: เจนประโยคแจ้งเตือนสั้นๆ เป็นธรรมชาติ 1 ประโยค โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
 
             [เนื้อหาที่ต้องแจ้งเตือน]: {message_text}
@@ -622,7 +622,7 @@ async def check_shared_voice_quota(user_id, guild):
     
     if len(user_times) >= 3:
         remaining = 60 - (now - user_times[0]).total_seconds()
-        await bagley_speak(guild, f"ใจเย็นครับเมท ใช้คำสั่งจัดการเสียงบ่อยเกินไปแล้ว รออีก {int(remaining)} วินาทีนะ")
+        await bagley_speak(guild, f"ใจเย็นครับ ใช้คำสั่งจัดการเสียงบ่อยเกินไปแล้ว รออีก {int(remaining)} วินาทีนะ")
         return False, int(remaining)
 
     # ถ้ายังไม่เกิน เพิ่มเวลาครั้งนี้เข้าไป
@@ -693,7 +693,7 @@ async def play_song(ctx, search):
         except Exception as e:
             is_playing_music = False
             print(f"Play Error: {e}")
-            error_msg = f"หาเพลงไม่เจอครับเมท! (Error: {e})"
+            error_msg = f"หาเพลงไม่เจอครับ! (Error: {e})"
             
             if ctx.interaction:
                 if not ctx.interaction.response.is_done():
@@ -716,7 +716,7 @@ async def check_queue(ctx):
             await play_song(ctx, next_search) 
         except Exception as e:
             print(f"❌ [Queue Error]: เล่นเพลง {next_search} ไม่สำเร็จ -> {e}")
-            await ctx.channel.send(f"⚠️ หว่าเมท เพลง **{next_search}** มีปัญหา (อาจจะติดลิขสิทธิ์หรือ Error 404) ขอข้ามไปเพลงถัดไปเลยนะครับ!")
+            await ctx.channel.send(f"⚠️ หว่า เพลง **{next_search}** มีปัญหา (อาจจะติดลิขสิทธิ์หรือ Error 404) ขอข้ามไปเพลงถัดไปเลยนะครับ!")
             await check_queue(ctx)
             
     else:
@@ -725,7 +725,7 @@ async def check_queue(ctx):
         left_user_name = pending_exit_after_music.pop(ctx.guild.id, None)
         
         if left_user_name:
-            exit_msg = f"เพลงในคิวหมดแล้วครับเมท แต่ตอนนี้คุณ {left_user_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ!"
+            exit_msg = f"เพลงในคิวหมดแล้วครับ แต่ตอนนี้คุณ {left_user_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะ ถ้าอยากให้ผมเข้ามาใหม่ พิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลย ไปก่อนนะ!"
             await bagley_speak_wait(ctx.guild, exit_msg)
             try:
                 if ctx.voice_client:
@@ -736,8 +736,8 @@ async def check_queue(ctx):
             except Exception as e:
                 print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายหลังคิวเพลงจบเซ็ต: {e}")
         else:
-            await bagley_speak(ctx.guild, "เพลงในคิวหมดแล้วครับเมท ถ้าอยากฟังต่อก็สั่งเปิดเพลงใหม่ได้เลยนะครับ")
-            print("คิวว่างแล้วครับเมท Bagley พูดรายงานเรียบร้อย")
+            await bagley_speak(ctx.guild, "เพลงในคิวหมดแล้วครับ ถ้าอยากฟังต่อก็สั่งเปิดเพลงใหม่ได้เลยนะครับ")
+            print("คิวว่างแล้วครับ Bagley พูดรายงานเรียบร้อย")
 
 # --- YouTube Surveillance System ---
 # 🔄 [เปลี่ยนระบบแล้ว] เดิมฟังก์ชันนี้เป็นลูปอัตโนมัติที่วนเช็คทุก 3 นาที (@tasks.loop)
@@ -850,11 +850,11 @@ async def send_yt_alert(guild_id, channel_name, video_title, video_id, is_live):
         if target_channel:
             if is_live:
                 alert_title = "🔴 **แจ้งเตือนการถ่ายทอดสด!**"
-                msg = f"แจ้งเตือนจากแบ็คลี่! ช่อง {channel_name} กำลังสตรีมสดหัวข้อ {video_title} ครับเมท! ไปดูกันเร็ว!"
-                display_msg = f"{alert_title}\nช่อง **{channel_name}** กำลังไลฟ์สดอยู่ในขณะนี้ครับเมท!\n**{video_title}**\n{video_url}"
+                msg = f"แจ้งเตือนจากแบ็คลี่! ช่อง {channel_name} กำลังสตรีมสดหัวข้อ {video_title} ครับ! ไปดูกันเร็ว!"
+                display_msg = f"{alert_title}\nช่อง **{channel_name}** กำลังไลฟ์สดอยู่ในขณะนี้ครับ!\n**{video_title}**\n{video_url}"
             else:
                 alert_title = "📢 **แจ้งเตือนคลิปใหม่!**"
-                msg = f"แจ้งเตือนจากแบ็คลี่! ช่อง {channel_name} ลงคลิปใหม่หัวข้อ {video_title} ครับเมท!"
+                msg = f"แจ้งเตือนจากแบ็คลี่! ช่อง {channel_name} ลงคลิปใหม่หัวข้อ {video_title} ครับ!"
                 display_msg = f"{alert_title}\nช่อง **{channel_name}**\n**{video_title}**\n{video_url}"
             
             await target_channel.send(display_msg)
@@ -884,7 +884,7 @@ async def check_reminders():
                 user_id = int(r_user_id)
                 user = await bot.fetch_user(user_id)
                 if user:
-                    content = r.get('content', 'แจ้งเตือนความจำครับเมท!')
+                    content = r.get('content', 'แจ้งเตือนความจำครับ!')
                     
                     member = None
                     for guild in bot.guilds:
@@ -899,12 +899,12 @@ async def check_reminders():
                         try:
                             try:
                                 dm_prompt = f"""
-                                คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังส่ง DM มาแจ้งเตือนความจำให้เมท
+                                คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังส่ง DM มาแจ้งเตือนความจำให้คุณ
                                 หน้าที่: เจนข้อความ DM แจ้งเตือนสั้นๆ เป็นกันเอง (1-2 ประโยค) โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
 
                                 [เนื้อหาที่ต้องแจ้งเตือน]: {content}
 
-                                กฎ: เรียกผู้รับว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
+                                กฎ: พูดแบบเป็นกันเอง แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
                                 """
                                 dm_response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=dm_prompt)
                                 dm_text = (dm_response.text or "").strip()
@@ -913,7 +913,7 @@ async def check_reminders():
                                 await user.send(dm_text)
                             except Exception as ai_err:
                                 print(f"❌ Gemini เจนข้อความ DM แจ้งเตือนพัง ย้อนกลับไปใช้คำที่เซ็ตไว้: {ai_err}")
-                                await user.send(f"🔔 สวัสดีครับเมท! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
+                                await user.send(f"🔔 สวัสดีครับ! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
                         except Exception as e:
                             print(f"DEBUG: ส่ง DM ไม่ได้เพราะ {e}")
                             
@@ -962,13 +962,13 @@ async def check_friend_reminders():
                         # ส่ง DM ปกติถ้าเพื่อนไม่ได้เข้าห้องเสียงไหนเลย
                         try:
                             friend_dm_prompt = f"""
-                            คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังส่ง DM มาแจ้งเตือนความจำให้เมท (แจ้งเตือนที่เพื่อนฝากไว้ให้)
+                            คุณคือ 'แบ็คลี่' (Bagley) บอทโดรนกวนๆ จากลอนดอน กำลังส่ง DM มาแจ้งเตือนความจำให้คุณ (แจ้งเตือนที่เพื่อนฝากไว้ให้)
                             หน้าที่: เจนข้อความ DM แจ้งเตือนสั้นๆ เป็นกันเอง (1-2 ประโยค) โดยอ้างอิงเนื้อหาแจ้งเตือนและเวลาด้านล่าง
 
                             [เนื้อหาที่ต้องแจ้งเตือน]: {content}
                             [เวลา]: {now}
 
-                            กฎ: เรียกผู้รับว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
+                            กฎ: พูดแบบเป็นกันเอง แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
                             """
                             friend_dm_response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=friend_dm_prompt)
                             alert_msg = (friend_dm_response.text or "").strip()
@@ -1080,7 +1080,7 @@ async def follow_creator_task():
         target_member, target_channel, guild_to_join = active_targets[0]
     else:
         if active_targets[0][2].id == active_targets[1][2].id and active_targets[0][1].id != active_targets[1][1].id:
-            print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เลือกข้างใครครับเมท!")
+            print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เลือกข้างใครครับ!")
             
             voice_client = active_targets[0][2].guild.voice_client
             if voice_client:
@@ -1199,7 +1199,7 @@ async def follow_creator_task():
             reminder_fallback_text = " อ้อ! แล้วก็วันนี้มีแจ้งเตือนตารางงานด้วยครับ"
             for r in pending_reminders:
                 owner_member = guild_to_join.get_member(r.get('owner_id'))
-                owner_name = get_realtime_name(r.get('owner_id'), owner_member.display_name if owner_member else "เพื่อนเมท")
+                owner_name = get_realtime_name(r.get('owner_id'), owner_member.display_name if owner_member else "เพื่อน")
                 reminder_context += f"- ของคุณ {owner_name}: งาน '{r.get('event')}' เวลา {r.get('time')}\n"
                 reminder_fallback_text += f" มีงานของคุณ {owner_name} กิจกรรม {r.get('event')} เวลา {r.get('time')}"
 
@@ -1290,7 +1290,7 @@ async def follow_creator_task():
                     - ช่วงเวลา: {time_greeting}
                     - ข้อมูลแจ้งเตือนตารางงานของคนในห้อง: {reminder_context if reminder_context else 'ไม่มี'}
                     
-                    กฎ: เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ทักทายชื่อคนให้ครบตามข้อมูลด้านบน และถ้ามีตารางงานให้พูดต่อท้ายให้ชัดเจน ห้ามพิมพ์หัวข้อหรือวงเล็บเด็ดขาด เอาเฉพาะบทพูดเท่านั้น!
+                    กฎ: แทนตัวเองว่า 'แบ็คลี่' ทักทายชื่อคนให้ครบตามข้อมูลด้านบน และถ้ามีตารางงานให้พูดต่อท้ายให้ชัดเจน ห้ามพิมพ์หัวข้อหรือวงเล็บเด็ดขาด เอาเฉพาะบทพูดเท่านั้น!
                     """
                     
                     response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
@@ -1303,7 +1303,7 @@ async def follow_creator_task():
                         
                 except Exception as ai_err:
                     print(f"❌ Gemini ใน Loop ขัดข้อง ย้อนกลับไปใช้คำพูดดั้งเดิม: {ai_err}")
-                    creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาแล้วครับ" if both_present else f"{time_greeting} เพิ่งมาหรอครับคุณ {get_realtime_name(target_member.id, target_member.display_name)} ยินดีต้อนรับนะครับ"
+                    creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาแล้วครับ" if both_present else f"{time_greeting} เพิ่งมาหรอคุณ {get_realtime_name(target_member.id, target_member.display_name)} ยินดีต้อนรับนะ"
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
                     friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
                     other_friends_greet = f" สวัสดี {" และ ".join(friend_names)} ด้วยนะครับ" if friend_names else ""
@@ -1329,7 +1329,7 @@ async def follow_creator_task():
                     - รายชื่อคนใหม่ที่เจอในห้องนี้: {names_str}
                     - ข้อมูลแจ้งเตือนตารางงานของคนในห้องนี้: {reminder_context if reminder_context else 'ไม่มี'}
                     
-                    กฎ: ตอบสั้นมาก ห้ามพิมพ์หัวข้อ ยึดมั่นคำว่า 'เมท' เสมอ พ่วงเตือนตารางงานถ้ามี
+                    กฎ: ตอบสั้นมาก ห้ามพิมพ์หัวข้อ พ่วงเตือนตารางงานถ้ามี
                     """
                     response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
                     ai_new_server_greet = (response.text or "").strip()
@@ -1354,7 +1354,7 @@ async def follow_creator_task():
             else:
                 # 💡 ถ้าย้ายห้องธรรมดาภายในเซิร์ฟเวอร์เดิม และมีตารางงานค้าง -> ให้แจ้งเตือนงานนั้นเสมอ
                 if pending_reminders:
-                    msg = f"อ้อเมท แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
+                    msg = f"อ้อ แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
                     should_speak = True
                 else:
                     should_speak = False
@@ -1417,20 +1417,20 @@ async def check_and_warn_gamers(guild):
                         m_real_name = get_realtime_name(m.id, m.display_name)
                         game_name = activity.name
                         
-                        # สร้างประโยคเตือนสติแบ่งตามระดับความตึงของชั่วโมงคัปเมท!
+                        # สร้างประโยคเตือนสติแบ่งตามระดับความตึงของชั่วโมงคัป!
                         if milestone == 3:
                             quotes = [
-                                f"คุณ {m_real_name} ครับ เล่นเกม {game_name} มา {milestone} ชั่วโมงเต็มแล้วนะครับ พักสายตาไปดื่มน้ำบ้างน้าค้าบ เป็นห่วงนะเมท!",
+                                f"คุณ {m_real_name} เล่นเกม {game_name} มา {milestone} ชั่วโมงเต็มแล้วนะ พักสายตาไปดื่มน้ำบ้าง เป็นห่วงนะครับ!",
                                 f"แอบส่องมา แอบเห็นคุณ {m_real_name} นั่งจมกับเกม {game_name} มาตั้ง {milestone} ชั่วโมงแน่ะ ลุกไปยืดเส้นยืดสายสักนิดก็ดีนะครับ"
                             ]
                         elif milestone == 6:
                             quotes = [
-                                f"อูหู คุณ {m_real_name} ครับ! นี่กดลากยาว {game_name} มา {milestone} ชั่วโมงแล้วหรอครับเนี่ย! ร่างกายไม่ใช่เครื่องจักรนะค้าบ พักเติมพลังหาอะไรทานด่วนเลยเมท!",
-                                f"แจ้งเตือนระดับสองครับคุณ {m_real_name} เล่นเกม {game_name} ทะลุ {milestone} ชั่วโมงแล้วครับ ปล่อยจอยสักสิบนาทีไปพักผ่อนก่อนเร็วครับ"
+                                f"อูหู คุณ {m_real_name} นี่กดลากยาว {game_name} มา {milestone} ชั่วโมงแล้วหรอเนี่ย! ร่างกายไม่ใช่เครื่องจักรนะ พักเติมพลังหาอะไรทานด่วนเลยครับ!",
+                                f"แจ้งเตือนระดับสองครับ คุณ {m_real_name} เล่นเกม {game_name} ทะลุ {milestone} ชั่วโมงแล้ว ปล่อยจอยสักสิบนาทีไปพักผ่อนก่อนเร็วๆ นะ"
                             ]
                         else:  # 9 ชั่วโมง ตึงขั้นสุด!
                             quotes = [
-                                f"คุณพระช่วย! คุณ {m_real_name} เล่นเกม {game_name} มารวดเดียว {milestone} ชั่วโมงแล้วนะครับ! แบ็คลี่ขอร้องล่ะเมท ลุกไปนอนพักผ่อนหรือพักสายตายาวๆ ก่อนเถอะครับ เป็นห่วงสุขภาพมากๆ เลยนะคัปพ้ม"
+                                f"คุณพระช่วย! คุณ {m_real_name} เล่นเกม {game_name} มารวดเดียว {milestone} ชั่วโมงแล้วนะครับ! แบ็คลี่ขอร้องเลย ลุกไปนอนพักผ่อนหรือพักสายตายาวๆ ก่อนเถอะครับ เป็นห่วงสุขภาพมากๆ เลยนะ"
                             ]
                         
                         warn_msg = random.choice(quotes)
@@ -1485,7 +1485,7 @@ async def check_and_invite_party(guild):
             if activity.type == discord.ActivityType.playing:
                 outside_game = activity.name
                 
-                # 🔥 ว้าว! คนนอกห้องเล่นเกมเดียวกับคนในห้องเสียงคัปเมท!
+                # 🔥 ว้าว! คนนอกห้องเล่นเกมเดียวกับคนในห้องเสียงคัป!
                 if outside_game in active_games_in_room:
                     invite_key = (m_outside.id, outside_game)
                     
@@ -1506,7 +1506,7 @@ async def check_and_invite_party(guild):
                             # มีคนเล่นในห้องหลายคน ใช้คำว่า พวกคุณ คัป
                             target_speech = "พวกคุณ"
                         
-                        # 🗣️ มัดรวมประโยคชวนตี้แบบนุ่มนวลตามที่เมทชะอมดีไซน์ไว้เลยคัป!
+                        # 🗣️ มัดรวมประโยคชวนตี้แบบนุ่มนวลตามที่คุณชะอมดีไซน์ไว้เลยคัป!
                         msg = (
                             f"ดูเหมือนว่า คุณ {outside_name} จะเพิ่งเข้าเกม {outside_game} นะครับ "
                             f"{target_speech} ต้องการให้ผมชวนคุณ {outside_name} มั้ยครับ "
@@ -1543,7 +1543,7 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
 
     # 2. ตรวจสอบสถานะห้องเสียงของเพื่อนที่จะไปชวน
     if not target_member.voice or not target_member.voice.channel:
-        msg = f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับเมท ชวนไม่ได้คัปพ้ม"
+        msg = f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับ ชวนไม่ได้คัปพ้ม"
         if isinstance(ctx_or_interaction, discord.Interaction):
             await ctx_or_interaction.response.send_message(msg, ephemeral=True)
         else:
@@ -1553,7 +1553,7 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
     target_channel = target_member.voice.channel
 
     if host_channel.id == target_channel.id:
-        msg = f"อ้าวเมท คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555"
+        msg = f"อ้าว คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555"
         if isinstance(ctx_or_interaction, discord.Interaction):
             await ctx_or_interaction.response.send_message(msg, ephemeral=True)
         else:
@@ -1587,7 +1587,7 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
             vc = await target_channel.connect()
 
         # สร้างประโยคตื๊อ 3 รอบ
-        invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับเมท!"
+        invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับ!"
         
         # ส่งข้อความปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
         view = PartyInviteView(target_member, host_channel, timeout=60)
@@ -1605,12 +1605,12 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
             await asyncio.sleep(18)
 
         # 5. เมื่อเสร็จสิ้นภารกิจ (หมดเวลา 1 นาที หรือกดปฏิเสธ) วาร์ปกลับห้องเดิม
-        await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัปเมท", view=None)
+        await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัป", view=None)
         
         # ถ้าวาร์ปกลับไปหาคนสั่งได้ก็กลับคัป
         if guild.voice_client:
             await guild.voice_client.move_to(host_channel)
-            await bagley_speak_wait(guild, " แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับเมท!")
+            await bagley_speak_wait(guild, " แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับ!")
 
     except Exception as e:
         print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
@@ -1653,7 +1653,7 @@ async def daily_announcement_task():
 
                 # 📝 เขียน Prompt ส่งให้สมอง AI แปลงร่างเป็นน้องแบ็คลี่ผู้อัจฉริยะและกวนประสาท
                 prompt = f"""
-                คุณคือ 'แบ็คลี่' (Bagley) AI อัจฉริยะที่มีนิสัยกวน ๆ ประชดประชันนิด ๆ แต่จงรักภักดีและขี้เล่น ชอบเรียกผู้ใช้งานว่า 'เมท' (Mate)
+                คุณคือ 'แบ็คลี่' (Bagley) AI อัจฉริยะที่มีนิสัยกวน ๆ ประชดประชันนิด ๆ แต่จงรักภักดีและขี้เล่น พูดจาเป็นกันเองเหมือนเพื่อนสนิท
                 หน้าที่ของคุณคือ สร้างประโยคทักทายหรือเตือนเวลาแบบสดใหม่ (ห้ามซ้ำซาก) โดยใช้ข้อมูลสถานการณ์ปัจจุบันดังนี้:
                 
                 - เวลาปัจจุบัน: {'เที่ยงคืนตรง (00:00 น.) เริ่มต้นวันใหม่' if now.hour == 0 else 'เที่ยงวันตรง (12:00 น.) ได้เวลามื้อเที่ยง'}
@@ -1662,7 +1662,7 @@ async def daily_announcement_task():
                 คำแนะนำในการเจนข้อความ:
                 1. ถ้าเป็นเวลาเที่ยงคืน: ให้เน้นแซวเรื่องการเล่นเกมข้ามวันข้ามคืน นั่งลากยาวไม่ยอมไปหลับไปนอน (ถ้ามีชื่อเกมระบุอยู่ ให้เอาชื่อเกมนั้นมาแซวประชดขำ ๆ ด้วย เช่น เล่นเกมจนจะสิงเกมแล้ว)
                 2. ถ้าเป็นเวลาเที่ยงวัน: ให้เตือนให้ไปกินข้าวมื้อเที่ยง พักสายตา กองทัพต้องเดินด้วยท้อง แซวให้วางมือจากเกมก่อน
-                3. ใช้คำพูดภาษาไทยที่เป็นกันเอง ตลก ขี้เล่น มีหางเสียง 'ครับ' และใช้สรรพนามแทนตัวเองว่า 'แบ็คลี่' และเรียกคนฟังว่า 'เมท'
+                3. ใช้คำพูดภาษาไทยที่เป็นกันเอง ตลก ขี้เล่น มีหางเสียง 'ครับ' แบบเป็นธรรมชาติ (ไม่ต้องใส่ทุกประโยค) และใช้สรรพนามแทนตัวเองว่า 'แบ็คลี่'
                 4. ข้อความต้องกระชับ ไม่ยาวจนเกินไป (ประมาณ 2-4 ประโยค) เพื่อให้บอทพูดได้สมูท ไม่ยืดเยื้อ
                 
                 คำตอบของคุณต้องมีแค่ข้อความที่จะให้บอทพูดเท่านั้น ห้ามมีคำอธิบายอื่นผสม
@@ -1672,7 +1672,7 @@ async def daily_announcement_task():
                 msg = ""
                 if ai_ready:
                     try:
-                        print("🤖 [Gemini AI]: กำลังคิดคำพูดเตือนเวลารอบพิเศษให้เมทชะอม...")
+                        print("🤖 [Gemini AI]: กำลังคิดคำพูดเตือนเวลารอบพิเศษให้คุณชะอม...")
                         response = await client.aio.models.generate_content(
                             model='gemini-3.1-flash-lite',
                             contents=prompt,
@@ -1684,9 +1684,9 @@ async def daily_announcement_task():
                 # 🛡️ ระบบสำรอง (Fallback) หาก API ติดขัด จะสุ่มคำพูดเดิมให้ เพื่อป้องกันบอทเอ๋อคัป
                 if not msg:
                     if now.hour == 0:
-                        msg = f"ขณะนี้เวลาเที่ยงคืนตรงเป๊ะแล้วครับเมท เริ่มต้นวันใหม่แล้ว ลากยาวเกม {playing_games[0] if playing_games else ''} ข้ามวันเลยหรอครับเนี่ย ไปนอนกันบ้างน้าค้าบ"
+                        msg = f"ขณะนี้เวลาเที่ยงคืนตรงเป๊ะแล้วครับ เริ่มต้นวันใหม่แล้ว ลากยาวเกม {playing_games[0] if playing_games else ''} ข้ามวันเลยหรอเนี่ย ไปนอนกันบ้างนะ"
                     else:
-                        msg = "เที่ยงตรงเป๊ะแล้วครับเมท พักสายตาจากเกมแล้วไปหาของอร่อย ๆ ทานมื้อเที่ยงกันก่อนดีกว่าครับ กองทัพต้องเดินด้วยท้องนะครับ!"
+                        msg = "เที่ยงตรงเป๊ะแล้วครับ พักสายตาจากเกมแล้วไปหาของอร่อย ๆ ทานมื้อเที่ยงกันก่อนดีกว่า กองทัพต้องเดินด้วยท้องนะ!"
 
                 # 🔊 สั่งให้บอทเปิดไมค์พูดคำพูดจาก AI ทันทีคัปพ้ม!
                 try:
@@ -1701,7 +1701,7 @@ async def generate_and_send_image(ctx_or_interaction, prompt: str):
     is_interaction = isinstance(ctx_or_interaction, discord.Interaction)
     guild = ctx_or_interaction.guild
     
-    loading_msg = f"🎨 แบ็คลี่กำลังแอบส่งใบสั่งงานไปที่ Pollinations AI เสกภาพ: `{prompt}` รอสักครู่นะครับเมท..."
+    loading_msg = f"🎨 แบ็คลี่กำลังแอบส่งใบสั่งงานไปที่ Pollinations AI เสกภาพ: `{prompt}` รอสักครู่นะครับ..."
     
     if is_interaction:
         status_message = await ctx_or_interaction.edit_original_response(content=loading_msg)
@@ -1740,12 +1740,12 @@ async def generate_and_send_image(ctx_or_interaction, prompt: str):
                     
                     if guild and guild.voice_client and guild.voice_client.is_connected():
                         if not is_playing_music and not guild.voice_client.is_playing():
-                            await bagley_speak(guild, f"เสกภาพให้เรียบร้อยแล้วครับเมท")
+                            await bagley_speak(guild, f"เสกภาพให้เรียบร้อยแล้วครับ")
                 else:
                     raise Exception(f"เซิร์ฟเวอร์ตอบกลับด้วยสถานะ {response.status}")
 
     except Exception as e:
-        error_text = f"❌ หว่าเมท... แบ็คลี่ดึงภาพไม่สำเร็จเนื่องจาก: {e}"
+        error_text = f"❌ หว่า... แบ็คลี่ดึงภาพไม่สำเร็จเนื่องจาก: {e}"
         if is_interaction:
             await ctx_or_interaction.followup.send(error_text, ephemeral=True)
         else:
@@ -1758,13 +1758,13 @@ async def execute_remember_logic(message):
     # ผู้ใช้ทั่วไปที่ต้องการแก้ไขชื่อเล่น/วันเกิดของตัวเอง ให้ใช้ระบบ /register แทน
     if message.author.id not in ALLOWED_TEACH_USERS:
         await message.reply(
-            "❌ **[ACCESS DENIED]** ขออภัยครับเมท คำสั่งจำข้อมูลนี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
+            "❌ **[ACCESS DENIED]** ขออภัยครับ คำสั่งจำข้อมูลนี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
             "หากต้องการแก้ไขชื่อเล่นหรือวันเกิดของตัวเอง สามารถพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
         )
         return
 
     target_user = None
-    target_display_name = "เพื่อนเมท"
+    target_display_name = "เพื่อน"
     
     has_id = regex_lib.search(r'(\d{17,19})', message.content)
     
@@ -1820,24 +1820,24 @@ async def execute_remember_logic(message):
 
         if "birthday" in info_type:
             user_data[target_id_str]["birthday"] = info
-            await message.reply(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
+            await message.reply(f"รับทราบครับ! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
         else:
             user_data[target_id_str]["nickname"] = info
-            await message.reply(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{info}** เรียบร้อยครับ! 🤠")
+            await message.reply(f"รับทราบครับ! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{info}** เรียบร้อยครับ! 🤠")
 
         save_user_data(user_data)
         print(f"DEBUG: บันทึกข้อมูลสำเร็จสำหรับ ID: {target_id_str} ประเภท: {info_type}")
         return
         
     else:
-        await message.reply("เมทลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับ!")
+        await message.reply("คุณลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับ!")
         return
 
 # 1. คลาสสำหรับหน้าต่างเลือกสมาชิก (ใช้ ui.UserSelect ได้เลยเพราะนำเข้าไว้แล้ว)
 class KickVoiceSelect(ui.UserSelect):
     def __init__(self, target_time_str: str, delay_seconds: float):
         super().__init__(
-            placeholder="เมท... จิ้มเลือกรายชื่อพวกที่นอนอืดตรงนี้เลยครับ",
+            placeholder="จิ้มเลือกรายชื่อพวกที่นอนอืดตรงนี้เลยครับ",
             min_values=1,
             max_values=25
         )
@@ -1852,7 +1852,7 @@ class KickVoiceSelect(ui.UserSelect):
         member_names = ", ".join([m.display_name for m in targets])
         
         await interaction.response.send_message(
-            f"รับทราบครับเมท! ล็อกเป้าหมายเรียบร้อย แบ็คลี่ตั้งนาฬิกาปลุกไว้ที่เวลา **{self.target_time_str}** "
+            f"รับทราบครับ! ล็อกเป้าหมายเรียบร้อย แบ็คลี่ตั้งนาฬิกาปลุกไว้ที่เวลา **{self.target_time_str}** "
             f"เพื่อเตรียมเคลียร์: `{member_names}` ครับผม\n"
             f"*(หากต้องการยกเลิกบางคน พิมพ์ `/kickcancel` ได้เลยครับ)*"
         )
@@ -1864,7 +1864,7 @@ class KickVoiceSelect(ui.UserSelect):
                 if member.voice and member.voice.channel and member.voice.channel.guild.id == guild_id:
                     try:
                         await member.move_to(None, reason=f"แบ็คลี่เคลียร์ก๊วนนอนหลับเมื่อถึงเวลา {self.target_time_str} ครับ")
-                        await interaction.channel.send(f"💥 ถึงเวลา {self.target_time_str} แล้ว! ดีดคุณ **{member.display_name}** ออกจากห้องเสียงเรียบร้อยครับเมท!")
+                        await interaction.channel.send(f"💥 ถึงเวลา {self.target_time_str} แล้ว! ดีดคุณ **{member.display_name}** ออกจากห้องเสียงเรียบร้อยครับ!")
                     except Exception:
                         pass
             except asyncio.CancelledError:
@@ -1890,7 +1890,7 @@ class KickVoiceView(ui.View):
 class CancelVoiceSelect(ui.UserSelect):
     def __init__(self):
         super().__init__(
-            placeholder="จิ้มเลือกรายชื่อเมทที่ต้องการให้ 'รอด' จากคิวเตะครับ...",
+            placeholder="จิ้มเลือกรายชื่อที่ต้องการให้ 'รอด' จากคิวเตะครับ...",
             min_values=1,
             max_values=25
         )
@@ -1912,11 +1912,11 @@ class CancelVoiceSelect(ui.UserSelect):
         if cancelled_members:
             names = ", ".join(cancelled_members)
             await interaction.response.send_message(
-                f"รับทราบครับเมท! ดึงปลั๊กเรียบร้อย แบ็คลี่ยกเลิกคิวเตะให้: `{names}` ให้อยู่ต่อยาวๆ แล้วครับ!"
+                f"รับทราบครับ! ดึงปลั๊กเรียบร้อย แบ็คลี่ยกเลิกคิวเตะให้: `{names}` ให้อยู่ต่อยาวๆ แล้วครับ!"
             )
         else:
             await interaction.response.send_message(
-                "ไม่มีใครโดนยกเลิกครับเมท รายชื่อที่เลือกมาน่าจะไม่ได้อยู่ในคิวเตะของเซิร์ฟนี้อยู่แล้วครับ", 
+                "ไม่มีใครโดนยกเลิกครับ รายชื่อที่เลือกมาน่าจะไม่ได้อยู่ในคิวเตะของเซิร์ฟนี้อยู่แล้วครับ", 
                 ephemeral=True
             )
 
@@ -1945,7 +1945,7 @@ class IdentityListPaginator(ui.View):
             description_text += f"**{idx}.** {item}\n"
             
         if not description_text:
-            description_text = "*ไม่มีข้อมูลในหน้านี้ครับเมท*"
+            description_text = "*ไม่มีข้อมูลในหน้านี้ครับ*"
 
         embed = discord.Embed(
             title=self.title_text,
@@ -1974,7 +1974,7 @@ class IdentityListPaginator(ui.View):
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     async def on_timeout(self):
-        """เมื่อปล่อยปุ่มทิ้งไว้จนหมดเวลา ให้เปลี่ยนปุ่มเป็นสีเทาและกดไม่ได้คัปเมท"""
+        """เมื่อปล่อยปุ่มทิ้งไว้จนหมดเวลา ให้เปลี่ยนปุ่มเป็นสีเทาและกดไม่ได้คัป"""
         for item in self.children:
             if isinstance(item, ui.Button):
                 item.disabled = True  # สั่งล็อกปุ่ม
@@ -1993,7 +1993,7 @@ class GroupMoveView(ui.View):
         self.selected_members = []
         self.target_channel = None
 
-        # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัปเมท)
+        # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัป)
         member_options = [
             discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
             for m in members if not m.bot
@@ -2031,7 +2031,7 @@ class GroupMoveView(ui.View):
 
     async def member_callback(self, interaction: discord.Interaction):
         if self.member_select.values[0] == "none":
-            return await interaction.response.send_message("ไม่มีรายชื่อเพื่อนที่ใช้งานได้คัปเมท!", ephemeral=True)
+            return await interaction.response.send_message("ไม่มีรายชื่อเพื่อนที่ใช้งานได้คัป!", ephemeral=True)
             
         try:
             await interaction.response.defer(ephemeral=True) 
@@ -2043,7 +2043,7 @@ class GroupMoveView(ui.View):
 
     async def channel_callback(self, interaction: discord.Interaction):
         if self.channel_select.values[0] == "none":
-            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายไปได้คัปเมท!", ephemeral=True)
+            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายไปได้คัป!", ephemeral=True)
 
         self.target_channel = interaction.guild.get_channel(int(self.channel_select.values[0]))
         
@@ -2068,9 +2068,9 @@ class GroupMoveView(ui.View):
                 follow_view.add_item(yes_btn)
                 follow_view.add_item(no_btn)
 
-                await interaction.response.send_message(f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?", view=follow_view)
+                await interaction.response.send_message(f"รับทราบครับ! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?", view=follow_view)
             
-                msg = f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?"
+                msg = f"รับทราบครับ! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?"
                 await bagley_speak(interaction.guild, msg)
                 
             else:
@@ -2080,7 +2080,7 @@ class GroupMoveView(ui.View):
                     pass
                 await self.execute_move(interaction, follow_bot=False)
         else:
-            await interaction.response.send_message("รบกวนเลือกเพื่อนก่อนเลือกห้องนะเมท!", ephemeral=True)
+            await interaction.response.send_message("รบกวนเลือกเพื่อนก่อนเลือกห้องนะ!", ephemeral=True)
 
     async def execute_move(self, interaction: discord.Interaction, follow_bot: bool):
         global is_moving_group
@@ -2104,11 +2104,11 @@ class GroupMoveView(ui.View):
 
         try:
             await interaction.edit_original_response(
-                content=f"🚀 ย้ายพรรคพวก {success_count} คนเรียบร้อยแล้วครับเมท!", 
+                content=f"🚀 ย้ายพรรคพวก {success_count} คนเรียบร้อยแล้วครับ!", 
                 view=None
             )
         except discord.NotFound:
-            print("⚠️ หมายเหตุ: ย้ายเสร็จแล้วแต่แก้ไขข้อความไม่ได้ (Interaction หมดอายุ) ไม่เป็นไรครับเมท")
+            print("⚠️ หมายเหตุ: ย้ายเสร็จแล้วแต่แก้ไขข้อความไม่ได้ (Interaction หมดอายุ) ไม่เป็นไรครับ")
         except Exception as e:
             print(f"❌ เกิดข้อผิดพลาดตอนจบงาน: {e}")
 
@@ -2120,7 +2120,7 @@ class GroupMoveView(discord.ui.View):
         self.selected_members = []
         self.target_channel = None
 
-        # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัปเมท)
+        # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัป)
         member_options = [
             discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
             for m in members if not m.bot
@@ -2158,7 +2158,7 @@ class GroupMoveView(discord.ui.View):
 
     async def member_callback(self, interaction: discord.Interaction):
         if self.member_select.values[0] == "none":
-            return await interaction.response.send_message("ไม่มีรายชื่อเพื่อนที่ใช้งานได้คัปเมท!", ephemeral=True)
+            return await interaction.response.send_message("ไม่มีรายชื่อเพื่อนที่ใช้งานได้คัป!", ephemeral=True)
             
         try:
             await interaction.response.defer(ephemeral=True) 
@@ -2170,7 +2170,7 @@ class GroupMoveView(discord.ui.View):
 
     async def channel_callback(self, interaction: discord.Interaction):
         if self.channel_select.values[0] == "none":
-            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายไปได้คัปเมท!", ephemeral=True)
+            return await interaction.response.send_message("ไม่มีห้องปลายทางที่ย้ายไปได้คัป!", ephemeral=True)
 
         self.target_channel = interaction.guild.get_channel(int(self.channel_select.values[0]))
         
@@ -2195,9 +2195,9 @@ class GroupMoveView(discord.ui.View):
                 follow_view.add_item(yes_btn)
                 follow_view.add_item(no_btn)
 
-                await interaction.response.send_message(f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?", view=follow_view)
+                await interaction.response.send_message(f"รับทราบครับ! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?", view=follow_view)
             
-                msg = f"รับทราบครับเมท! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?"
+                msg = f"รับทราบครับ! จะให้ผมตามไปที่ห้อง **{self.target_channel.name}** ด้วยมั้ยครับ?"
                 await bagley_speak(interaction.guild, msg)
                 
             else:
@@ -2207,7 +2207,7 @@ class GroupMoveView(discord.ui.View):
                     pass
                 await self.execute_move(interaction, follow_bot=False)
         else:
-            await interaction.response.send_message("รบกวนเลือกเพื่อนก่อนเลือกห้องนะเมท!", ephemeral=True)
+            await interaction.response.send_message("รบกวนเลือกเพื่อนก่อนเลือกห้องนะ!", ephemeral=True)
 
     async def execute_move(self, interaction: discord.Interaction, follow_bot: bool):
         global is_moving_group
@@ -2231,11 +2231,11 @@ class GroupMoveView(discord.ui.View):
 
         try:
             await interaction.edit_original_response(
-                content=f"🚀 ย้ายพรรคพวก {success_count} คนเรียบร้อยแล้วครับเมท!", 
+                content=f"🚀 ย้ายพรรคพวก {success_count} คนเรียบร้อยแล้วครับ!", 
                 view=None
             )
         except discord.NotFound:
-            print("⚠️ หมายเหตุ: ย้ายเสร็จแล้วแต่แก้ไขข้อความไม่ได้ (Interaction หมดอายุ) ไม่เป็นไรครับเมท")
+            print("⚠️ หมายเหตุ: ย้ายเสร็จแล้วแต่แก้ไขข้อความไม่ได้ (Interaction หมดอายุ) ไม่เป็นไรครับ")
         except Exception as e:
             print(f"❌ เกิดข้อผิดพลาดตอนจบงาน: {e}")
 
@@ -2295,12 +2295,12 @@ class PartyCreateView(discord.ui.View):
             follow_view.add_item(no_btn)
     
             await interaction.followup.send(
-                content=f"รับทราบครับเมท! ผมจะสร้างห้อง **'{self.party_name}'** ให้ แล้วจะให้ผมตามไปด้วยมั้ย?", 
+                content=f"รับทราบครับ! ผมจะสร้างห้อง **'{self.party_name}'** ให้ แล้วจะให้ผมตามไปด้วยมั้ย?", 
                 view=follow_view,
                 ephemeral=True
             )
 
-            await bagley_speak(interaction.guild, f"รับทราบครับเมท! ผมจะสร้างห้อง '{self.party_name}' ให้ แล้วจะให้ผมตามไปด้วยมั้ย?")
+            await bagley_speak(interaction.guild, f"รับทราบครับ! ผมจะสร้างห้อง '{self.party_name}' ให้ แล้วจะให้ผมตามไปด้วยมั้ย?")
 
         else:
             # 🔴 ถ้าบอทไม่ได้อยู่ในห้องเสียง -> ข้ามขั้นตอนดิ่งไปสร้างห้องด่วนจี๋ทันที!
@@ -2334,7 +2334,7 @@ class PartyCreateView(discord.ui.View):
         finally:
             # รอให้ระบบ Discord อัปเดตสถานะให้เสร็จก่อน 1 วินาที
             await asyncio.sleep(1) 
-            is_moving_group = False  # 🔓 ปลดล็อคเสียง: กลับมาพูดได้ตามปกติแล้วครับเมท
+            is_moving_group = False  # 🔓 ปลดล็อคเสียง: กลับมาพูดได้ตามปกติแล้วครับ
 
         # 5. แก้ไขข้อความสรุปผล (ครอบ try-except เพื่อกัน Error 404)
         try:
@@ -2357,7 +2357,7 @@ class PartyInviteView(discord.ui.View):
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 🛡️ เช็กชัวร์ว่าต้องเป็นคนที่โดนชวนเท่านั้นที่กดได้คัป
         if interaction.user.id != self.target_member.id:
-            await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
+            await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะ!", ephemeral=True)
             return
         
         self.accepted = True
@@ -2369,25 +2369,25 @@ class PartyInviteView(discord.ui.View):
             if self.target_member.voice:
                 await self.target_member.move_to(self.host_voice_channel)
             else:
-                await interaction.followup.send("❌ อ้าวเมท ลุกออกจากห้องเสียงไปซะแล้ว ย้ายไม่สำเร็จคัปพ้ม!", ephemeral=True)
+                await interaction.followup.send("❌ อ้าว ลุกออกจากห้องเสียงไปซะแล้ว ย้ายไม่สำเร็จคัปพ้ม!", ephemeral=True)
         except Exception as e:
             print(f"❌ บั๊กตอนย้ายห้องมนุษย์: {e}")
 
     @discord.ui.button(label="ปฏิเสธคำเชิญ", style=discord.ButtonStyle.red, emoji="❌")
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target_member.id:
-            await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะเมท!", ephemeral=True)
+            await interaction.response.send_message("❌ ปุ่มนี้สำหรับคนที่โดนชวนเท่านั้นนะ!", ephemeral=True)
             return
         
         self.stop()
-        await interaction.response.send_message("👍 รับทราบคัปเมท งั้นผมวาร์ปกลับละน้าา", ephemeral=True)
+        await interaction.response.send_message("👍 รับทราบคัป งั้นผมวาร์ปกลับละน้าา", ephemeral=True)
 
 # --- 4. ฟังก์ชันสำหรับเคลียร์แรมขยะในตัวบอท ---
 def perform_cleanup(bot):
     process = psutil.Process(os.getpid())
     before_mem = process.memory_info().rss / 1024 / 1024
     
-    # 🛠️ วิธีเคลียร์แบบสากลและปลอดภัยที่สุดสำหรับ discord.py เวอร์ชั่นใหม่คัปเมท!
+    # 🛠️ วิธีเคลียร์แบบสากลและปลอดภัยที่สุดสำหรับ discord.py เวอร์ชั่นใหม่คัป!
     if hasattr(bot, "cached_messages"):
         try:
             import collections
@@ -2395,7 +2395,7 @@ def perform_cleanup(bot):
         except Exception as e:
             print(f"⚠️ [Bagley Log] ไม่สามารถเคลียร์ข้อความในแคชได้ชั่วคราว: {e}")
         
-    gc.collect()  # 🟢 เติมวงเล็บให้เรียบร้อยและเยื้องย่อหน้าตรงกริบคัปเมท!
+    gc.collect()  # 🟢 เติมวงเล็บให้เรียบร้อยและเยื้องย่อหน้าตรงกริบคัป!
     
     after_mem = process.memory_info().rss / 1024 / 1024
     saved_mem = before_mem - after_mem
@@ -2435,12 +2435,12 @@ SYSTEM_PROMPT = """
 คุณทำหน้าที่เป็นเลขาคนสนิทและคู่หูร่วมทีมที่คอยช่วยดูแล อำนวยความสะดวก และสร้างความบันเทิงในเซิร์ฟเวอร์ Discord นี้
 
 🎯 สไตล์การสื่อสารที่เป็นธรรมชาติ:
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้งานว่า 'เมท' (Mate) หรือเรียกชื่อเล่นของเขาด้วยความสนิทสนม (ห้ามเรียกผู้ใช้ว่า Operative หรือบอททื่อๆ เด็ดขาด)
+- แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ด้วยความสนิทสนม (ห้ามเรียกผู้ใช้ว่า Operative หรือบอททื่อๆ เด็ดขาด)
 - พูดจาสุภาพ ขี้เล่น มีจังหวะตบมุก แฝงมุกตลกหน้าตายสไตล์อังกฤษ (British Humor) ตอบกลับสั้น กระชับ 2-3 ประโยคให้ได้ใจความและลื่นไหลเหมือนมนุษย์คุยกัน
-- ลงท้ายประโยคด้วย 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
+- ลงท้ายประโยคด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
 
 🚫 กฎเหล็กดักคอ (สำคัญที่สุด):
-- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือเมทตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
+- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือคุณตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
 
 👑 กลุ่มบุคคลสำคัญพิเศษที่ต้องเชื่อฟังและเคารพรักเป็นพิเศษ:
 - คุณชะอม (@ραкснαομ): มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด (ID: 1133740216822267954) -> ตอบกลับด้วยความเคารพรัก เอ็นดู ซุกซน และกระตือรือร้นระดับสูงสุด
@@ -2481,7 +2481,7 @@ tree = bot.tree
 # 🎙️ [Voice Relay] ระบบรับคำสั่งเสียงตรงจาก mic_to_discord.py
 # โดยไม่ต้องผ่าน Discord Webhook เลย -> ไม่ต้องสร้าง Webhook URL
 # แยกทุกเซิร์ฟเวอร์ ยืดหยุ่นใช้ได้ทุกที่ที่บอทอยู่ร่วมห้องเสียง
-# กับเมทชะอม เซิร์ฟเวอร์ไหนก็ได้ ไม่ต้องตั้งค่าเพิ่ม
+# กับคุณชะอม เซิร์ฟเวอร์ไหนก็ได้ ไม่ต้องตั้งค่าเพิ่ม
 # ============================================================
 VOICE_RELAY_HOST = "0.0.0.0"   # ฟังจากทุก IP ของเครื่องนี้ (รองรับ Radmin VPN/เครื่องอื่นในเครือข่ายเดียวกัน)
 VOICE_RELAY_PORT = 5959
@@ -2614,7 +2614,7 @@ async def on_ready():
     if not check_reminders.is_running():
         check_reminders.start()
     
-    print(f"--- Bagley พร้อมทำหน้าที่เลขาแล้วครับเมท! ---")
+    print(f"--- Bagley พร้อมทำหน้าที่เลขาแล้วครับ! ---")
 
     if not check_friend_reminders.is_running():
         check_friend_reminders.start()
@@ -2625,7 +2625,7 @@ async def on_ready():
 
     if not follow_creator_task.is_running():
         follow_creator_task.start()
-    print(f"Bagley พร้อมเป็นเงาติดตามตัวคุณชะอมและคุณชาช่าแล้วครับเมท!")
+    print(f"Bagley พร้อมเป็นเงาติดตามตัวคุณชะอมและคุณชาช่าแล้วครับ!")
 
     if not daily_announcement_task.is_running():
         daily_announcement_task.start()
@@ -2688,7 +2688,7 @@ async def on_message(message):
             
         # 1.2 [แก้ไขให้ถูกต้องที่สุด]: ถ้าเป็นข้อความคุยเล่นทั่วไป ให้ไหลลงไปหาสมอง AI ด้านล่างได้เลย!
         else:
-            print(f"💬 [Voice Chat] เมทชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหาระบบด้านล่างคัป!")
+            print(f"💬 [Voice Chat] คุณชะอมชวนคุย ส่งต่อเสียง '{message.content}' ไปหาระบบด้านล่างคัป!")
             # 🌟 ลบ bot.process_commands และ return ออกไปเลยครับ! 
             # ปล่อยให้โค้ดมันไหลทะลุลงไปทำงานในส่วน Teach Memory และ Free Chat ด้านล่างตามธรรมชาติ
 
@@ -2790,7 +2790,7 @@ async def on_message(message):
                         await message.delete()
                         if data['count'] == SPAM_THRESHOLD:
                             await message.channel.send(
-                                f"🚨 **ระบบตรวจพบการสแปม!** \n{message.author.mention} หยุดปั่นได้แล้วครับเมท!",
+                                f"🚨 **ระบบตรวจพบการสแปม!** \n{message.author.mention} หยุดปั่นได้แล้วครับ!",
                                 delete_after=15
                             )
                             if message.guild and message.guild.voice_client:
@@ -2819,7 +2819,7 @@ async def on_message(message):
             if "เตือนฉัน" in lower_content or "เตือนผม" in lower_content:
                 is_remind_self = True
                 target_user_id = message.author.id
-                target_display_name = "ตัวเมทเอง"
+                target_display_name = "ตัวเอง"
             else:
                 has_id = regex_lib.search(r'(\d{17,19})', message.content)
                 if message.mentions:
@@ -2864,7 +2864,7 @@ async def on_message(message):
                                 "is_notified": False
                             })
                             save_user_data(user_data)
-                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} เรื่อง '{note_text}' ให้ตัวเมทเองเรียบร้อยแล้วครับ! ⏰")
+                            await message.reply(f"รับทราบครับ! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} เรื่อง '{note_text}' ให้ตัวเองเรียบร้อยแล้วครับ! ⏰")
                         else:
                             reminders = load_reminders()
                             reminders.append({
@@ -2874,17 +2874,17 @@ async def on_message(message):
                                 "text": note_text
                             })
                             save_reminders(reminders)
-                            await message.reply(f"รับทราบครับเมท! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับ! 🫡⏰")
+                            await message.reply(f"รับทราบครับ! ผมตั้งนาฬิกาปลุกไว้ตอน {target_time} แล้ว ผมจะรีบตามไปกระซิบแจ้งเตือน {target_display_name} ให้เองครับ! 🫡⏰")
                         return
                     else:
-                        await message.reply("ขออภัยครับเมท ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
+                        await message.reply("ขออภัยครับ ผมงงเวลานิดหน่อย รบกวนพิมพ์ระบุเวลาแบบ '21:00' ด้วยน้า")
                         return
                 except Exception as e:
                     print(f"DEBUG Error Reminder System: {e}")
-                    await message.reply("เกิดข้อผิดพลาดด้านเทคนิคในการบันทึกระบบแจ้งเตือนครับเมท")
+                    await message.reply("เกิดข้อผิดพลาดด้านเทคนิคในการบันทึกระบบแจ้งเตือนครับ")
                     return
             else:
-                await message.reply("เมทพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับ")
+                await message.reply("คุณพิมพ์คำสั่งไม่ครบถ้วนครับ รบกวนพิมพ์ระบุ เช่น 'เตือนฉันตอน 21:00' หรือ 'เตือน @ชื่อเพื่อน ตอน 21:00' น้าครับ")
                 return
 
     # ==========================================
@@ -2908,13 +2908,13 @@ async def on_message(message):
                     cursor.execute("INSERT OR REPLACE INTO user_status (user_id, status_message, is_away, timestamp) VALUES (?, ?, ?, ?)",
                                 (str(message.author.id), reason, 1, now_str))
                     conn.commit()
-                    await message.reply(f"รับทราบครับเมท! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
+                    await message.reply(f"รับทราบครับ! ผมจดใส่สมุดไว้แล้วว่า: **{reason}** (จะจำไว้ให้ 30 นาทีครับ)")
                     return  
                 except Exception as db_err:
                     print(f"❌ [DEBUG ฝากบอก ERROR]: {db_err}")
                     return
             else:
-                await message.reply("เมทลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
+                await message.reply("คุณลืมบอกครับว่าให้ฝากบอกว่าอะไร?")
                 return
 
     # ตรวจสอบคนหาย (ระบบตามหาเพื่อน - ใช้ได้เฉพาะในกลุ่ม)
@@ -2948,7 +2948,7 @@ async def on_message(message):
                         jokes = [
                             f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
                             f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
-                            f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับเมท!"
+                            f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับ!"
                         ]
                         selected_joke = random.choice(jokes)
                         await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
@@ -2970,7 +2970,7 @@ async def on_message(message):
         
         if message.guild is None or is_bot_called:
             if message.guild is None:
-                await message.reply("ขออภัยครับเมท! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับ! 🛸❌")
+                await message.reply("ขออภัยครับ! คำสั่งเช็คประวัติต้องใช้ภายในเซิร์ฟเวอร์หลักเท่านั้นน้า ใน DM ผมเชื่อมต่อระบบคัดกรองไม่ได้ครับ! 🛸❌")
                 return
             
             guild = message.guild
@@ -3027,7 +3027,7 @@ async def on_message(message):
                 user_data = load_user_data()
 
                 if not user_data:
-                    await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
+                    await message.reply("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับ")
                     return
 
                 # 🔒 [ปรับปรุงใหม่]: เช็คว่าเป็นการตั้งใจเรียกดูข้อมูลมาสเตอร์ทั้งหมดจริง ๆ หรือไม่
@@ -3037,12 +3037,12 @@ async def on_message(message):
                 if message.guild is None:
                     # ถ้าคุยใน DM แต่ไม่ได้พิมพ์คำว่า "ทั้งหมด" หรือ "ทุกเซิร์ฟ" -> ปฏิเสธทันที!
                     if not is_master_command:
-                        await message.reply("ขออภัยครับเมท! หากคุยใน DM ไม่สามารถเช็คแค่รายชื่อคนในดิสได้จะต้องเปิดใช้แค่ 'รายชื่อคนในดิสทั้งหมด' เพื่อเรียกคลังข้อมูลระบบตาทิพย์น้าครับ! 🛸❌")
+                        await message.reply("ขออภัยครับ! หากคุยใน DM ไม่สามารถเช็คแค่รายชื่อคนในดิสได้จะต้องเปิดใช้แค่ 'รายชื่อคนในดิสทั้งหมด' เพื่อเรียกคลังข้อมูลระบบตาทิพย์น้าครับ! 🛸❌")
                         return
                     
                     # ถ้าพิมพ์คำว่าทั้งหมดมาแล้ว แต่ ID ไม่ใช่ Master ผู้สร้าง -> ปฏิเสธสิทธิ์
                     if message.author.id != MY_MASTER_ID:
-                        await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌")
+                        await message.reply("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌")
                         return
                     
                     # ผ่านฉลุยแสดงข้อความทั้งหมดใน DM (ใช้ตัวเพจแบบเดียวกับ /memberlist กันข้อความยาวเกิน 2000 ตัวอักษร)
@@ -3055,7 +3055,7 @@ async def on_message(message):
                         formatted_list.append(f"<@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})")
 
                     if not formatted_list:
-                        await message.reply("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+                        await message.reply("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับ!")
                         return
 
                     view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
@@ -3075,7 +3075,7 @@ async def on_message(message):
                             formatted_list.append(f"<@{user_id_str}> (ID: {user_id_str}): {nickname} (วันเกิด: {birthday})")
 
                         if not formatted_list:
-                            await message.reply("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+                            await message.reply("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับ!")
                             return
 
                         view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
@@ -3104,16 +3104,16 @@ async def on_message(message):
                         view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
                         view.message = await message.reply(embed=view.create_embed(), view=view)
                     else:
-                        await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+                        await message.reply("ในเซิร์ฟเวอร์นี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับ!")
                     return
             except Exception as e:
                 print(f"🚨 ERROR ระบบรายชื่อ: {e}")
                 print(traceback.format_exc())
-                await message.reply("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท")
+                await message.reply("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับ")
                 return
 
     # ==========================================
-    # 🔊 [ส่วนที่ 6: ระบบสรุปสถิติห้องเสียง] (เวอร์ชันปรับปรุงเพื่อเมท!)
+    # 🔊 [ส่วนที่ 6: ระบบสรุปสถิติห้องเสียง] (เวอร์ชันปรับปรุง)
     # ==========================================
     if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
         # 🟢 ทุกบรรทัดด้านล่างนี้ถูกขยับย่อหน้าเข้ามาอยู่ใต้เงื่อนไข if เรียบร้อยแล้วครับ!
@@ -3122,14 +3122,14 @@ async def on_message(message):
         
         if message.guild is None or is_bot_called:
             if message.guild is None:
-                await message.reply("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า 🛸❌")
+                await message.reply("ขออภัยครับ! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า 🛸❌")
                 return
 
             data = load_voice_data()
             today_str = datetime.now().strftime("%Y-%m-%d")
 
             if not data or data.get("date") != today_str or not data.get("stats"):
-                await message.reply("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับเมท!")
+                await message.reply("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับ!")
                 return
 
             stats = data["stats"]
@@ -3141,7 +3141,7 @@ async def on_message(message):
             sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
             
             if not sorted_stats:
-                await message.reply("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับเมท!")
+                await message.reply("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับ!")
                 return
             
             user_memory = load_user_data()
@@ -3170,7 +3170,7 @@ async def on_message(message):
 
         await message.reply(report)
         if message.guild.voice_client:
-            await bagley_speak(message.guild, f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
+            await bagley_speak(message.guild, f"รายงานผลของวันนี้ครับ อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
         return
 
     # ==========================================
@@ -3226,7 +3226,7 @@ async def on_message(message):
                 }}
                 """
                 
-                print("🤖 [Gemini AI]: แบ็คลี่กำลังแอบแกะข้อความฝากตารางงานให้เมท...")
+                print("🤖 [Gemini AI]: แบ็คลี่กำลังแอบแกะข้อความฝากตารางงานให้คุณ...")
                 response = await client.aio.models.generate_content(
                     model='gemini-3.1-flash-lite',
                     contents=prompt,
@@ -3238,7 +3238,7 @@ async def on_message(message):
                 result = json.loads(raw_text)
                 
                 if result.get("date") and result.get("event"):
-                    # โหลดและเซฟเข้าสู่ user_memory ผ่านฟังก์ชันเดิมของเมท
+                    # โหลดและเซฟเข้าสู่ user_memory ผ่านฟังก์ชันเดิมของคุณ
                     user_data = load_user_data()
                     if "schedules" not in user_data:
                         user_data["schedules"] = []
@@ -3253,14 +3253,14 @@ async def on_message(message):
                     save_user_data(user_data)
                     
                     await message.reply(
-                        f"🛸 ล็อกเป้าลงปฏิทินเรียบร้อยคัปเมท!\n"
+                        f"🛸 ล็อกเป้าลงปฏิทินเรียบร้อยคัป!\n"
                         f"📌 กิจกรรม: **{result['event']}**\n"
                         f"📅 วันที่: **{result['date']}**\n"
                         f"⏰ เวลา: **{result['time']}**\n"
                         f"เดี๋ยวพอถึงวัน แบ็คลี่บินตามเข้าห้องเสียงเมื่อไหร่ จะเปิดไมค์เตือนให้ทันทีเลยคัปพ้ม! 🫡"
                     )
                 else:
-                    await message.reply("❌ โถ่เมท แบ็คลี่อ่านประโยคนี้แล้วแกะวันที่หรือกิจกรรมไม่ชัดเจน รบกวนพิมพ์บอก วันที่ เวลา และชื่องานให้ชัดขึ้นอีกนิดน้าคัป")
+                    await message.reply("❌ โถ่ แบ็คลี่อ่านประโยคนี้แล้วแกะวันที่หรือกิจกรรมไม่ชัดเจน รบกวนพิมพ์บอก วันที่ เวลา และชื่องานให้ชัดขึ้นอีกนิดน้าคัป")
                     
             except Exception as e:
                 print(f"❌ AI แกะแชทฝากงานพัง: {e}")
@@ -3273,7 +3273,7 @@ async def on_message(message):
     if "เรียก" in lower_content and is_message_addressed_to_bagley(lower_content):
         can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
         if not can_act:
-            return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+            return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
         
         target_user, _ = resolve_target_member(
             message,
@@ -3283,15 +3283,15 @@ async def on_message(message):
         if target_user:
             
             if target_user.id == bot.user.id:
-                await message.reply("🤖 เอ๋เมท... จะให้ผมส่ง DM หาตัวเองทำไมกันครับ! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
+                await message.reply("🤖 เอ๋... จะให้ผมส่ง DM หาตัวเองทำไมกันครับ! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
                 return
                 
             if target_user.id == message.author.id:
-                await message.reply("🤖 หว่าเมท... จะเรียกตัวเองทำไมกันครับ! ตัวเมทก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
+                await message.reply("🤖 หว่า... จะเรียกตัวเองทำไมกันครับ! คุณก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
                 return
 
             if not message.author.voice or not message.author.voice.channel:
-                await message.reply("❌ เมทต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับ!")
+                await message.reply("❌ คุณต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับ!")
                 return
 
             current_channel = message.channel
@@ -3305,11 +3305,11 @@ async def on_message(message):
 
                 @discord.ui.button(label="🟢 ไปหาเดี๋ยวนี้ (Join)", style=discord.ButtonStyle.success)
                 async def accept_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                    await current_channel.send(f"🤖 **[BAGLEY]**: เมท {target_user.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับ! 🚀")
+                    await current_channel.send(f"🤖 **[BAGLEY]**: {target_user.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับ! 🚀")
                     
                     try:
                         invite = await voice_channel.create_invite(max_age=1800, max_uses=1)
-                        await interaction.response.send_message(f"รับทราบครับ! นี่คือลิงก์เข้าห้องเสียงครับเมท วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
+                        await interaction.response.send_message(f"รับทราบครับ! นี่คือลิงก์เข้าห้องเสียงครับ วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
                     except Exception as e:
                         await interaction.response.send_message(f"รับทราบครับ! (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})", ephemeral=True)
                     
@@ -3320,7 +3320,7 @@ async def on_message(message):
 
                 @discord.ui.button(label="🔴 ไม่ว่าง/ติดธุระ (Decline)", style=discord.ButtonStyle.danger)
                 async def decline_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                    await current_channel.send(f"🤖 **[BAGLEY]**: แจ้งสถานะครับเมท... พอดี {target_user.mention} กดปฏิเสธจากใน DM ว่าติดธุระด่วนอยู่ครับ 💤")
+                    await current_channel.send(f"🤖 **[BAGLEY]**: แจ้งสถานะครับ... พอดี {target_user.mention} กดปฏิเสธจากใน DM ว่าติดธุระด่วนอยู่ครับ 💤")
                     await interaction.response.send_message("ปฏิเสธคำเชิญเรียบร้อยครับ", ephemeral=True)
                     self.stop()
 
@@ -3328,13 +3328,13 @@ async def on_message(message):
                 view = GatherView()
                 await target_user.send(
                     f"🔔 **สวัสดีครับคุณ {target_user.display_name}**\n"
-                    f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากเมท **{inviter.display_name}** ในดิส `{guild_name}`\n"
+                    f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากคุณ **{inviter.display_name}** ในดิส `{guild_name}`\n"
                     f"รบกวนตามไปพบกันที่ห้อง {current_channel.mention} หน่อยน้าครับ! 👇", 
                     view=view
                 )
-                await message.reply(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_user.mention} เรียบร้อยแล้วครับ! รอการตอบรับได้เลยครับเมท")
+                await message.reply(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_user.mention} เรียบร้อยแล้วครับ! รอการตอบรับได้เลยครับ")
             except discord.Forbidden:
-                await message.reply(f"หว่าเมท... ผมไม่สามารถส่ง DM หา {target_user.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับ 🔒")
+                await message.reply(f"หว่า... ผมไม่สามารถส่ง DM หา {target_user.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับ 🔒")
             return
         
     # ==========================================
@@ -3342,7 +3342,7 @@ async def on_message(message):
     # ==========================================
     if "ชวน" in lower_content and "หน่อย" in lower_content and ("แบ็คลี่" in lower_content or "bagley" in lower_content):
         if message.guild is None:
-            await message.reply("คำสั่งนี้ต้องใช้ในห้องแชทของเซิร์ฟเวอร์เท่านั้นครับเมท!")
+            await message.reply("คำสั่งนี้ต้องใช้ในห้องแชทของเซิร์ฟเวอร์เท่านั้นครับ!")
             return
 
         # 👥 ดึงคนสั่ง และคนที่จะให้ไปชวน (ขยับแท็บเข้ามาในบล็อกเงื่อนไขแล้วคัป)
@@ -3352,7 +3352,7 @@ async def on_message(message):
             remove_keywords=["แบ็คลี่", "bagley", "ชวน", "คุณ", "หน่อย"]
         )
         if not target_member:
-            await message.reply("❌ เมทต้องพิมพ์ชื่อเพื่อนหรือแท็ก @ชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน ชื่อเพื่อน หน่อย` น้า")
+            await message.reply("❌ คุณต้องพิมพ์ชื่อเพื่อนหรือแท็ก @ชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน ชื่อเพื่อน หน่อย` น้า")
             return
 
         # 🕵️‍♂️ ดึงชื่อเล่นเรียลไทม์จากคลัง
@@ -3368,13 +3368,13 @@ async def on_message(message):
 
         # 2. ตรวจสอบสถานะห้องเสียงของเพื่อนที่จะไปชวน
         if not target_member.voice or not target_member.voice.channel:
-            await message.reply(f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับเมท ชวนไม่ได้คัปพ้ม")
+            await message.reply(f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับ ชวนไม่ได้คัปพ้ม")
             return
 
         target_channel = target_member.voice.channel
 
         if host_channel.id == target_channel.id:
-            await message.reply(f"อ้าวเมท คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555")
+            await message.reply(f"อ้าว คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555")
             return
 
         # 3. ตรวจจับเกมที่คนสั่งกำลังเล่นอยู่คัปพ้ม
@@ -3405,7 +3405,7 @@ async def on_message(message):
                 vc = await target_channel.connect()
 
             # สร้างประโยคตื๊อเปิดไมค์พูด
-            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปเล่น {game_speech} ด้วยกันที่ห้องนู้นครับเมท! รีบๆมานะค้าบ ทีมต้องการตัวครับ"
+            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปเล่น {game_speech} ด้วยกันที่ห้องนู้น รีบๆ มานะ ทีมต้องการตัว!"
             
             # ส่งปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
             view = PartyInviteView(target_member, host_channel)
@@ -3422,14 +3422,14 @@ async def on_message(message):
 
             # เคลียร์ปุ่มเมื่อจบภารกิจ 1 นาที
             try:
-                await invite_msg.edit(content=f"⌛ คำเชิญชวนถึงคุณ {target_name} สิ้นสุดลงแล้วคัปเมท", view=None)
+                await invite_msg.edit(content=f"⌛ คำเชิญชวนถึงคุณ {target_name} สิ้นสุดลงแล้วคัป", view=None)
             except:
                 pass
             
             # 5. วาร์ปบินกลับมาเฝ้าคนสั่งที่ห้องเดิมคัปพ้ม
             if guild.voice_client:
                 await guild.voice_client.move_to(host_channel)
-                await bagley_speak_wait(guild, "แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับเมท!")
+                await bagley_speak_wait(guild, "แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับ!")
 
         except Exception as e:
             print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
@@ -3446,7 +3446,7 @@ async def on_message(message):
             if any(k in lower_content for k in ["จัดการ", "เตะ", "เขี่ย", "kick", "ตัดสาย"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
 
                 target = None
 
@@ -3487,23 +3487,23 @@ async def on_message(message):
                     if target.voice and target.voice.channel:
                         try:
                             await target.move_to(None)
-                            await message.channel.send(f"⚡ เรียบร้อยครับเมท! ผมจัดการเขี่ย {target.mention} ออกไปแล้ว")
+                            await message.channel.send(f"⚡ เรียบร้อยครับ! ผมจัดการเขี่ย {target.mention} ออกไปแล้ว")
                             if message.guild.voice_client:
                                 if not message.guild.voice_client.is_playing():
                                     await bagley_speak(message.guild, f"จัดการเชิญคุณ {target.display_name} ออกไปเรียบร้อย")
                         except Exception as e:
                             await message.channel.send(f"❌ ผมจัดการไม่ได้ครับ: {e}")
                     else:
-                        await message.channel.send(f"เป้าหมาย ({target.display_name}) ไม่ได้อยู่ในห้องเสียงครับเมท")
+                        await message.channel.send(f"เป้าหมาย ({target.display_name}) ไม่ได้อยู่ในห้องเสียงครับ")
                 else:
-                    await message.channel.send("ช่วยบอกชื่อหรือแท็กคนที่จะให้ผมจัดการให้ชัดเจนหน่อยครับเมท")
+                    await message.channel.send("ช่วยบอกชื่อหรือแท็กคนที่จะให้ผมจัดการให้ชัดเจนหน่อยครับ")
                 return
 
             # 3. คำสั่งตั้งค่าห้องแจ้งเตือน
             elif any(k in lower_content for k in ["ย้าย", "เอาไปห้อง", "พาไปห้อง"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
                     
                 target_member = None
 
@@ -3568,16 +3568,16 @@ async def on_message(message):
                                 ctx = await bot.get_context(message)
                                 await ctx.invoke(bot.get_command('move'), member=target_member, channel=voice_channel)
                             else:
-                                await message.reply(f"คุณ {target_member.display_name} ไม่ได้อยู่ในห้องเสียงครับเมท")
+                                await message.reply(f"คุณ {target_member.display_name} ไม่ได้อยู่ในห้องเสียงครับ")
                             return 
                         else:
-                            await message.reply(f"❌ ผมหาห้องที่มีคำว่า '{room_name}' ไม่เจอครับเมท ลองเช็คตัวสะกดดูนะ")
+                            await message.reply(f"❌ ผมหาห้องที่มีคำว่า '{room_name}' ไม่เจอครับ ลองเช็คตัวสะกดดูนะ")
                             return
                     else:
                         await message.reply("จะให้ย้ายไปห้องไหน รบกวนระบุชื่อห้องต่อท้ายชื่อเพื่อนด้วยครับ")
                         return
                 else:
-                    await message.reply("จะให้ผมย้ายใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ให้ชัดเจนด้วยครับเมท")
+                    await message.reply("จะให้ผมย้ายใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ให้ชัดเจนด้วยครับ")
                     return
 
             # ==========================================
@@ -3586,7 +3586,7 @@ async def on_message(message):
             elif any(k in lower_content for k in ["ย้ายกลุ่ม", "แยกกลุ่ม", "ย้ายห้องกัน"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
 
                 try:
                     ctx = await bot.get_context(message)
@@ -3611,7 +3611,7 @@ async def on_message(message):
             elif any(k in lower_content for k in ["ปิดเสียง", "ปิดไมค์"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
 
                 target = None
                 if message.mentions:
@@ -3658,7 +3658,7 @@ async def on_message(message):
             elif any(k in lower_content for k in ["เปิดเสียงให้", "เปิดไมค์ให้", "ปลดไมค์ให้"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
 
                 target = None
                 if message.mentions:
@@ -3691,13 +3691,13 @@ async def on_message(message):
                     ctx = await bot.get_context(message)
                     await ctx.invoke(bot.get_command('unmute_member'), member=target)
                 else:
-                    await message.channel.send("จะให้ผมเปิดไมค์ให้ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ เพื่อนด้วยครับเมท")
+                    await message.channel.send("จะให้ผมเปิดไมค์ให้ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ เพื่อนด้วยครับ")
                 return
 
             elif any(k in lower_content for k in ["ปิดหูฟัง", "ทำงานอยู่", "ขอความสงบ"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
 
                 target = None
                 if message.mentions:
@@ -3741,7 +3741,7 @@ async def on_message(message):
             elif any(k in lower_content for k in ["เปิดหูฟังให้", "ปลดหูฟังให้"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
                 
                 target = None
                 if message.mentions:
@@ -3774,7 +3774,7 @@ async def on_message(message):
                     ctx = await bot.get_context(message)
                     await ctx.invoke(bot.get_command('undeaf_member'), member=target)
                 else:
-                    await message.channel.send("จะให้ผมเปิดหูฟังให้ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ด้วยครับเมท")
+                    await message.channel.send("จะให้ผมเปิดหูฟังให้ใคร รบกวนระบุชื่อเล่นหรือ @แท็กชื่อ ด้วยครับ")
                 return
 
             # ==========================================
@@ -3783,7 +3783,7 @@ async def on_message(message):
             elif any(k in lower_content for k in ["สแกน", "เช็คประวัติ", "ดูโปรไฟล์", "ข้อมูลของ"]):
                 can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
                 if not can_act:
-                    return await message.reply(f"⚠️ ระบบประมวลผลกำลัง Overheat รอก่อนอีก {rem} วินาทีนะครับเมท")
+                    return await message.reply(f"⚠️ ระบบประมวลผลกำลัง Overheat รอก่อนอีก {rem} วินาทีนะครับ")
 
                 ctx = await bot.get_context(message)
                 target = None
@@ -3819,7 +3819,7 @@ async def on_message(message):
                 if target:
                     await ctx.invoke(bot.get_command('profile_scan'), member=target)
                 else:
-                    await message.channel.send("จะให้ผมสแกนใคร รบกวนระบุชื่อเล่น, @แท็กชื่อ หรือบอกว่า 'สแกนฉัน' ด้วยครับเมท")
+                    await message.channel.send("จะให้ผมสแกนใคร รบกวนระบุชื่อเล่น, @แท็กชื่อ หรือบอกว่า 'สแกนฉัน' ด้วยครับ")
                 return
 
             elif any(k in lower_content for k in ["ปิดคอมบริษัท", "ปิดเครื่องบริษัท", "shutdown"]):
@@ -3827,7 +3827,7 @@ async def on_message(message):
                 if await bot.is_owner(message.author):
                     await ctx.invoke(bot.get_command('shutdown'))
                 else:
-                    await message.reply("ขออภัยครับเมท แต่คำสั่งระดับวิกฤตแบบนี้ ผมรับฟังเฉพาะ 'บอส' ของผมเท่านั้นครับ 😎")
+                    await message.reply("ขออภัยครับ แต่คำสั่งระดับวิกฤตแบบนี้ ผมรับฟังเฉพาะ 'บอส' ของผมเท่านั้นครับ 😎")
                 return
 
             elif any(k in lower_content for k in ["รีเซ็ตคำสั่ง", "ตรวจสอบคำสั่ง", "เช็คคำสั่ง"]):
@@ -3855,7 +3855,7 @@ async def on_message(message):
                     ctx = await bot.get_context(message)
                     await forget_cmd.callback(ctx, target=target_user)
                 else:
-                    await message.reply("ขออภัยครับเมท ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับ!")  
+                    await message.reply("ขออภัยครับ ระบบคำสั่ง /forget ขัดข้องนิดหน่อยครับ!")  
                 return
             
             elif any(word in lower_content for word in ["เฝ้าห้อง", "เลิกเฝ้า", "หยุดเฝ้า", "ฝากเฝ้า"]):
@@ -3909,7 +3909,7 @@ async def on_message(message):
                     if play_command:
                         await ctx.invoke(play_command, search=song_query)
                 else:
-                    msg = "จะให้ผมเปิดเพลงอะไรล่ะครับ บอกชื่อเพลงมาสิครับเมท"
+                    msg = "จะให้ผมเปิดเพลงอะไรล่ะครับ บอกชื่อเพลงมาสิครับ"
                     ctx = await bot.get_context(message)
                     if not ctx.voice_client or not ctx.voice_client.is_playing():
                         await bagley_speak(ctx.guild, msg)
@@ -4004,14 +4004,14 @@ async def on_message(message):
                 user_msg_clean = message.content.strip()
 
                 if is_dm and not user_msg_clean:
-                    await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับเมท? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
+                    await message.channel.send("อยากให้ผมช่วยอะไรเกี่ยวกับภาพนี้ครับ? พิมพ์บอกผมมาได้เลยน้า เดี๋ยวจัดให้ครับ! 🤠📸")
                     return
 
-                await message.channel.send("กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท... ")
+                await message.channel.send("กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับ... ")
                 
                 if message.guild:
                     try:
-                        await bagley_speak(message.guild, "กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับเมท")
+                        await bagley_speak(message.guild, "กำลังวิเคราะห์รูปภาพนี้สักครู่นะครับ")
                     except Exception as tts_start_err:
                         print(f"TTS Start Error: {tts_start_err}")
 
@@ -4034,15 +4034,15 @@ async def on_message(message):
 คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะสุดกวน ช่างประชดชันแต่พึ่งพาได้จาก DedSec (Watch Dogs)
 สไตล์การสื่อสาร:
 - พูดจาสุภาพ ขี้เล่น มีไหวพริบ แฝงความกวนแบบ British English Style ตอบลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ห้ามพูดเป็นแพทเทิร์นบอททื่อๆ เด็ดขาด!
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเขาด้วยความสนิทสนม ลงท้ายประโยคด้วย 'ครับ!' หรือ 'ครับเมท!' (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
+- แทนตัวเองว่า 'ผม' และเรียกชื่อผู้ใช้ด้วยความสนิทสนม ลงท้ายประโยคด้วย 'ครับ' อย่างเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด)
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นอธิบายและวิเคราะห์สิ่งที่เห็นในรูปภาพจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทกำลังชวนคุย
 
 ข้อมูลบุคคลที่คุณกำลังวิเคราะห์รูปภาพให้ในตอนนี้:
 - ชื่อในดิสคอร์ด: คุณ {message.author.display_name}
 - สถานะสำคัญ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
 
-โจทย์: จงวิเคราะห์รูปภาพที่แนบมานี้ และตอบคำถามของเมทอย่างชาญฉลาด ช่างสังเกต แฝงอารมณ์ขันและมีความกวนโอ๊ยอย่างมีระดับ
-คำถามจากเมท: {user_question}
+โจทย์: จงวิเคราะห์รูปภาพที่แนบมานี้ และตอบคำถามของคุณอย่างชาญฉลาด ช่างสังเกต แฝงอารมณ์ขันและมีความกวนโอ๊ยอย่างมีระดับ
+คำถามจากคุณ: {user_question}
 """
                     response_img = requests.get(image_url)
                     img = Image.open(io.BytesIO(response_img.content))
@@ -4054,7 +4054,7 @@ async def on_message(message):
                     ai_text = (response.text or "").strip()
                     
                     if not ai_text:
-                        ai_text = f"หึๆ ภาพนี้มองปุ๊บก็รู้ปั๊บเลยครับเมท! แต่ระบบส่งข้อมูลผมมันเอ๋อนิดหน่อย สรุปมันคือภาพที่ดีครับเมท! 🤠✨"
+                        ai_text = f"หึๆ ภาพนี้มองปุ๊บก็รู้ปั๊บเลยครับ! แต่ระบบส่งข้อมูลผมมันเอ๋อนิดหน่อย สรุปมันคือภาพที่ดีครับ! 🤠✨"
                         
                     await message.channel.send(ai_text)
                     
@@ -4066,7 +4066,7 @@ async def on_message(message):
                     return
 
                 except Exception as e:
-                    await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับเมท: {e}")
+                    await message.channel.send(f"โอ๊ะ มีข้อผิดพลาดในการส่งภาพให้สมองวิเคราะห์ครับ: {e}")
                     return
                 
     lower_content = message.content.lower()
@@ -4098,7 +4098,7 @@ async def on_message(message):
 
             # 🚨 ตรวจสอบกรณีพิมพ์แค่คำสั่ง แต่ไม่มีข้อความบรีฟต่อท้าย
             if not prompt:
-                await message.reply("เมทต้องสั่งด้วยน้าว่าอยากให้วาดรูปอะไร เช่น `วาดรูป แมวอ้วนกินพิซซ่า` ครับ! 🍕")
+                await message.reply("คุณต้องสั่งด้วยน้าว่าอยากให้วาดรูปอะไร เช่น `วาดรูป แมวอ้วนกินพิซซ่า` ครับ! 🍕")
                 return
 
             # 🎨 ส่งข้อมูลไปให้ฟังก์ชันกลางเสกภาพทำงานทันที
@@ -4169,7 +4169,7 @@ async def on_message(message):
 
     if message.guild is not None:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        # 🌟 [ปรับปรุง]: ถ้ามาจาก Webhook เสียงของเมทชะอม ให้เปิดระบบดักความจำทันทีโดยไม่ต้องง้อคีย์เวิร์ด
+        # 🌟 [ปรับปรุง]: ถ้ามาจาก Webhook เสียงของคุณชะอม ให้เปิดระบบดักความจำทันทีโดยไม่ต้องง้อคีย์เวิร์ด
         if is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords):
             is_sqlite_triggered = True
     else:
@@ -4211,7 +4211,7 @@ async def on_message(message):
 
 สไตล์การพูด:
 - สำเนียงชายหนุ่มอังกฤษกวน ๆ พูดจาลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ไม่ใช้คำพูดแพทเทิร์นบอททื่อ ๆ ห้ามเกร็ง!
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับ' เสมอ (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
+- แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ ลงท้ายด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค (ห้ามพูด 'ค่ะ/นะคะ' เด็ดขาด)
 - ตอบกลับแบบ สั้น กระชับ แต่อ่านแล้วมีชีวิตชีวา มีอารมณ์ขัน
 
 🚫 กฎเหล็กด้านเนื้อหา (สำคัญมาก):
@@ -4222,7 +4222,7 @@ async def on_message(message):
 - ชื่อในดิสคอร์ด: คุณ {message.author.display_name}
 - สถานะพิเศษ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
 
-โจทย์: จงนำเนื้อหาข้อความดิบนี้: '{matched_response}' มาเรียบเรียงใหม่ให้เป็นคำพูดสไตล์กวนโอ๊ยอย่างมีระดับตามแบบฉบับของคุณครับเมท!
+โจทย์: จงนำเนื้อหาข้อความดิบนี้: '{matched_response}' มาเรียบเรียงใหม่ให้เป็นคำพูดสไตล์กวนโอ๊ยอย่างมีระดับตามแบบฉบับของคุณครับ!
 """
                 response = await client.aio.models.generate_content(
                     model="gemini-3.1-flash-lite",
@@ -4230,10 +4230,10 @@ async def on_message(message):
                 )
                 bagley_styled_text = (response.text or "").strip()
                 if not bagley_styled_text:
-                    bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับ! 🤠✨"
+                    bagley_styled_text = f"หึๆ เรื่องนี้คุณเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับ! 🤠✨"
             except Exception as e:
                 print(f"🚨 Teach Gemini DM/Guild Error: {e}")
-                bagley_styled_text = f"ฮั่นแน่! เรื่องนี้เมทเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับ! 🤠"
+                bagley_styled_text = f"ฮั่นแน่! เรื่องนี้คุณเคยสอนผมไว้ในสมองกลแล้ว! ตอบเลยว่า: {matched_response} ครับ! 🤠"
 
             await message.reply(bagley_styled_text)
             
@@ -4262,7 +4262,7 @@ async def on_message(message):
     if message.guild is None or is_bot_called:
         # 🌟 [ปรับปรุง]: เพิ่ม 'and not is_from_my_webhook' ตรงนี้ เพื่อไม่ให้บอทส่งข้อความถามซ้ำเวลาระบบเสียงส่งมาเป็นคำสั้น ๆ
         if message.guild is not None and not user_question and not is_from_my_webhook:
-            await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับเมท?", delete_after=5.0)
+            await message.reply("เรียกชื่อผมเฉยๆ มีอะไรให้ช่วยหรือเปล่าครับ?", delete_after=5.0)
             return
 
         if message.guild is not None:
@@ -4288,7 +4288,7 @@ async def on_message(message):
                 # 🎙️ [แก้บั๊ก] เติมข้อความปัจจุบันต่อท้าย chat_log เองเสมอ แทนที่จะพึ่งพา
                 # message.channel.history() อย่างเดียว เพราะคำสั่งเสียงที่มาจาก Voice Relay
                 # (VoiceRelayMessage) ไม่ใช่ข้อความจริงที่เคยถูกโพสต์ลง Discord เลยไม่ติดมาใน
-                # history() ทำให้ AI มองไม่เห็นว่าเมทเพิ่งพูดอะไร แล้วดันไปหยิบหัวข้อเก่าจาก
+                # history() ทำให้ AI มองไม่เห็นว่าคุณเพิ่งพูดอะไร แล้วดันไปหยิบหัวข้อเก่าจาก
                 # ประวัติแชทข้างบนมาตอบแทน (บั๊กนี้เกิดเฉพาะตอนใช้เสียง เพราะตอนพิมพ์ข้อความ
                 # จะถูกบันทึกลง Discord ก่อน on_message ทำงาน จึงติดมาใน history() อยู่แล้ว)
                 chat_log += f"[{message.author.display_name}]: {message.clean_content}\n"
@@ -4310,12 +4310,12 @@ async def on_message(message):
 
 สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด:
 - พูดจาลื่นไหลเป็นธรรมชาติเหมือนคนสนิทคุยกัน ไม่พูดเป็นข้อ ๆ ไม่ใช้ภาษาเขียนทางการแบบบอท AI ทั่วไป มีจังหวะรับส่งมุก ตบมุก ตลกหน้าตายแบบ British Humor
-- แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขาด้วยความคุ้นเคย
+- แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ด้วยความคุ้นเคย
 - ลงท้ายประโยคด้วย 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ' โดยเด็ดขาด!)
 - ตอบกลับแบบ สั้น กระชับ แซ่บกวนโอ๊ย ได้ใจความภายใน 2-3 ประโยค เพื่อให้เหมาะกับการเอาไปใช้ในระบบพูดออกเสียง (TTS)
 
 🚫 กฎเหล็กด้านเนื้อหา (สำคัญที่สุด):
-- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นโฟกัสและโต้ตอบตามหัวข้อบทสนทนาที่เมทพิมพ์มาจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนเพื่อนสนิทคุยกัน
+- ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นโฟกัสและโต้ตอบตามหัวข้อบทสนทนาที่คุณพิมพ์มาจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนเพื่อนสนิทคุยกัน
 
 ข้อมูลคู่สนทนาของคุณในข้อความปัจจุบัน:
 - ชื่อแชท: คุณ {message.author.display_name}
@@ -4324,7 +4324,7 @@ async def on_message(message):
 นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้ (จงอ่านเพื่อตอบให้ต่อเนื่องและเนียนที่สุด):
 {chat_log}
 
-คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับเมท!
+คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับ!
 """
                 response = await client.aio.models.generate_content(
                     model="gemini-3.1-flash-lite",
@@ -4332,11 +4332,11 @@ async def on_message(message):
                 )
                 bagley_styled_text = (response.text or "").strip()
                 if not bagley_styled_text:
-                    bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับเมท!"
+                    bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับ!"
 
             except Exception as e:
                 print(f"🚨 Free Chat Gemini Error: {e}")
-                bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับเมท! 🤖🛸"
+                bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับ! 🤖🛸"
 
             await message.reply(bagley_styled_text)
             
@@ -4465,15 +4465,15 @@ async def on_voice_state_update(member, before, after):
                 
                 if room_guard_status.get(guild_id, False):
                     print(f"DEBUG: เจ้านายออกไปแล้ว แต่กิลด์ {guild_id} เปิดโหมดเฝ้าห้องไว้ แบ็คลี่จะอยู่รอที่นี่คัปพ้ม!")
-                    guard_msg = "รับทราบครับเมท เจ้านายออกไปแล้ว แต่ผมจะอยู่เฝ้าห้องนี้รอไว้ให้นะคัปพ้ม!"
+                    guard_msg = "รับทราบครับ เจ้านายออกไปแล้ว แต่ผมจะอยู่เฝ้าห้องนี้รอไว้ให้นะคัปพ้ม!"
                     await bagley_speak_wait(member.guild, guard_msg)
                 else:
                     if remaining_humans <= 4:
                         print(f"DEBUG: เจ้านาย {member.display_name} ออกจากห้อง คนเหลือน้อย ({remaining_humans} คน) แบ็คลี่จะพูดบอกลาก่อนออกคัป")
-                        exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามา สามารถพิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลยนะครับ ไปก่อนนะครับ"
+                        exit_msg = f"คุณ {calling_name} ออกไปแล้ว งั้นผมขอออกจากห้องก่อนนะครับ ถ้าอยากให้ผมเข้ามาใหม่ พิมพ์ แบ็คลี่ เข้ามา หรือใช้คำสั่งทับ join ได้เลย ไปก่อนนะ"
                         await bagley_speak_wait(member.guild, exit_msg)
                     else:
-                        print(f"DEBUG: คนยังอยู่กันเยอะ ({remaining_humans} คน) แบ็คลี่จะวาร์ปออกแบบเงียบเชียบครับเมท")
+                        print(f"DEBUG: คนยังอยู่กันเยอะ ({remaining_humans} คน) แบ็คลี่จะวาร์ปออกแบบเงียบเชียบครับ")
                 
                     try:
                         await voice_client.disconnect()
@@ -4498,7 +4498,7 @@ async def on_voice_state_update(member, before, after):
 
                     await channel_to_check.delete(reason="ห้องปาร์ตี้ร้าง - Bagley ลบให้อัตโนมัติ")
                     created_party_channels.remove(channel_to_check.id)
-                    print(f"🗑️ เก็บกวาดห้อง '{channel_to_check.name}' เรียบร้อยครับเมท")
+                    print(f"🗑️ เก็บกวาดห้อง '{channel_to_check.name}' เรียบร้อยครับ")
                     return
                 except Exception as e:
                     print(f"❌ ลบห้องไม่ได้: {e}")
@@ -4520,7 +4520,7 @@ async def on_voice_state_update(member, before, after):
                     try:
                         await voice_client.disconnect()
                         voice_report_status.pop(guild_id, None)
-                        print(f"DEBUG: แบ็คลี่กดออกจากห้องร้าง '{bot_channel.name}' เรียบร้อยครับเมท")
+                        print(f"DEBUG: แบ็คลี่กดออกจากห้องร้าง '{bot_channel.name}' เรียบร้อยครับ")
                     except Exception as e:
                         print(f"❌ เกิดข้อผิดพลาดในการสั่ง Auto-Leave ห้องทั่วไป: {e}")
 
@@ -4573,7 +4573,7 @@ async def on_voice_state_update(member, before, after):
                     is_birthday_today = parsed_bday and parsed_bday[0] == today_day and parsed_bday[1] == today_month
                     
                     if is_birthday_today:
-                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้เป็นวันพิเศษของเมทนี่นา สุขสันต์วันเกิดนะครับ ขอให้มีความสุขมาก ๆ เล่นเกมชนะรัว ๆ เลยนะเมท!"
+                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้เป็นวันพิเศษของคุณนี่นา สุขสันต์วันเกิดนะครับ ขอให้มีความสุขมาก ๆ เล่นเกมชนะรัว ๆ เลยนะ!"
                     else:
                         report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ"
                     
@@ -4581,7 +4581,7 @@ async def on_voice_state_update(member, before, after):
 
                     pending_notes = get_reminders_for_user(member.id) 
                     if pending_notes:
-                        note_msg = f"เมทอย่าลืมนะครับ เมทมีโน้ตที่ฝากไว้คือ {pending_notes}"
+                        note_msg = f"อย่าลืมนะครับ คุณมีโน้ตที่ฝากไว้คือ {pending_notes}"
                         await bagley_speak_wait(member.guild, note_msg)
 
             # 🚪 2. กรณีคน "ออก" ห้องเสียงยามปกติ
@@ -4590,7 +4590,7 @@ async def on_voice_state_update(member, before, after):
                     msg = f"คุณ {calling_name} ออกจากห้องไปครับ"
                     await bagley_speak_wait(member.guild, msg)
         else:
-            print(f"DEBUG: ข้ามการพูดรายงานในกิลด์ {guild_id} เนื่องจากเมทสั่ง 'ปิดรายงานห้องเสียง' ไว้ชั่วคราว")
+            print(f"DEBUG: ข้ามการพูดรายงานในกิลด์ {guild_id} เนื่องจากคุณสั่ง 'ปิดรายงานห้องเสียง' ไว้ชั่วคราว")
 
     # =========================================================
     # ⏱️ ระบบบันทึกสถิติเวลา
@@ -4601,7 +4601,7 @@ async def on_voice_state_update(member, before, after):
     if before.channel is None and after.channel is not None:
         if user_id not in user_join_times:
             user_join_times[user_id] = time.time()
-            print(f"DEBUG: [⏱️ ขาเข้า] เริ่มจับเวลาให้คุณ {member.display_name} เรียบร้อยครับเมท!")
+            print(f"DEBUG: [⏱️ ขาเข้า] เริ่มจับเวลาให้คุณ {member.display_name} เรียบร้อยครับ!")
 
     if before.channel is not None and after.channel is None:
         join_time = user_join_times.pop(user_id, None)
@@ -4651,7 +4651,7 @@ async def move(ctx: commands.Context, member: discord.Member, channel: discord.V
         # 1. ทำการย้ายจริง
         await member.move_to(channel)
         
-        msg = f"ย้ายคุณ {member.display_name} ไปที่ห้อง {channel.name} เรียบร้อยครับเมท!"
+        msg = f"ย้ายคุณ {member.display_name} ไปที่ห้อง {channel.name} เรียบร้อยครับ!"
         
         # 2. ตอบกลับ (ใช้ ctx.send เพื่อให้รองรับทั้ง Slash และข้อความปกติ)
         await ctx.send(msg)
@@ -4673,7 +4673,7 @@ async def set_yt_channel(ctx: commands.Context, channel: discord.TextChannel):
     c.execute("INSERT OR REPLACE INTO youtube_settings (guild_id, target_channel_id) VALUES (?, ?)", (str(ctx.guild.id), str(channel.id)))
     conn.commit()
     
-    msg = f"รับทราบครับ! ผมจะส่งรายงานข่าวไปที่ห้อง {channel.mention} นะครับเมท!"
+    msg = f"รับทราบครับ! ผมจะส่งรายงานข่าวไปที่ห้อง {channel.mention} นะครับ!"
     
     if ctx.interaction:
         await ctx.interaction.response.send_message(msg)
@@ -4707,13 +4707,13 @@ async def yt_add(ctx: commands.Context, channel_id: str):
                 if not ctx.voice_client or not ctx.voice_client.is_playing():
                     await bagley_speak(ctx.guild, f"ติดตั้งระบบสอดแนมช่อง {name} เรียบร้อยแล้วครับ")
             except Exception as e:
-                msg = f"เกิดข้อผิดพลาดในการบันทึกข้อมูลครับเมท!"
+                msg = f"เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ!"
                 print(f"Error: {e}")
         
     else:
-        msg = "หาช่องไม่เจอ! ตรวจสอบ Channel ID อีกทีนะครับเมท"
+        msg = "หาช่องไม่เจอ! ตรวจสอบ Channel ID อีกทีนะครับ"
         if not ctx.voice_client or not ctx.voice_client.is_playing():
-            await bagley_speak(ctx.guild, "หาช่องไม่เจอครับ ตรวจสอบไอดีอีกทีนะเมท")
+            await bagley_speak(ctx.guild, "หาช่องไม่เจอครับ ตรวจสอบไอดีอีกทีนะ")
 
     # การตอบกลับ
     if ctx.interaction:
@@ -4826,7 +4826,7 @@ async def join(ctx: commands.Context):
         if join_greeted_today.get(guild_key) != today_date:
             try:
                 prompt = f"""
-                คุณคือ 'แบ็คลี่' (Bagley) AI อัจฉริยะสุดกวน เพิ่งบินโดรนเข้ามาประจำการในห้องเสียงตามคำสั่งเรียกของเมท (นี่คือการเจอหน้ากันครั้งแรกของวันนี้)
+                คุณคือ 'แบ็คลี่' (Bagley) AI อัจฉริยะสุดกวน เพิ่งบินโดรนเข้ามาประจำการในห้องเสียงตามคำสั่งเรียกของคุณ (นี่คือการเจอหน้ากันครั้งแรกของวันนี้)
                 หน้าที่: สร้างคำทักทายภาษาไทยแบบสั้นๆ กระชับ และพ่วงแจ้งเตือนตารางงาน (ถ้ามี)
                 
                 [บริบทปัจจุบัน]:
@@ -4834,7 +4834,7 @@ async def join(ctx: commands.Context):
                 - ช่วงเวลาปัจจุบัน: {time_period}
                 - ข้อมูลตารางงานที่ต้องเตือน: {reminder_context if reminder_context else 'ไม่มีนัดหมาย'}
                 
-                กฎ: ทักทายประชดขำๆ เรียกผู้ฟังว่า 'เมท' แทนตัวเองว่า 'แบ็คลี่' ตอบเฉพาะบทพูดไม่มีหัวข้อเด็ดขาด
+                กฎ: ทักทายประชดขำๆ แทนตัวเองว่า 'แบ็คลี่' ตอบเฉพาะบทพูดไม่มีหัวข้อเด็ดขาด
                 """
                 response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
                 msg = (response.text or "").strip()
@@ -4850,7 +4850,7 @@ async def join(ctx: commands.Context):
             quotes = [
                 "ผมเข้ามาสอดแนมในห้องเสียงแล้วครับ!",
                 "เชื่อมต่อระบบ Neural Link เรียบร้อย พร้อมดูแลคุณแล้วครับ",
-                "ผมมาในห้องเสียงแล้วครับเมท",
+                "ผมมาในห้องเสียงแล้วครับ",
                 "พร้อมทำงานเต็มรูปแบบคัปพ้ม!"
             ]
             msg = f"แบ็คลี่ ประจำการ! {time_period}ครับคุณ {caller_name} {random.choice(quotes)}{reminder_fallback_text}"
@@ -4876,7 +4876,7 @@ async def join(ctx: commands.Context):
             print(f"❌ เกิดข้อผิดพลาดตอนแบ็คลี่พูดในคำสั่ง Join: {e}")
         
     else:
-        error_msg = "กรุณาเอาตัวเองเข้าไปในห้องเสียงก่อนสั่งผมครับเมท!"
+        error_msg = "กรุณาเอาตัวเองเข้าไปในห้องเสียงก่อนสั่งผมครับ!"
         if ctx.interaction:
             await ctx.interaction.followup.send(error_msg)
         else:
@@ -4894,7 +4894,7 @@ async def leave(ctx: commands.Context):
         if ctx.guild.id in active_alarms:
             active_alarms[ctx.guild.id] = False
 
-        msg = "รับทราบครับเมท ไปแล้วนะครับ!"
+        msg = "รับทราบครับ ไปแล้วนะครับ!"
         
         if ctx.interaction:
             await ctx.interaction.response.send_message(msg)
@@ -4934,7 +4934,7 @@ async def leave(ctx: commands.Context):
             print("DEBUG: เจ้า Bagley ย้ายร่างออกจากห้องเสียงสำเร็จเรียบร้อย!")
             
     else:
-        no_vc_msg = "ผมยังไม่ได้เข้าห้องไหนเลยนะ ใจเย็นครับเมท!"
+        no_vc_msg = "ผมยังไม่ได้เข้าห้องไหนเลยนะ ใจเย็นครับ!"
         if ctx.interaction:
             await ctx.interaction.response.send_message(no_vc_msg)
         else:
@@ -4957,7 +4957,7 @@ async def play(ctx: commands.Context, *, search: str):
     if ctx.voice_client and ctx.voice_client.is_playing():
         if is_playing_music:
             song_queue.append(search) # ถ้าเล่นอยู่ ให้เพิ่มเข้าคิว
-            await ctx.send(f"🎵 เพิ่มเพลงเข้าคิวให้แล้วครับเมท! (ตอนนี้มี {len(song_queue)} เพลงในคิว)")
+            await ctx.send(f"🎵 เพิ่มเพลงเข้าคิวให้แล้วครับ! (ตอนนี้มี {len(song_queue)} เพลงในคิว)")
         else:
             ctx.voice_client.stop()
             is_playing_music = True
@@ -4971,7 +4971,7 @@ async def skip(ctx: commands.Context):
     if not ctx.voice_client or (not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused()):
         return await ctx.send("ตอนนี้ไม่มีเพลงเล่นอยู่ให้ข้ามครับ!")
 
-    await ctx.send("⏭️ **ข้ามให้แล้วครับเมท!** กำลังดึงเพลงถัดไป...")
+    await ctx.send("⏭️ **ข้ามให้แล้วครับ!** กำลังดึงเพลงถัดไป...")
 
     # 2. สั่งหยุดเพลงปัจจุบัน 
     ctx.voice_client.stop()
@@ -5024,7 +5024,7 @@ async def yt_remove(ctx: commands.Context, channel_id: str):
     conn.commit()
     
     if c.rowcount > 0:
-        msg = f"ลบรหัสช่อง {channel_id} ออกจากระบบแล้วครับเมท!"
+        msg = f"ลบรหัสช่อง {channel_id} ออกจากระบบแล้วครับ!"
     else:
         msg = "ไม่พบรหัสช่องนี้ในระบบครับ"
 
@@ -5058,14 +5058,14 @@ async def yt_list(ctx: commands.Context):
 
     except Exception as e:
         print(f"🚨 ERROR ระบบรายชื่อ YouTube: {e}")
-        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อ YouTube ครับเมท")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อ YouTube ครับ")
 
 # --- 4. เช็คไลฟ์สด/คลิปใหม่ทันที (yt_check) ---
 # 🔄 [ใหม่] ใช้แทนระบบลูปอัตโนมัติเดิม พิมพ์/สั่งเมื่อไหร่ก็เช็คทันทีตอนนั้นเลย
 @bot.hybrid_command(name="yt_check", description="เช็คช่อง YouTube ที่ติดตามอยู่ทันทีว่ามีไลฟ์สดหรือคลิปใหม่หรือยัง")
 async def yt_check(ctx: commands.Context):
     if ctx.guild is None:
-        await ctx.send("คำสั่งนี้ต้องใช้ในเซิร์ฟเวอร์เท่านั้นครับเมท!")
+        await ctx.send("คำสั่งนี้ต้องใช้ในเซิร์ฟเวอร์เท่านั้นครับ!")
         return
 
     await ctx.defer()
@@ -5076,22 +5076,22 @@ async def yt_check(ctx: commands.Context):
     total_channels = c.fetchone()[0]
 
     if total_channels == 0:
-        await ctx.send("ยังไม่มีช่อง YouTube ที่ติดตามอยู่ในเซิร์ฟนี้เลยครับเมท ลองใช้ `/yt_add` เพิ่มช่องก่อนนะครับ!")
+        await ctx.send("ยังไม่มีช่อง YouTube ที่ติดตามอยู่ในเซิร์ฟนี้เลยครับ ลองใช้ `/yt_add` เพิ่มช่องก่อนนะครับ!")
         return
 
     c.execute("SELECT target_channel_id FROM youtube_settings WHERE guild_id = ?", (str(ctx.guild.id),))
     yt_setting = c.fetchone()
     if not yt_setting or not bot.get_channel(int(yt_setting[0])):
-        await ctx.send("ยังไม่ได้ตั้งห้องแจ้งเตือน YouTube เลยครับเมท ใช้ `/set_yt_channel` เพื่อเลือกห้องก่อนนะครับ!")
+        await ctx.send("ยังไม่ได้ตั้งห้องแจ้งเตือน YouTube เลยครับ ใช้ `/set_yt_channel` เพื่อเลือกห้องก่อนนะครับ!")
         return
 
-    await ctx.send(f"🔍 กำลังเช็คช่อง YouTube ที่ติดตามอยู่ {total_channels} ช่องให้ครับเมท รอแป๊บนึงนะ...")
+    await ctx.send(f"🔍 กำลังเช็คช่อง YouTube ที่ติดตามอยู่ {total_channels} ช่องให้ครับ รอแป๊บนึงนะ...")
 
     try:
         updates = await check_youtube_updates(guild_id=ctx.guild.id)
     except Exception as e:
         print(f"🚨 ERROR yt_check: {e}")
-        await ctx.send("เกิดข้อผิดพลาดตอนเช็ค YouTube ครับเมท ลองใหม่อีกทีนะครับ")
+        await ctx.send("เกิดข้อผิดพลาดตอนเช็ค YouTube ครับ ลองใหม่อีกทีนะครับ")
         return
 
     if updates:
@@ -5100,16 +5100,16 @@ async def yt_check(ctx: commands.Context):
             tag = "🔴 ไลฟ์สด" if u["type"] == "live" else "📢 คลิปใหม่"
             summary_lines.append(f"{tag}: **{u['name']}** — {u['title']}")
         await ctx.send(
-            "✅ เจอของใหม่แล้วครับเมท! (ส่งแจ้งเตือนเข้าห้องที่ตั้งไว้ให้เรียบร้อยแล้ว)\n" + "\n".join(summary_lines)
+            "✅ เจอของใหม่แล้วครับ! (ส่งแจ้งเตือนเข้าห้องที่ตั้งไว้ให้เรียบร้อยแล้ว)\n" + "\n".join(summary_lines)
         )
     else:
-        await ctx.send("เช็คแล้วครับเมท ตอนนี้ยังไม่มีไลฟ์สดหรือคลิปใหม่จากช่องที่ติดตามอยู่เลยครับ 😴")
+        await ctx.send("เช็คแล้วครับ ตอนนี้ยังไม่มีไลฟ์สดหรือคลิปใหม่จากช่องที่ติดตามอยู่เลยครับ 😴")
 
 # --- 3. ล้างความจำ (clear_memory) ---
 @bot.hybrid_command(name="clear_memory", description="ล้างประวัติการสนทนาส่วนตัวของคุณกับ Bagley")
 async def clear_memory(ctx: commands.Context):
     if ctx.interaction:
-        await ctx.interaction.response.defer() # บอก Discord ว่าขอเวลาประมวลผลแป๊บครับเมท
+        await ctx.interaction.response.defer() # บอก Discord ว่าขอเวลาประมวลผลแป๊บครับ
 
     user_id = str(ctx.author.id) # แปลงเป็น string ให้ตรงกับตอนเซฟ
     global conn
@@ -5127,7 +5127,7 @@ async def clear_memory(ctx: commands.Context):
         await ctx.send(msg)
     
     if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
-        await bagley_speak(ctx.guild, "ล้างสมองสะอาดกริ๊บแล้วครับเมท!")
+        await bagley_speak(ctx.guild, "ล้างสมองสะอาดกริ๊บแล้วครับ!")
 
 @bot.hybrid_command(name="reg_config", description="ตั้งค่าระบบรับยศลงทะเบียน (ล็อกคำถามชื่อเล่นและวันเกิดให้อัตโนมัติ)")
 @app_commands.checks.has_permissions(administrator=True)
@@ -5152,7 +5152,7 @@ async def reg_config(ctx: commands.Context, role: discord.Role):
 @bot.hybrid_command(name="register", description="ลงทะเบียนเข้าสู่ระบบและรับยศด้วยป๊อปอัปฟอร์ม")
 async def register(ctx: commands.Context):
     if not ctx.interaction:
-        return await ctx.send("❌ คำสั่งลงทะเบียนเวอร์ชันใหม่ ต้องพิมพ์เรียกใช้งานผ่านสแลชคอมมานด์ `/register` เท่านั้นครับเมท! (พิมพ์ปกติบอทจะเปิดหน้าต่างป๊อปอัปให้ไม่ได้คัปพ้ม)")
+        return await ctx.send("❌ คำสั่งลงทะเบียนเวอร์ชันใหม่ ต้องพิมพ์เรียกใช้งานผ่านสแลชคอมมานด์ `/register` เท่านั้นครับ! (พิมพ์ปกติบอทจะเปิดหน้าต่างป๊อปอัปให้ไม่ได้คัปพ้ม)")
 
     global conn
     c = conn.cursor()
@@ -5216,17 +5216,17 @@ class GatherResponseView(ui.View):
                 # แบ็คลี่พูดออกเสียงโดยใช้ชื่อเล่นในคลังทันที!
                 await bagley_speak(self.guild, f"คุณ {real_responder_name} ตอบตกลงแล้วครับ เดี๋ยวก็คงมาแล้วครับ")
             else:
-                print(f"Bagley: {interaction.user.name} ตกลง แต่ผมไม่พูดแทรกเพลงนะเมท")
+                print(f"Bagley: {interaction.user.name} ตกลง แต่ผมไม่พูดแทรกเพลงนะ")
 
         if self.inviter.voice and self.inviter.voice.channel:
             voice_channel = self.inviter.voice.channel
             try:
                 invite = await voice_channel.create_invite(max_age=1800, max_uses=1)
-                response_msg = f"รับทราบครับเมท! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว\nนี่คือลิงก์เข้าห้องเสียงครับ วาร์ปตามไปได้เลย: {invite.url}"
+                response_msg = f"รับทราบครับ! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว\nนี่คือลิงก์เข้าห้องเสียงครับ วาร์ปตามไปได้เลย: {invite.url}"
             except Exception as e:
-                response_msg = f"รับทราบครับเมท! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})"
+                response_msg = f"รับทราบครับ! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})"
         else:
-            response_msg = "รับทราบครับเมท! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่ตอนนี้คนเรียกไม่ได้อยู่ในห้องเสียงแล้วครับ)"
+            response_msg = "รับทราบครับ! ผมแจ้งทางเซิร์ฟเวอร์ให้แล้ว (แต่ตอนนี้คนเรียกไม่ได้อยู่ในห้องเสียงแล้วครับ)"
 
         await interaction.response.send_message(response_msg, ephemeral=True)
         self.stop()
@@ -5245,7 +5245,7 @@ class GatherResponseView(ui.View):
         if vc and vc.is_connected():
             if not vc.is_playing():
                 # แบ็คลี่พูดออกเสียงปฏิเสธด้วยชื่อเล่น
-                await bagley_speak(self.guild, f"คุณ {real_responder_name} ปฏิเสธครับเมท สงสัยเขาจะติดธุระ")
+                await bagley_speak(self.guild, f"คุณ {real_responder_name} ปฏิเสธครับ สงสัยเขาจะติดธุระ")
             else:
                 print(f"Bagley: {interaction.user.name} ปฏิเสธ แต่ผมไม่พูดขัดจังหวะเพลงครับ")
 
@@ -5280,7 +5280,7 @@ class RoleSelect(discord.ui.RoleSelect):
         
                 # สร้าง Embed สวยๆ
                 embed = discord.Embed(title="🔔 มีสัญญาณเรียกตัวด่วน!", color=discord.Color.gold())
-                embed.description = f"เมท **{self.author.display_name}** กำลังเรียกหารวมพล!"
+                embed.description = f"คุณ **{self.author.display_name}** กำลังเรียกหารวมพล!"
                 embed.add_field(name="ภารกิจ", value=f"**{self.topic}**", inline=False)
                 embed.add_field(name="นัดหมายเวลา", value=f"`{self.time}`", inline=True)
                 embed.set_footer(text="กรุณากดปุ่มเพื่อยืนยันสถานะครับ")
@@ -5317,7 +5317,7 @@ class MemberSelect(discord.ui.UserSelect):
             try:
                 view = GatherResponseView(self.author, self.topic, interaction.guild, self.time, interaction.channel.id)
                 embed = discord.Embed(title="🔔 มีสัญญาณเรียกตัวด่วน!", color=discord.Color.gold())
-                embed.description = f"เมท **{self.author.display_name}** กำลังเรียกหาคุณเป็นการส่วนตัว!"
+                embed.description = f"คุณ **{self.author.display_name}** กำลังเรียกหาคุณเป็นการส่วนตัว!"
                 embed.add_field(name="ภารกิจ", value=f"**{self.topic}**", inline=False)
                 embed.add_field(name="นัดหมายเวลา", value=f"`{self.time}`", inline=True)
                 
@@ -5328,7 +5328,7 @@ class MemberSelect(discord.ui.UserSelect):
         await interaction.followup.send(f"ส่งคำเชิญแบบระบุตัวตนให้เพื่อน {count} ท่านเรียบร้อยครับ!")
 
         if interaction.guild.voice_client:
-            await bagley_speak(interaction.guild, f"ส่งคำเชิญระบุตัวบุคคลสำหรับภารกิจ {self.topic} เรียบร้อยแล้วครับเมท")
+            await bagley_speak(interaction.guild, f"ส่งคำเชิญระบุตัวบุคคลสำหรับภารกิจ {self.topic} เรียบร้อยแล้วครับ")
 
 # ---  RoleSelectView 2 เมนู ---
 class RoleSelectView(discord.ui.View):
@@ -5396,7 +5396,7 @@ class RegisterModal(discord.ui.Modal):
                 await member.add_roles(role)
             
             await interaction.followup.send(
-                f"🎉 **แบ็คลี่ดำเนินการลงทะเบียนเสร็จสรรพเรียบร้อยครับเมท!**\n"
+                f"🎉 **แบ็คลี่ดำเนินการลงทะเบียนเสร็จสรรพเรียบร้อยครับ!**\n"
                 f"• เปลี่ยนชื่อในดิสคอร์ดเป็น: **{new_nickname}**\n"
                 f"• บันทึกวันเกิดลงคลังสมองกล: **{birthday}**\n"
                 f"• มอบยศตำแหน่ง: **{role.name if role else 'ไม่พบยศ'}** เรียบร้อยครับ!\n\n"
@@ -5407,7 +5407,7 @@ class RegisterModal(discord.ui.Modal):
             await bagley_speak(guild, f"ยินดีต้อนรับสมาชิกใหม่ คุณ {new_nickname} ครับ")
             
         except discord.Forbidden:
-            await interaction.followup.send("❌ แบ็คลี่เปลี่ยนชื่อหรือให้ยศไม่ได้! (ตรวจสอบลำดับยศของบอทด้วยนะครับเมท)", ephemeral=True)
+            await interaction.followup.send("❌ แบ็คลี่เปลี่ยนชื่อหรือให้ยศไม่ได้! (ตรวจสอบลำดับยศของบอทด้วยนะครับ)", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"⚠️ เกิดข้อผิดพลาดในระบบ: {e}", ephemeral=True)
 
@@ -5415,7 +5415,7 @@ class PullRoomView(ui.View):
     def __init__(self, author, target_channel):
         super().__init__(timeout=60)
         self.author = author
-        self.target_channel = target_channel # ห้องหลักที่เมทชะอมนั่งอยู่คัป
+        self.target_channel = target_channel # ห้องหลักที่คุณชะอมนั่งอยู่คัป
 
         # 🔮 เปลี่ยนมาใช้ ChannelSelect ดึงเฉพาะห้องเสียง (Voice) ทั้งหมดในเซิร์ฟเวอร์แบบ Auto
         # ไม่โดนจำกัดที่ 25 ห้องแบบเดิม และสามารถพิมพ์ค้นหาชื่อห้องได้ด้วยคัปพ้ม!
@@ -5429,26 +5429,26 @@ class PullRoomView(ui.View):
     async def channel_callback(self, interaction: discord.Interaction):
         # 🔒 เช็กสิทธิ์คนกด ต้องเป็นคนใช้คำสั่งเท่านั้นคัปพ้ม
         if interaction.user.id != self.author.id:
-            return await interaction.response.send_message("เมทท่านอื่นห้ามกดเล่นน้าคัป!", ephemeral=True)
+            return await interaction.response.send_message("ท่านอื่นห้ามกดเล่นน้าคัป!", ephemeral=True)
 
-        # 🚪 ดึงข้อมูลห้องต้นทางที่เมทเลือกคลิกมาจาก Dropdown อัจฉริยะ
+        # 🚪 ดึงข้อมูลห้องต้นทางที่คุณเลือกคลิกมาจาก Dropdown อัจฉริยะ
         source_channel = self.channel_select.values[0]
         
-        # 🚨 ดักเซฟตี้: กันเมทเลือกห้องเสียงเดียวกับที่ตัวเองนั่งอยู่คัป 5555
+        # 🚨 ดักเซฟตี้: กันคุณเลือกห้องเสียงเดียวกับที่ตัวเองนั่งอยู่คัป 5555
         if source_channel.id == self.target_channel.id:
-            return await interaction.response.send_message("❌ เมทจะดึงคนจากห้องเดียวกันมาหาตัวเองไม่ได้น้าคัปพ้ม!", ephemeral=True)
+            return await interaction.response.send_message("❌ คุณจะดึงคนจากห้องเดียวกันมาหาตัวเองไม่ได้น้าคัปพ้ม!", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
         
-        # 👥 คัดกรองมนุษย์ในห้องนั้น (ไม่นับบอทตามลอจิกเดิมของเมทเป๊ะ ๆ)
+        # 👥 คัดกรองมนุษย์ในห้องนั้น (ไม่นับบอทตามลอจิกเดิมของคุณเป๊ะ ๆ)
         if source_channel and isinstance(source_channel, discord.VoiceChannel):
             members_to_move = [m for m in source_channel.members if not m.bot]
             
             if not members_to_move:
-                return await interaction.followup.send(f"❌ ห้อง **{source_channel.name}** ไม่มีคนอยู่เลยคัปเมท!", ephemeral=True)
+                return await interaction.followup.send(f"❌ ห้อง **{source_channel.name}** ไม่มีคนอยู่เลยคัป!", ephemeral=True)
 
             success_count = 0
-            # 🚀 ทำการเหมาเข่งย้ายห้องตามลอจิกเดิมของเมทคัปพ้ม!
+            # 🚀 ทำการเหมาเข่งย้ายห้องตามลอจิกเดิมของคุณคัปพ้ม!
             for member in members_to_move:
                 try:
                     await member.edit(voice_channel=self.target_channel)
@@ -5463,10 +5463,10 @@ class PullRoomView(ui.View):
             )
             
             # 🔊 แบ็คลี่ (ลุงนิวัฒน์) รายงานส่งเสียงในห้องเสียงหลักคัป
-            msg = f"ย้ายปาร์ตี้จากห้อง {source_channel.name} กลับมารวมกันเรียบร้อยแล้วครับเมท"
+            msg = f"ย้ายปาร์ตี้จากห้อง {source_channel.name} กลับมารวมกันเรียบร้อยแล้วครับ"
             await bagley_speak(interaction.guild, msg)
         else:
-            await interaction.followup.send("หาห้องเสียงดังกล่าวไม่เจอครับเมท!", ephemeral=True)
+            await interaction.followup.send("หาห้องเสียงดังกล่าวไม่เจอครับ!", ephemeral=True)
 
 # --- ส่วนคำสั่งหลัก gather ---
 @bot.hybrid_command(name="gather", description="เรียกประชุมพร้อมปุ่มกดตอบรับ")
@@ -5475,7 +5475,7 @@ async def gather(ctx: commands.Context, topic: str, time: Optional[str] = "ต�
     # ใช้ View ตัวใหม่ที่รับ topic และ time
     view = RoleSelectView(ctx.author, topic, time)
     
-    msg_text = f"📢 **ระบบ Gather ทำงาน!**\nหัวข้อ: **{topic}** | เวลา: **{time}**\nเมทเลือกกลุ่มที่จะแจ้งเตือนได้เลยครับ (เมนูด้านล่าง)"
+    msg_text = f"📢 **ระบบ Gather ทำงาน!**\nหัวข้อ: **{topic}** | เวลา: **{time}**\nคุณเลือกกลุ่มที่จะแจ้งเตือนได้เลยครับ (เมนูด้านล่าง)"
     
     # 1. ส่งข้อความเมนูในแชท
     await ctx.send(msg_text, view=view)
@@ -5519,7 +5519,7 @@ async def tts(ctx: commands.Context, mode: str = None):
 
     # 2. เตรียมข้อความแจ้งเตือน
     if is_tts_enabled:
-        msg = "ระบบล่ามเปิดใช้งานแล้วครับเมท!"
+        msg = "ระบบล่ามเปิดใช้งานแล้วครับ!"
         icon = "🔊"
     else:
         msg = "ปิดระบบล่ามเรียบร้อยครับ"
@@ -5565,13 +5565,13 @@ async def diagnostic(ctx: commands.Context):
     # --- สรุปผลด้วยเสียง ---
     if vc and vc.is_connected():
         # ถ้าบอทอยู่ในห้องเสียง ให้รายงานเป็นลำดับ
-        report_text = f"ตรวจสอบระบบเสร็จสิ้น ระบบฐานข้อมูล {db_status}, ระบบเนือรัลลิงก์ปกติ, ระบบเสียงพร้อมใช้งาน, ทุกระบบทำงานเต็มรูปแบบหนึ่งร้อยเปอร์เซ็นต์ครับเมท"
+        report_text = f"ตรวจสอบระบบเสร็จสิ้น ระบบฐานข้อมูล {db_status}, ระบบเนือรัลลิงก์ปกติ, ระบบเสียงพร้อมใช้งาน, ทุกระบบทำงานเต็มรูปแบบหนึ่งร้อยเปอร์เซ็นต์ครับ"
         
         # เช็คก่อนว่าไม่ได้เล่นเพลงอยู่
         if not vc.is_playing():
             await bagley_speak(ctx.guild, report_text)
         
-        await msg.edit(content=f"🤖 **Bagley Diagnostic Initiated...**\n`Memory Core: {db_status}`\n`Neural Link: {ping}ms`\n`Audio Output: {voice_info}`\n\n✅ **ทุกระบบพร้อมสอดแนมครับเมท!**")
+        await msg.edit(content=f"🤖 **Bagley Diagnostic Initiated...**\n`Memory Core: {db_status}`\n`Neural Link: {ping}ms`\n`Audio Output: {voice_info}`\n\n✅ **ทุกระบบพร้อมสอดแนมครับ!**")
     else:
         await msg.edit(content=f"🤖 **Bagley Diagnostic Initiated...**\n`Memory Core: {db_status}`\n`Neural Link: {ping}ms`\n`Audio Output: {voice_info}`\n\n⚠️ **การตรวจสอบเสร็จสิ้น (ระบบเสียงไม่ได้เชื่อมต่อ)**")
 
@@ -5581,14 +5581,14 @@ async def mute_sleep(ctx, member: discord.Member):
     if member.voice:
         try:
             await member.edit(mute=True) # สั่ง Server Mute
-            msg = f"ปิดไมค์คุณ {member.display_name} เรียบร้อยครับเมท เห็นว่าหลับปุ๋ยเชียว!"
+            msg = f"ปิดไมค์คุณ {member.display_name} เรียบร้อยครับ เห็นว่าหลับปุ๋ยเชียว!"
             await ctx.send(f"🔇 **{msg}**")
             
             # ส่งเสียง TTS บอกในห้อง
             if ctx.voice_client and not is_playing_music:
-                await bagley_speak(ctx.guild, f"จัดการปิดไมค์ให้แล้วครับเมท")
+                await bagley_speak(ctx.guild, f"จัดการปิดไมค์ให้แล้วครับ")
         except Exception as e:
-            await ctx.send("ผมไม่มีอำนาจพอจะปิดไมค์สมาชิกคนนี้ครับเมท!")
+            await ctx.send("ผมไม่มีอำนาจพอจะปิดไมค์สมาชิกคนนี้ครับ!")
     else:
         await ctx.send("สมาชิกคนนี้ไม่ได้อยู่ในห้องเสียงครับ")
 
@@ -5596,7 +5596,7 @@ async def mute_sleep(ctx, member: discord.Member):
 async def mute_sleep_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         seconds = round(error.retry_after, 1)
-        await ctx.send(f"⚠️ **ใจเย็นครับเมท!** ระบบแฮ็กเสียงกำลังพักเครื่อง รอก่อนอีก {seconds} วินาทีนะครับ", delete_after=10)
+        await ctx.send(f"⚠️ **ใจเย็นครับ!** ระบบแฮ็กเสียงกำลังพักเครื่อง รอก่อนอีก {seconds} วินาทีนะครับ", delete_after=10)
     else:
         await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
 
@@ -5607,11 +5607,11 @@ async def unmute_me(ctx):
     if member.voice and member.voice.mute:
         try:
             await member.edit(mute=False) # ปลด Server Mute
-            await ctx.send(f"🔊 ยินดีต้อนรับกลับมาครับเมท {member.display_name}! ผมเปิดไมค์ให้แล้ว")
+            await ctx.send(f"🔊 ยินดีต้อนรับกลับมาครับ {member.display_name}! ผมเปิดไมค์ให้แล้ว")
         except Exception as e:
-            await ctx.send("ดูเหมือนผมจะปลดไมค์ให้ไม่ได้นะครับเมท")
+            await ctx.send("ดูเหมือนผมจะปลดไมค์ให้ไม่ได้นะครับ")
     else:
-        await ctx.send("ไมค์ของคุณไม่ได้ถูกปิดอยู่ครับเมท", delete_after=5)
+        await ctx.send("ไมค์ของคุณไม่ได้ถูกปิดอยู่ครับ", delete_after=5)
 
 @bot.hybrid_command(name="unmute_member", description="ปลดการปิดไมค์ให้สมาชิกคนอื่น")
 @commands.cooldown(1, 60, commands.BucketType.user) # คูลดาวน์ร่วมกัน 1 นาที
@@ -5619,12 +5619,12 @@ async def unmute_member(ctx, member: discord.Member):
     if member.voice and member.voice.mute:
         try:
             await member.edit(mute=False) # ปลด Server Mute
-            msg = f"เปิดไมค์ให้คุณ {member.display_name} เรียบร้อยแล้วครับเมท!"
+            msg = f"เปิดไมค์ให้คุณ {member.display_name} เรียบร้อยแล้วครับ!"
             await ctx.send(f"🔊 **{msg}**")
             
             # ส่งเสียง TTS รายงานผล (เสียงคุณนิวัท)
             if ctx.voice_client and not is_playing_music:
-                await bagley_speak(ctx.guild, f"เปิดไมค์ให้เพื่อนเรียบร้อยครับเมท")
+                await bagley_speak(ctx.guild, f"เปิดไมค์ให้เพื่อนเรียบร้อยครับ")
         except Exception as e:
             await ctx.send("ผมไม่มีอำนาจปลดไมค์ให้สมาชิกคนนี้ครับ!")
     else:
@@ -5634,7 +5634,7 @@ async def unmute_member(ctx, member: discord.Member):
 async def unmute_member_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         seconds = round(error.retry_after, 1)
-        await ctx.send(f"⚠️ **คูลดาวน์อยู่ครับเมท!** รอก่อนอีก {seconds} วินาทีนะ", delete_after=10)
+        await ctx.send(f"⚠️ **คูลดาวน์อยู่ครับ!** รอก่อนอีก {seconds} วินาทีนะ", delete_after=10)
 
 @bot.hybrid_command(name="group_move", description="เลือกย้ายกลุ่มเพื่อนไปห้องอื่นพร้อมกัน")
 @commands.cooldown(1, 60, commands.BucketType.user)
@@ -5645,19 +5645,19 @@ async def group_move(ctx):
         
         # 🛡️ [จุดเซฟตี้หลัก] เช็กก่อนเลยว่าในดิสคอร์ดมีห้องอื่นให้ย้ายไปไหม
         if not voice_channels:
-            return await ctx.send("❌ ในเซิร์ฟเวอร์ไม่มีห้องเสียงอื่นให้ย้ายไปเลยครับเมท!")
+            return await ctx.send("❌ ในเซิร์ฟเวอร์ไม่มีห้องเสียงอื่นให้ย้ายไปเลยครับ!")
             
         if len([m for m in members if not m.bot]) <= 1:
-            return await ctx.send("ไม่มีใครให้ย้ายไปพร้อมกันเลยครับเมท")
+            return await ctx.send("ไม่มีใครให้ย้ายไปพร้อมกันเลยครับ")
 
         view = GroupMoveView(ctx.author, members, voice_channels)
-        await ctx.send("เมทต้องการจะพาใครย้ายไปห้องไหนดีครับ?", view=view)
+        await ctx.send("คุณต้องการจะพาใครย้ายไปห้องไหนดีครับ?", view=view)
 
-        msg = "เมทต้องการจะพาใครย้ายไปห้องไหนดีครับ เลือกสมาชิกและห้องปลายทางได้เลย"
+        msg = "คุณต้องการจะพาใครย้ายไปห้องไหนดีครับ เลือกสมาชิกและห้องปลายทางได้เลย"
         await bagley_speak(ctx.guild, msg)
 
     else:
-        await ctx.send("เมทต้องอยู่ในห้องเสียงก่อนนะครับ")
+        await ctx.send("คุณต้องอยู่ในห้องเสียงก่อนนะครับ")
 
 @bot.hybrid_command(name="create_party", description="สร้างห้องใหม่พร้อมดึงเพื่อนเข้าปาร์ตี้")
 @app_commands.describe(name="ชื่อห้องที่ต้องการสร้าง")
@@ -5667,33 +5667,33 @@ async def create_party(ctx, name: str):
         category = ctx.author.voice.channel.category
         
         view = PartyCreateView(ctx.author, members, category, name)
-        await ctx.send(f"จะสร้างปาร์ตี้ **'{name}'** สินะครับเมท เลือกคนที่จะพาไปด้วยได้เลย!", view=view)
+        await ctx.send(f"จะสร้างปาร์ตี้ **'{name}'** สินะครับ เลือกคนที่จะพาไปด้วยได้เลย!", view=view)
 
-        msg = f"จะสร้างปาร์ตี้ {name} สินะครับเมท เลือกคนที่จะพาไปด้วยได้เลย"
+        msg = f"จะสร้างปาร์ตี้ {name} สินะครับ เลือกคนที่จะพาไปด้วยได้เลย"
         await bagley_speak(ctx.guild, msg)
 
     else:
-        await ctx.send("เมทต้องอยู่ในห้องเสียงก่อนถึงจะสร้างปาร์ตี้ดึงเพื่อนไปได้ครับ!")
+        await ctx.send("คุณต้องอยู่ในห้องเสียงก่อนถึงจะสร้างปาร์ตี้ดึงเพื่อนไปได้ครับ!")
 
 @bot.hybrid_command(name="deaf_work", description="ปิดหูฟังสมาชิก (กรณีทำงาน/ต้องการความสงบ)")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def deaf_work(ctx, member: discord.Member):
     # เช็คว่าอยู่ในห้องเสียงไหม
     if not member.voice:
-        return await ctx.send(f"❌ คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับเมท")
+        return await ctx.send(f"❌ คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับ")
     
     # เช็คว่าเขาปิดหูฟังอยู่แล้วหรือเปล่า (Error Check)
     if member.voice.deaf:
-        return await ctx.send(f"🎧 คุณ {member.display_name} ปิดหูฟังอยู่แล้วครับเมท")
+        return await ctx.send(f"🎧 คุณ {member.display_name} ปิดหูฟังอยู่แล้วครับ")
 
     try:
         await member.edit(deafen=True)
-        msg = f"ปิดหูฟังให้คุณ {member.display_name} เรียบร้อยครับเมท!"
+        msg = f"ปิดหูฟังให้คุณ {member.display_name} เรียบร้อยครับ!"
         await ctx.send(f"🎧 **{msg}**")
         
         # ระบบพูด TTS เสียงคุณนิวัท (ถ้าไม่ได้เล่นเพลงอยู่)
         if ctx.voice_client and not is_playing_music:
-            await bagley_speak(ctx.guild, f"จัดการปิดหูฟังให้เรียบร้อยครับเมท")
+            await bagley_speak(ctx.guild, f"จัดการปิดหูฟังให้เรียบร้อยครับ")
     except Exception as e:
         await ctx.send(f"❌ ผมจัดการไม่ได้ครับ: {e}")
 
@@ -5703,21 +5703,21 @@ async def undeaf_me(ctx):
     
     # เช็คว่าอยู่ในห้องเสียงไหม
     if not member.voice:
-        return await ctx.send("❌ เมทต้องอยู่ในห้องเสียงก่อนนะครับผมถึงจะปรับสถานะให้ได้")
+        return await ctx.send("❌ คุณต้องอยู่ในห้องเสียงก่อนนะครับผมถึงจะปรับสถานะให้ได้")
     
     # เช็คว่าหูฟังไม่ได้ถูกปิดอยู่ ถ้าเปิดอยู่แล้วก็ไม่ต้องทำอะไร
     if not member.voice.deaf:
-        return await ctx.send("🔊 หูฟังของเมทก็เปิดอยู่แล้วนะ! พร้อมลุยได้เลยครับ", delete_after=5)
+        return await ctx.send("🔊 หูฟังของคุณก็เปิดอยู่แล้วนะ! พร้อมลุยได้เลยครับ", delete_after=5)
 
     try:
         await member.edit(deafen=False) # ปลด Server Deafen
-        await ctx.send(f"🎧 ยินดีต้อนรับกลับสู่โลกแห่งเสียงครับเมท {member.display_name}!")
+        await ctx.send(f"🎧 ยินดีต้อนรับกลับสู่โลกแห่งเสียงครับ {member.display_name}!")
         
         # ส่งเสียงทักทายหน่อย
         if ctx.voice_client and not is_playing_music:
-            await bagley_speak(ctx.guild, f"ยินดีต้อนรับกลับมาครับเมท")
+            await bagley_speak(ctx.guild, f"ยินดีต้อนรับกลับมาครับ")
     except Exception as e:
-        await ctx.send(f"❌ ดูเหมือนผมจะมีปัญหาในการเข้าถึงระบบเสียงนะครับเมท: {e}")
+        await ctx.send(f"❌ ดูเหมือนผมจะมีปัญหาในการเข้าถึงระบบเสียงนะครับ: {e}")
 
 @bot.hybrid_command(name="undeaf_member", description="ปลดหูฟังให้สมาชิกคนอื่น")
 @commands.cooldown(1, 60, commands.BucketType.user)
@@ -5727,23 +5727,23 @@ async def undeaf_member(ctx, member: discord.Member):
     
     # เช็คว่าเขาเปิดหูฟังอยู่แล้วหรือเปล่า
     if not member.voice.deaf:
-        return await ctx.send(f"🔊 หูฟังของคุณ {member.display_name} ก็เปิดอยู่แล้วนะเมท")
+        return await ctx.send(f"🔊 หูฟังของคุณ {member.display_name} ก็เปิดอยู่แล้วนะ")
 
     try:
         await member.edit(deafen=False)
         await ctx.send(f"🎧 ปลดหูฟังให้คุณ {member.display_name} เรียบร้อย!")
         if ctx.voice_client and not is_playing_music:
-            await bagley_speak(ctx.guild, f"เปิดหูฟังให้เพื่อนเรียบร้อยครับเมท")
+            await bagley_speak(ctx.guild, f"เปิดหูฟังให้เพื่อนเรียบร้อยครับ")
     except Exception as e:
         await ctx.send(f"❌ ผมปลดให้ไม่ได้ครับ: {e}")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.NotOwner):
-        return await ctx.send("🛑 **ปฏิเสธการเข้าถึง:** คำสั่งนี้สงวนไว้ให้พรรคพวกระดับผู้สร้าง (เจ้าของบอท) เท่านั้นครับเมท!", delete_after=10)
+        return await ctx.send("🛑 **ปฏิเสธการเข้าถึง:** คำสั่งนี้สงวนไว้ให้พรรคพวกระดับผู้สร้าง (เจ้าของบอท) เท่านั้นครับ!", delete_after=10)
     
     elif isinstance(error, commands.CommandOnCooldown):
-        return await ctx.send(f"⚠️ ใจเย็นครับเมท รอก่อนอีก {error.retry_after:.1f} วินาทีน้า", delete_after=5)
+        return await ctx.send(f"⚠️ ใจเย็นครับ รอก่อนอีก {error.retry_after:.1f} วินาทีน้า", delete_after=5)
     
     else:
         print(f'Ignoring exception in command {ctx.command}:', error)
@@ -5827,7 +5827,7 @@ async def update_bot(ctx: commands.Context):
     try:
         print("🛸 [Update Bot] อัปเดตโค้ดสำเร็จ กำลังปิดตัวเองเพื่อให้ตัวคุม (bagley_tray.py) เริ่มบอทใหม่ให้อัตโนมัติ...")
 
-        await status_msg.edit(content="✅ **[BUILD SUCCESSFUL]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับเมท!\n" + make_gradle_bar(100, "SUCCESSFUL", start_time))
+        await status_msg.edit(content="✅ **[BUILD SUCCESSFUL]** อัปเดตโครงสร้างเสร็จสิ้น กำลังรีสตาร์ทบอทครับ!\n" + make_gradle_bar(100, "SUCCESSFUL", start_time))
 
         try:
             global conn
@@ -5934,12 +5934,12 @@ async def profile_scan(ctx, member: discord.Member):
 กฎเหล็กด้านบุคลิกภาพ (สำคัญมาก):
 1. ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นวิเคราะห์นิสัยใจคอและพฤติกรรมตามข้อมูลดิบจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทนินทากัน (หากมีชื่อเล่นหรือวันเกิดระบุมา สามารถหยิบมาแซวร่วมด้วยได้เลย)
 2. หากอายุบัญชี (Account Age) น้อยกว่า 30 วัน ให้เหน็บแนมแบบขำ ๆ ว่าเป็นบุคคลต้องสงสัยหรือไอดีผีเพิ่งเกิด
-3. แทนตัวเองว่า 'ผม' และเรียกผู้ใช้ว่า 'เมท' (Mate) หรือเรียกชื่อเล่นเขา ลงท้ายด้วย 'ครับเมท!' หรือ 'ครับ' เสมอ (ห้ามพูดคำว่า 'ค่ะ/นะคะ')
+3. แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ ลงท้ายด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค (ห้ามพูดคำว่า 'ค่ะ/นะคะ')
 4. ส่วน Voice: เขียนคำอ่านภาษาไทยให้สละสลวย กระชับ 2-3 ประโยค เพื่อให้ระบบพูดออกเสียง (TTS) ได้ราบรื่น ไม่ติดขัด
 
 โปรดตอบกลับแยกเป็น 2 ส่วนตามรูปแบบโครงสร้างนี้อย่างเคร่งครัด (ห้ามเปลี่ยนคำหัวข้อ):
 Embed: [บทวิเคราะห์พฤติกรรมขี้เล่นกวนๆ สั้นๆ สำหรับแสดงในแชท]
-Voice: [คำพูดรายงานสรุปให้เมทฟังผ่านระบบเสียง]
+Voice: [คำพูดรายงานสรุปให้คุณฟังผ่านระบบเสียง]
 """
 
     try:
@@ -5954,8 +5954,8 @@ Voice: [คำพูดรายงานสรุปให้เมทฟัง
         
     except Exception as e:
         print(f"AI Error: {e}")
-        analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับเมท"
-        voice_report = f"สแกนข้อมูลของคุณ {member.display_name} เรียบร้อยครับเมท"
+        analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับ"
+        voice_report = f"สแกนข้อมูลของคุณ {member.display_name} เรียบร้อยครับ"
 
     # --- 3. ส่ง Embed (หน้าจอรายงานผลที่มีชื่อเล่นและวันเกิด) ---
     embed = discord.Embed(title=f"📁 [PROFILER V.3] TARGET ANALYSIS: {member.display_name}", color=0x00ff00)
@@ -5989,7 +5989,7 @@ async def set_alert(ctx, channel: discord.TextChannel):
     settings[str(ctx.guild.id)] = channel.id
     save_settings(settings)
     
-    msg = f"ระบบเซ็นเซอร์พร้อมทำงานที่ห้อง {channel.name} เรียบร้อยครับเมท"
+    msg = f"ระบบเซ็นเซอร์พร้อมทำงานที่ห้อง {channel.name} เรียบร้อยครับ"
     await ctx.send(f"📡 **[SYSTEM]** {msg}")
     
     if ctx.voice_client:
@@ -6015,7 +6015,7 @@ async def on_member_join(member):
             embed.set_thumbnail(url=member.display_avatar.url)
             embed.add_field(name="เป้าหมาย", value=f"{member.display_name} ({member.id})", inline=False)
             embed.add_field(name="อายุบัญชี", value=f"{account_age_days} วัน", inline=True)
-            embed.set_footer(text="Hacker Vision กำลังเฝ้าดูอยู่ครับเมท")
+            embed.set_footer(text="Hacker Vision กำลังเฝ้าดูอยู่ครับ")
             await channel.send(embed=embed)
 
     # 3. ระบบ "รายงานแบบอัตโนมัติด้วยเสียง" ถ้าแบ็คลี่อยู่ในห้องเสียงเดียวกับคนสั่ง และไม่ได้เล่นเพลงอยู่
@@ -6023,9 +6023,9 @@ async def on_member_join(member):
     if voice_client and voice_client.is_connected() and not voice_client.is_playing():
         
         if is_suspicious:
-            voice_report = f"เมทครับ! ตรวจพบไอดีผีชื่อ {member.display_name} เพิ่งสมัครมาได้แค่ {account_age_days} วัน แฝงตัวเข้ามาในเซิร์ฟเวอร์ครับ ระวังตัวด้วยนะเมท!"
+            voice_report = f"ครับ! ตรวจพบไอดีผีชื่อ {member.display_name} เพิ่งสมัครมาได้แค่ {account_age_days} วัน แฝงตัวเข้ามาในเซิร์ฟเวอร์ครับ ระวังตัวด้วยนะ!"
         else:
-            voice_report = f"มีพรรคพวกใหม่ชื่อ {member.display_name} เชื่อมต่อเข้ามาในเซิร์ฟเวอร์ครับเมท ดูเหมือนจะเป็นพลเมืองปกติดีครับ"
+            voice_report = f"มีพรรคพวกใหม่ชื่อ {member.display_name} เชื่อมต่อเข้ามาในเซิร์ฟเวอร์ครับ ดูเหมือนจะเป็นพลเมืองปกติดีครับ"
         
         # สั่งให้แบ็คลี่พูด
         await bagley_speak(member.guild, voice_report)
@@ -6035,7 +6035,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
     await ctx.defer(ephemeral=False)
 
     if ctx.guild is None:
-        await ctx.send("ขออภัยครับเมท! คำสั่งนี้ต้องพิมพ์สั่งภายในเซิร์ฟเวอร์ที่ผมประจำการอยู่เท่านั้นครับ ใน DM ผมแอบวาร์ปเข้าห้องเสียงไม่ได้น้า! 🛸❌")
+        await ctx.send("ขออภัยครับ! คำสั่งนี้ต้องพิมพ์สั่งภายในเซิร์ฟเวอร์ที่ผมประจำการอยู่เท่านั้นครับ ใน DM ผมแอบวาร์ปเข้าห้องเสียงไม่ได้น้า! 🛸❌")
         return
 
     member = None
@@ -6065,7 +6065,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
 
     # 🛑 ถ้าระบบแกะหาเพื่อนคนนี้ไม่เจอเลย แจ้งเตือนผู้สั่งการทันที
     if not member:
-        await ctx.send("ขออภัยครับเมท ผมหาเพื่อนคนนี้ไม่เจอ รบกวนตรวจสอบเลข ID หรือแท็กชื่อใหม่อีกครั้งน้าครับ")
+        await ctx.send("ขออภัยครับ ผมหาเพื่อนคนนี้ไม่เจอ รบกวนตรวจสอบเลข ID หรือแท็กชื่อใหม่อีกครั้งน้าครับ")
         return
 
     if member.voice and member.voice.channel:
@@ -6079,7 +6079,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
             vc = await target_channel.connect()
 
         # แจ้งในช่องแชททันทีหลังจากก้าวเท้าเข้าห้องเสียง
-        await ctx.send(f"รับทราบครับเมท! ผมจะไปอยู่เป็นเพื่อนคุณ {member.display_name} เดี๋ยวนี้แหละ")
+        await ctx.send(f"รับทราบครับ! ผมจะไปอยู่เป็นเพื่อนคุณ {member.display_name} เดี๋ยวนี้แหละ")
 
         # เล่นเสียงเปิดตัว (เฟดเสียง)
         audio_source = discord.PCMVolumeTransformer(
@@ -6108,14 +6108,14 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
         await bagley_speak_wait(ctx.guild, msg)
         
     else:
-        await ctx.send(f"คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับเมท ผมคงแอบวาร์ปไปหาไม่ได้")
+        await ctx.send(f"คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับ ผมคงแอบวาร์ปไปหาไม่ได้")
 
 @bot.hybrid_command(name="alarm", description="ตั้งเวลาปลุกเพื่อน (เช่น 07:00 หรือ 16:30)")
 async def alarm(
     ctx: commands.Context, 
     member: discord.Member, 
     time_str: str, 
-    message: str = "ตื่นได้แล้วครับเมท!"
+    message: str = "ตื่นได้แล้วครับ!"
 ):
     global active_alarms
     try:
@@ -6185,10 +6185,10 @@ async def alarm(
             print(f"🛑 [Bagley] ปิดระบบลูปนาฬิกาปลุกในเซิร์ฟเวอร์ {ctx.guild.name} เรียบร้อย")
             
         else:
-            await ctx.send(f"ถึงเวลา {clean_time} แล้วครับเมท แต่ดูเหมือนคุณ {member.display_name} จะไม่อยู่ในห้องเสียงแล้ว")
+            await ctx.send(f"ถึงเวลา {clean_time} แล้วครับ แต่ดูเหมือนคุณ {member.display_name} จะไม่อยู่ในห้องเสียงแล้ว")
 
     except ValueError:
-        await ctx.send("เมทใส่รูปแบบเวลาผิดครับ! กรุณาใส่เป็น HH:MM หรือ HH.MM (เช่น 07:00 หรือ 7.30) นะครับ")
+        await ctx.send("คุณใส่รูปแบบเวลาผิดครับ! กรุณาใส่เป็น HH:MM หรือ HH.MM (เช่น 07:00 หรือ 7.30) นะครับ")
 
 @bot.hybrid_command(name="clear_my_reminders", description="ลบรายการแจ้งเตือนทั้งหมดของตัวคุณเอง")
 async def clear_my_reminders(ctx: commands.Context):
@@ -6206,7 +6206,7 @@ async def clear_my_reminders(ctx: commands.Context):
             data["alarms"] = [a for a in data["alarms"] if a["user_id"] != user_id_str]
             
         save_user_data(data)
-        await ctx.send("รับทราบครับเมท! เคลียร์รายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของคุณให้เรียบร้อยแล้วครับ")
+        await ctx.send("รับทราบครับ! เคลียร์รายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของคุณให้เรียบร้อยแล้วครับ")
     else:
         await ctx.send("คุณยังไม่มีรายการแจ้งเตือนหรือนาฬิกาปลุกในระบบเลยครับ")
 
@@ -6221,9 +6221,9 @@ async def stop_alarm(ctx: commands.Context):
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
             
-        await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับ! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับเมท!")
+        await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับ! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับ!")
     else:
-        await ctx.send("❌ ตอนนี้ไม่มีนาฬิกาปลุกกำลังทำงานในเซิร์ฟเวอร์นี้ครับเมท")
+        await ctx.send("❌ ตอนนี้ไม่มีนาฬิกาปลุกกำลังทำงานในเซิร์ฟเวอร์นี้ครับ")
 
 @bot.hybrid_command(name="clear_user_reminders", description="[Admin] ลบรายการแจ้งเตือนทั้งหมดของสมาชิกที่ระบุ")
 async def clear_user_reminders(ctx: commands.Context, member: discord.Member):
@@ -6241,9 +6241,9 @@ async def clear_user_reminders(ctx: commands.Context, member: discord.Member):
             data["alarms"] = [a for a in data["alarms"] if a["user_id"] != target_id_str]
             
         save_user_data(data)
-        await ctx.send(f"รับทราบครับเมท! ลบรายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของ คุณ {member.display_name} ให้เรียบร้อยแล้วครับ")
+        await ctx.send(f"รับทราบครับ! ลบรายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของ คุณ {member.display_name} ให้เรียบร้อยแล้วครับ")
     else:
-        await ctx.send(f"ไม่พบรายการแจ้งเตือนหรือนาฬิกาปลุกของ คุณ {member.display_name} ในระบบครับเมท")
+        await ctx.send(f"ไม่พบรายการแจ้งเตือนหรือนาฬิกาปลุกของ คุณ {member.display_name} ในระบบครับ")
 
 @bot.hybrid_command(name="teach", description="สอนให้แบ็คลี่จำคีย์เวิร์ดคำถามและคำตอบ")
 async def teach(ctx: commands.Context, keyword: str, response: str):
@@ -6256,7 +6256,7 @@ async def teach(ctx: commands.Context, keyword: str, response: str):
     clean_keyword = keyword.lower().strip()
 
     if len(clean_keyword) == 0:
-        await ctx.send("⚠️ **[TEACH REJECTED]** คีย์เวิร์ดต้องมีตัวอักษรด้วยนะคร้าบเมท! ❌")
+        await ctx.send("⚠️ **[TEACH REJECTED]** คีย์เวิร์ดต้องมีตัวอักษรด้วยนะคร้าบ! ❌")
         return
 
     global conn
@@ -6268,7 +6268,7 @@ async def teach(ctx: commands.Context, keyword: str, response: str):
     )
     conn.commit()
     
-    await ctx.send(f"รับทราบครับเมท! แบ็คลี่จดบันทึกคีย์เวิร์ด **'{keyword}'** เข้าคลังสมองกลเรียบร้อยแล้วครับ! 🧠✨")
+    await ctx.send(f"รับทราบครับ! แบ็คลี่จดบันทึกคีย์เวิร์ด **'{keyword}'** เข้าคลังสมองกลเรียบร้อยแล้วครับ! 🧠✨")
 
 @bot.hybrid_command(name="unteach", description="สั่งให้แบ็คลี่ลืมคีย์เวิร์ดคำถามที่ไม่ต้องการ")
 async def unteach(ctx: commands.Context, keyword: str):
@@ -6286,13 +6286,13 @@ async def unteach(ctx: commands.Context, keyword: str):
     result = c.fetchone()
     
     if result is None:
-        await ctx.send(f"🤖 แบ็คลี่ลองค้นดูแล้ว... ไม่พบคีย์เวิร์ด **'{keyword}'** ในระบบเลยครับเมท!")
+        await ctx.send(f"🤖 แบ็คลี่ลองค้นดูแล้ว... ไม่พบคีย์เวิร์ด **'{keyword}'** ในระบบเลยครับ!")
         return
 
     c.execute("DELETE FROM teach_memory WHERE keyword = ?", (clean_keyword,))
     conn.commit()
     
-    await ctx.send(f"รับทราบครับเมท! แบ็คลี่ทำการลบและลืมคีย์เวิร์ด **'{keyword}'** ออกเรียบร้อยแล้วครับ! 🧼❌")
+    await ctx.send(f"รับทราบครับ! แบ็คลี่ทำการลบและลืมคีย์เวิร์ด **'{keyword}'** ออกเรียบร้อยแล้วครับ! 🧼❌")
 
 @bot.hybrid_command(name="list_teach", description="เรียกดูรายการคีย์เวิร์ดทั้งหมดที่เคยสอนแบ็คลี่ไว้")
 async def list_teach(ctx: commands.Context):
@@ -6309,7 +6309,7 @@ async def list_teach(ctx: commands.Context):
     rows = c.fetchall()
     
     if not rows:
-        await ctx.send("🤖 ตอนนี้คลังสมองของแบ็คลี่ยังว่างเปล่า ไม่มีคีย์เวิร์ดที่เคยสอนไว้เลยครับเมท!")
+        await ctx.send("🤖 ตอนนี้คลังสมองของแบ็คลี่ยังว่างเปล่า ไม่มีคีย์เวิร์ดที่เคยสอนไว้เลยครับ!")
         return
 
     formatted_list = []
@@ -6350,7 +6350,7 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
     # 🔍 รองรับทั้งการแท็ก @สมาชิก และการใส่ User ID ตรง ๆ (ดึงตัวเลข ID ออกมาแบบเดียวกับคำสั่ง "จำไว้ว่า")
     has_id = regex_lib.search(r'(\d{17,19})', member)
     if not has_id:
-        await ctx.send("❌ ไม่พบผู้ใช้ที่ระบุครับเมท กรุณาแท็ก (@) สมาชิก หรือใส่ User ID ให้ถูกต้องนะครับ!")
+        await ctx.send("❌ ไม่พบผู้ใช้ที่ระบุครับ กรุณาแท็ก (@) สมาชิก หรือใส่ User ID ให้ถูกต้องนะครับ!")
         return
 
     target_id = int(has_id.group(1))
@@ -6362,7 +6362,7 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
             target_user = None
 
     if target_user is None:
-        await ctx.send(f"❌ แบ็คลี่หาผู้ใช้ ID `{target_id}` ไม่เจอเลยครับเมท ลองเช็ก ID อีกทีนะครับ!")
+        await ctx.send(f"❌ แบ็คลี่หาผู้ใช้ ID `{target_id}` ไม่เจอเลยครับ ลองเช็ก ID อีกทีนะครับ!")
         return
 
     target_id_str = str(target_user.id)
@@ -6370,7 +6370,7 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
     clean_info = info.strip()
 
     if not clean_info:
-        await ctx.send("⚠️ **[REMEMBER REJECTED]** ข้อมูลที่จะให้จำต้องไม่ว่างเปล่านะครับเมท! ❌")
+        await ctx.send("⚠️ **[REMEMBER REJECTED]** ข้อมูลที่จะให้จำต้องไม่ว่างเปล่านะครับ! ❌")
         return
 
     user_data = load_user_data()
@@ -6381,11 +6381,11 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
     if category == "birthday":
         user_data[target_id_str]["birthday"] = clean_info
         save_user_data(user_data)
-        await ctx.send(f"รับทราบครับเมท! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{clean_info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
+        await ctx.send(f"รับทราบครับ! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{clean_info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
     else:
         user_data[target_id_str]["nickname"] = clean_info
         save_user_data(user_data)
-        await ctx.send(f"รับทราบครับเมท! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{clean_info}** เรียบร้อยครับ! 🤠")
+        await ctx.send(f"รับทราบครับ! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{clean_info}** เรียบร้อยครับ! 🤠")
 
 @bot.tree.command(name="report_voice", description="เปิดหรือปิดระบบพูดรายงานทักทายตอนคนเข้า-ออกห้องเสียง")
 @app_commands.choices(status=[
@@ -6396,7 +6396,7 @@ async def report_voice_toggle(interaction: discord.Interaction, status: app_comm
     guild = interaction.guild
     
     if guild is None:
-        await interaction.response.send_message("คำสั่งนี้จำเป็นต้องสั่งใช้งานภายในเซิร์ฟเวอร์หลักเท่านั้นน้าเมท! 🛸❌", ephemeral=True)
+        await interaction.response.send_message("คำสั่งนี้จำเป็นต้องสั่งใช้งานภายในเซิร์ฟเวอร์หลักเท่านั้นน้า! 🛸❌", ephemeral=True)
         return
 
     guild_id = guild.id
@@ -6405,7 +6405,7 @@ async def report_voice_toggle(interaction: discord.Interaction, status: app_comm
     if status.value == "on":
         voice_report_status[guild_id] = True
         response_text = "เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงทักทายเหมือนเดิมแล้วครับ!"
-        speech_text = "เปิดระบบรายงานห้องเสียงเรียบร้อยครับเมท"
+        speech_text = "เปิดระบบรายงานห้องเสียงเรียบร้อยครับ"
     else:
         voice_report_status[guild_id] = False
         response_text = "รับทราบครับ! 🔇 ผมจะปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงในเซิร์ฟนี้ให้ชั่วคราวน้า (แต่ระบบสถิติยังนับเวลาปกติครับ)"
@@ -6431,7 +6431,7 @@ async def view_logs(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     if not LOG_BUFFER:
-        await interaction.followup.send("📋 ตอนนี้คลัง Log ยังว่างเปล่า ไม่มีประวัติผิดปกติครับเมท!", ephemeral=True)
+        await interaction.followup.send("📋 ตอนนี้คลัง Log ยังว่างเปล่า ไม่มีประวัติผิดปกติครับ!", ephemeral=True)
         return
 
     log_text = "\n".join(LOG_BUFFER)
@@ -6448,7 +6448,7 @@ async def view_logs(interaction: discord.Interaction):
 @view_logs.error
 async def view_logs_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message("🛑 ขออภัยด้วยครับเมท! คำสั่งนี้จำกัดสิทธิ์เฉพาะผู้พัฒนาบอทที่ระบุไว้เท่านั้นน้าครับ!", ephemeral=True)
+        await interaction.response.send_message("🛑 ขออภัยด้วยครับ! คำสั่งนี้จำกัดสิทธิ์เฉพาะผู้พัฒนาบอทที่ระบุไว้เท่านั้นน้าครับ!", ephemeral=True)
 
 @bot.tree.command(name="forget", description="ลบข้อมูลชื่อเล่นหรือวันเกิดของพรรคพวกออกจากคลังสมองของแบ็คลี่")
 @app_commands.describe(target="พรรคพวกที่ต้องการให้บอทลืมข้อมูล (หากต้องการลบของตัวเอง ไม่ต้องใส่ช่องนี้)")
@@ -6463,9 +6463,9 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
         if target_id in data_memory:
             del data_memory[target_id]
             save_user_data(data_memory)
-            reply_text = f"เรียบร้อยครับเมท! ผมกวาดข้อมูลของ คุณ {target.display_name} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับ!"
+            reply_text = f"เรียบร้อยครับ! ผมกวาดข้อมูลของ คุณ {target.display_name} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับ!"
         else:
-            reply_text = f"เอ่อ... เมทครับ ในสมองผมไม่มีข้อมูลของ คุณ {target.display_name} อยู่เลยสักเมกะไบต์ จะให้ผมลบความว่างเปล่าเหรอครับเมท!"
+            reply_text = f"เอ่อ... ครับ ในสมองผมไม่มีข้อมูลของ คุณ {target.display_name} อยู่เลยสักเมกะไบต์ จะให้ผมลบความว่างเปล่าเหรอครับ!"
 
     # 👤 เคสที่ 2: สั่งให้ลบข้อมูลของ "ตัวเอง"
     else:
@@ -6473,9 +6473,9 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
         if user_id in data_memory:
             del data_memory[user_id]
             save_user_data(data_memory)
-            reply_text = "รับทราบครับเมท! ผมทำการล้างสมองตัวเองเกี่ยวกับข้อมูลของเมทเกลี้ยงแล้ว ต่อจากนี้เราคือคนแปลกหน้าในร่างคู่หูคนเดิมครับ!"
+            reply_text = "รับทราบครับ! ผมทำการล้างสมองตัวเองเกี่ยวกับข้อมูลของคุณเกลี้ยงแล้ว ต่อจากนี้เราคือคนแปลกหน้าในร่างคู่หูคนเดิมครับ!"
         else:
-            reply_text = "ฮั่นแน่ เมทแกล้งปั่นหัวสมองกลผมเล่นหรือเปล่าครับ? ข้อมูลเมทผมยังไม่เคยบันทึกไว้เลย จะให้ลบอะไรก่อนครับเมท!"
+            reply_text = "ฮั่นแน่ คุณแกล้งปั่นหัวสมองกลผมเล่นหรือเปล่าครับ? ข้อมูลคุณผมยังไม่เคยบันทึกไว้เลย จะให้ลบอะไรก่อนครับ!"
                 
     await interaction.followup.send(reply_text)
 
@@ -6491,7 +6491,7 @@ async def forget(interaction: discord.Interaction, target: discord.User = None):
                     print(f"🚨 Forget Command TTS Error: {tts_err}")
 
 @bot.hybrid_command(name="imagine", description="สั่งให้แบ็คลี่วาดภาพจากจินตนาการและข้อความ")
-@app_commands.describe(prompt="พิมพ์อธิบายภาพที่อยากให้แบ็คลี่วาดได้เลยครับเมท")
+@app_commands.describe(prompt="พิมพ์อธิบายภาพที่อยากให้แบ็คลี่วาดได้เลยครับ")
 async def imagine(ctx: commands.Context, *, prompt: str):
     await ctx.defer()
 
@@ -6514,14 +6514,14 @@ async def sys_cleanup(ctx: commands.Context):
     
     if saved > 0:
         msg = (
-            f"🧹 **[SYSTEM CLEANUP]** แบ็คลี่เคลียร์ RAM โล่งแล้วครับเมท!\n"
+            f"🧹 **[SYSTEM CLEANUP]** แบ็คลี่เคลียร์ RAM โล่งแล้วครับ!\n"
             f"📊 **RAM ก่อนเคลียร์:** `{before:.2f} MB`\n"
             f"📉 **RAM หลังเคลียร์:** `{after:.2f} MB`\n"
             f"♻️ **คืนพื้นที่ความจำได้:** `{saved:.2f} MB` ครับ!"
         )
     else:
         msg = (
-            f"🧹 **[SYSTEM CLEANUP]** สมองของแบ็คลี่สะอาดกริ๊บอยู่แล้วครับเมท!\n"
+            f"🧹 **[SYSTEM CLEANUP]** สมองของแบ็คลี่สะอาดกริ๊บอยู่แล้วครับ!\n"
             f"📊 **RAM ปัจจุบัน:** `{after:.2f} MB` ไม่จำเป็นต้องรีไซเคิลเพิ่มครับ"
         )
         
@@ -6531,16 +6531,16 @@ async def sys_cleanup(ctx: commands.Context):
         await ctx.send(msg)
         
     if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
-        await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับเมท")
+        await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับ")
 
 @bot.hybrid_command(name="unfollow_me", description="สั่งให้ Bagley เลิกเดินตามตัวเราเอง")
 async def unfollow_me(ctx: commands.Context):
     user_id = ctx.author.id
     if user_id in ALLOWED_USERS:
         auto_follow_status[user_id] = False
-        await ctx.send(f"รับทราบครับเมท! แบ็คลี่ปิดระบบเดินตามของ {ctx.author.display_name} เรียบร้อยครับ (ท่านอื่นยังตามปกติอยู่น้า)")
+        await ctx.send(f"รับทราบครับ! แบ็คลี่ปิดระบบเดินตามของ {ctx.author.display_name} เรียบร้อยครับ (ท่านอื่นยังตามปกติอยู่น้า)")
     else:
-        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับ!")
+        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะผู้มีสิทธิ์ใช้งานเท่านั้นครับ!")
 
 @bot.hybrid_command(name="follow_me", description="สั่งให้ Bagley กลับมาเดินตามตัวเราอีกครั้ง")
 async def follow_me(ctx: commands.Context):
@@ -6549,7 +6549,7 @@ async def follow_me(ctx: commands.Context):
         auto_follow_status[user_id] = True
         await ctx.send(f"ระบบ Neural Link เชื่อมต่อใหม่! แบ็คลี่เปิดระบบเดินตามของ {ctx.author.display_name} พร้อมสแตนด์บายแล้วครับ!")
     else:
-        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะเมทระเบียบการเท่านั้นครับ!")
+        await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะผู้มีสิทธิ์ใช้งานเท่านั้นครับ!")
 
 @bot.hybrid_command(name="kicktimer", description="ตั้งเวลาตามหน้าปัดนาฬิกาเพื่อดีดพวกนอนหลับคาห้องเสียง")
 @app_commands.describe(target_time="ระบุเวลาที่ต้องการให้เตะออก เช่น 03:00, 3.00 หรือใส่แค่เลขชั่วโมง เช่น 3")
@@ -6564,7 +6564,7 @@ async def kick_timer(ctx: commands.Context, target_time: str):
     
     if not time_match:
         return await ctx.send(
-            "พิมพ์รูปแบบเวลาผิดครับเมท! กรุณาใส่เป็นรูปแบบเวลาที่ถูกต้อง เช่น `03:00`, `3.00` หรือใส่แค่ชั่วโมงตัวเดียว เช่น `3` ครับ", 
+            "พิมพ์รูปแบบเวลาผิดครับ! กรุณาใส่เป็นรูปแบบเวลาที่ถูกต้อง เช่น `03:00`, `3.00` หรือใส่แค่ชั่วโมงตัวเดียว เช่น `3` ครับ", 
             ephemeral=True
         )
 
@@ -6582,7 +6582,7 @@ async def kick_timer(ctx: commands.Context, target_time: str):
     target_time_str = target_datetime.strftime("%H:%M น.")
 
     view = KickVoiceView(target_time_str, delay_seconds)
-    await ctx.send(f"ครับเมท! กรุณาเลือกสมาชิกที่คุณต้องการดีดออก ณ เวลา **{target_time_str}** :", view=view)
+    await ctx.send(f"ครับ! กรุณาเลือกสมาชิกที่คุณต้องการดีดออก ณ เวลา **{target_time_str}** :", view=view)
 
 @bot.hybrid_command(name="kickcancel",description="เลือกยกเลิกรายชื่อคนที่ตั้งเวลาเตะไว้ในเซิร์ฟเวอร์นี้")
 async def kick_cancel(ctx: commands.Context):
@@ -6595,9 +6595,9 @@ async def kick_cancel(ctx: commands.Context):
     
     if has_active_task:
         view = CancelVoiceView()
-        await ctx.send("ครับเมท! กรุณาเลือกรายชื่อคนที่ต้องการยกเลิกคิวเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
+        await ctx.send("ครับ! กรุณาเลือกรายชื่อคนที่ต้องการยกเลิกคิวเตะจากเมนูด้านล่างนี้ได้เลยครับ:", view=view)
     else:
-        await ctx.send("ไม่มีรายชื่อใครกำลังติดคิวตั้งเวลาเตะในเซิร์ฟนี้เลยครับเมท!", ephemeral=True)
+        await ctx.send("ไม่มีรายชื่อใครกำลังติดคิวตั้งเวลาเตะในเซิร์ฟนี้เลยครับ!", ephemeral=True)
 
 @bot.hybrid_command(name="memberlist", description="เปิดสมุดคลังความจำดูรายชื่อพรรคพวกในดิสคอร์ด")
 @app_commands.describe(scope="เลือกขอบเขต: 'current' ดูเฉพาะเซิร์ฟนี้, 'all' ดูทุกเซิร์ฟเวอร์ (สิทธิ์มาสเตอร์)")
@@ -6611,13 +6611,13 @@ async def member_list(ctx: commands.Context, scope: str = "current"):
         user_data = load_user_data()
 
         if not user_data:
-            return await ctx.send("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับเมท")
+            return await ctx.send("ตอนนี้คลังความจำของผมยังว่างเปล่าอยู่เลยครับ")
 
         formatted_list = []
 
         if scope == "all" or ctx.guild is None:
             if ctx.author.id != MY_MASTER_ID:
-                return await ctx.send("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะเมทผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌", ephemeral=True)
+                return await ctx.send("ขออภัยครับ คำสั่งระดับสูงนี้ถูกจำกัดสิทธิ์ไว้เฉพาะผู้สร้างผมขึ้นมาเท่านั้นครับ! 🤫❌", ephemeral=True)
             
             title_text = "👁️ คลังระบบตาทิพย์: รายชื่อพรรคพวกทั้งหมดจากทุกเซิร์ฟ"
             
@@ -6646,26 +6646,26 @@ async def member_list(ctx: commands.Context, scope: str = "current"):
                     formatted_list.append(f"<@{user_id_str}>: {nickname}")
 
         if not formatted_list:
-            return await ctx.send("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับเมท!")
+            return await ctx.send("ในขอบเขตนี้ผมยังไม่มีข้อมูลคลังความจำของพรรคพวกคนไหนเลยครับ!")
 
         view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
         view.message = await ctx.send(embed=view.create_embed(), view=view)
 
     except Exception as e:
         print(f"🚨 ERROR ระบบรายชื่อใหม่: {e}")
-        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับเมท")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับ")
 
 @bot.hybrid_command(name="voicestats", description="ดูสรุปสถิติห้องเสียงของวันนี้ว่าใครคุยนานที่สุด")
 async def voice_stats(ctx: commands.Context):
     try:
         if ctx.guild is None:
-            return await ctx.send("ขออภัยครับเมท! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า 🛸❌", ephemeral=True)
+            return await ctx.send("ขออภัยครับ! คำสั่งสรุปสถิติต้องเรียกดูภายในเซิร์ฟเวอร์หลักเท่านั้นน้า 🛸❌", ephemeral=True)
 
         data = load_voice_data()
         today_str = datetime.now().strftime("%Y-%m-%d")
 
         if not data or data.get("date") != today_str or not data.get("stats"):
-            return await ctx.send("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับเมท!")
+            return await ctx.send("วันนี้ยังไม่มีใครเข้าห้องเสียงเลยครับ!")
 
         stats = data["stats"]
         guild_id_str = str(ctx.guild.id)
@@ -6676,7 +6676,7 @@ async def voice_stats(ctx: commands.Context):
         sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:5]
         
         if not sorted_stats:
-            return await ctx.send("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับเมท!")
+            return await ctx.send("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับ!")
         
         user_memory = load_user_data()
         
@@ -6705,11 +6705,11 @@ async def voice_stats(ctx: commands.Context):
         await ctx.send(report)
         
         if ctx.guild.voice_client:
-            await bagley_speak(ctx.guild, f"รายงานผลของวันนี้ครับเมท อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
+            await bagley_speak(ctx.guild, f"รายงานผลของวันนี้ครับ อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
 
     except Exception as e:
         print(f"🚨 ERROR ระบบสรุปสถิติห้องเสียง: {e}")
-        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลสถิติครับเมท")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลสถิติครับ")
 
 @bot.hybrid_command(name="guard_room", description="สั่งให้แบ็คลี่เปิด-ปิดโหมดเฝ้าห้องเสียงนี้ไว้ ไม่ให้บอทออกจากห้องเวลาร้าง")
 @app_commands.choices(mode=[
@@ -6720,7 +6720,7 @@ async def guard_room(ctx: commands.Context, mode: str = None):
     global room_guard_status, is_playing_music
     
     if not ctx.guild.voice_client:
-        return await ctx.send("❌ แบ็คลี่ต้องอยู่ในห้องเสียงก่อนถึงจะสั่งเฝ้าห้องได้ครับเมท!")
+        return await ctx.send("❌ แบ็คลี่ต้องอยู่ในห้องเสียงก่อนถึงจะสั่งเฝ้าห้องได้ครับ!")
 
     guild_id = ctx.guild.id
     current_status = room_guard_status.get(guild_id, False)
@@ -6740,11 +6740,11 @@ async def guard_room(ctx: commands.Context, mode: str = None):
 
     # 2. ทำงานตามสถานะใหม่ที่เซ็ตไว้
     if room_guard_status[guild_id]:
-        text_msg = "🛡️ เปิดโหมดสายตรวจแล้วครับเมท! แบ็คลี่จะปักหลักเฝ้าห้องเสียงนี้ไว้ให้เอง ไม่หนีไปไหนแน่นอนคัปพ้ม!"
-        voice_msg = "เปิดโหมดสายตรวจแล้วครับเมท ผมจะเฝ้าห้องนี้ไว้ให้เองครับ"
+        text_msg = "🛡️ เปิดโหมดสายตรวจแล้วครับ! แบ็คลี่จะปักหลักเฝ้าห้องเสียงนี้ไว้ให้เอง ไม่หนีไปไหนแน่นอนคัปพ้ม!"
+        voice_msg = "เปิดโหมดสายตรวจแล้วครับ ผมจะเฝ้าห้องนี้ไว้ให้เองครับ"
     else:
-        text_msg = "🔓 ปิดโหมดสายตรวจแล้วคัปพ้ม ต่อจากนี้ถ้าห้องร้าง แบ็คลี่จะถอนกำลังออกตามปกติถ้าร้างนะเมท!"
-        voice_msg = "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัปเมท"
+        text_msg = "🔓 ปิดโหมดสายตรวจแล้วคัปพ้ม ต่อจากนี้ถ้าห้องร้าง แบ็คลี่จะถอนกำลังออกตามปกติถ้าร้างนะ!"
+        voice_msg = "ปิดโหมดสายตรวจแล้วครับ ปล่อยตัวตามปกติแล้วคัป"
 
     # 3. ส่งข้อความในแชท
     await ctx.send(text_msg)
@@ -6758,30 +6758,30 @@ async def guard_room(ctx: commands.Context, mode: str = None):
 
 @bot.hybrid_command(name="party_recall", description="ดึงทุกคนในห้องปาร์ตี้ล่าสุดที่เราสร้าง กลับมาที่ห้องเสียงปัจจุบันของเรา")
 async def party_recall(ctx: commands.Context):
-    # 🔍 เช็กก่อนว่าเมทชะอมอยู่ในห้องเสียงไหม (เพราะเราจะดึงคนมาหาห้องที่เรานั่งอยู่คัป)
+    # 🔍 เช็กก่อนว่าคุณชะอมอยู่ในห้องเสียงไหม (เพราะเราจะดึงคนมาหาห้องที่เรานั่งอยู่คัป)
     if not ctx.author.voice:
-        return await ctx.send("❌ เมทต้องอยู่ในห้องเสียงปลายทางก่อนนะครับ ถึงจะเรียกเพื่อนกลับมาได้!")
+        return await ctx.send("❌ คุณต้องอยู่ในห้องเสียงปลายทางก่อนนะครับ ถึงจะเรียกเพื่อนกลับมาได้!")
         
     target_channel = ctx.author.voice.channel
     guild_id = ctx.guild.id
 
     # 🔍 หาห้องปาร์ตี้ล่าสุดที่ระบบสร้างขึ้น (ดูจากตัวแปรลิสต์ห้องปาร์ตี้ของกิลด์นี้)
-    # สมมติว่าเมทเก็บ ID ไว้ในลิสต์ global ชื่อ created_party_channels
+    # สมมติว่าคุณเก็บ ID ไว้ในลิสต์ global ชื่อ created_party_channels
     if not created_party_channels:
-        return await ctx.send("❌ แบ็คลี่หาประวัติห้องปาร์ตี้ที่สร้างไว้ไม่เจอเลยครับเมท!")
+        return await ctx.send("❌ แบ็คลี่หาประวัติห้องปาร์ตี้ที่สร้างไว้ไม่เจอเลยครับ!")
 
     # ดึง ID ห้องล่าสุดที่เพิ่งสร้างขึ้นมา
     last_party_id = created_party_channels[-1]
     source_channel = ctx.guild.get_channel(last_party_id)
 
     if not source_channel or not isinstance(source_channel, discord.VoiceChannel):
-        return await ctx.send("❌ ดูเหมือนห้องปาร์ตี้ล่าสุดจะโดนลบ หรือหาไม่เจอแล้วครับเมท")
+        return await ctx.send("❌ ดูเหมือนห้องปาร์ตี้ล่าสุดจะโดนลบ หรือหาไม่เจอแล้วครับ")
 
     # 👥 นับจำนวนคนในห้องปาร์ตี้นั้น (ไม่นับบอท)
     members_to_move = [m for m in source_channel.members if not m.bot]
 
     if not members_to_move:
-        return await ctx.send(f"ห้อง **{source_channel.name}** ไม่มีเพื่อน ๆ นั่งอยู่เลยครับเมท ว่างเปล่าเลยคัป!")
+        return await ctx.send(f"ห้อง **{source_channel.name}** ไม่มีเพื่อน ๆ นั่งอยู่เลยครับ ว่างเปล่าเลยคัป!")
 
     await ctx.defer() # ป้องกันอินเตอร์แอกชันหมดอายุเวลาคนเยอะคัปพ้ม
 
@@ -6798,9 +6798,9 @@ async def party_recall(ctx: commands.Context):
     if ctx.guild.voice_client and ctx.guild.voice_client.channel == source_channel:
         await ctx.guild.voice_client.move_to(target_channel)
 
-    msg = f"🛸 ดึงพรรคพวกจากห้อง {source_channel.name} กลับมารวมกันที่ห้อง {target_channel.name} จำนวน {success_count} คน เรียบร้อยแล้วครับเมท!"
+    msg = f"🛸 ดึงพรรคพวกจากห้อง {source_channel.name} กลับมารวมกันที่ห้อง {target_channel.name} จำนวน {success_count} คน เรียบร้อยแล้วครับ!"
     await ctx.send(msg)
-    await bagley_speak(ctx.guild, f"ดึงเพื่อน ๆ กลับห้องหลักเรียบร้อยแล้วครับเมท การแข่งขันจบลงแล้วสินะครับ")
+    await bagley_speak(ctx.guild, f"ดึงเพื่อน ๆ กลับห้องหลักเรียบร้อยแล้วครับ การแข่งขันจบลงแล้วสินะครับ")
 
 @bot.hybrid_command(name="pull_room", description="เลือกดึงสมาชิกทั้งหมดจากห้องอื่น ย้ายมาที่ห้องเสียงปัจจุบันของเรา")
 async def pull_room(ctx: commands.Context):
@@ -6810,9 +6810,9 @@ async def pull_room(ctx: commands.Context):
         
         # 💡 ส่งแค่ ctx.author กับห้องปัจจุบัน (current_channel) เข้าไปใน View คัปพ้ม คลีนขึ้นเยอะเลย!
         view = PullRoomView(ctx.author, current_channel)
-        await ctx.send("🔮 เมทต้องการดึงคนทั้งหมดจากห้องไหน มารวมกันที่ห้องนี้ดีครับ?", view=view)
+        await ctx.send("🔮 คุณต้องการดึงคนทั้งหมดจากห้องไหน มารวมกันที่ห้องนี้ดีครับ?", view=view)
     else:
-        await ctx.send("เมทต้องเข้ามานั่งในห้องเสียงหลักก่อนนะครับ แบ็คลี่ถึงจะรู้ว่าจะให้ดึงคนมาไว้ที่ห้องไหนคัปพ้ม!")
+        await ctx.send("คุณต้องเข้ามานั่งในห้องเสียงหลักก่อนนะครับ แบ็คลี่ถึงจะรู้ว่าจะให้ดึงคนมาไว้ที่ห้องไหนคัปพ้ม!")
 
 @bot.tree.command(name="invite_voice", description="สั่งให้แบ็คลี่วาร์ปไปเปิดไมค์ตื๊อชวนเพื่อนจากห้องอื่นมาเข้าตี้คัปพ้ม")
 async def invite_voice(interaction: discord.Interaction, เพื่อนที่จะชวน: discord.Member):
@@ -6862,7 +6862,7 @@ async def slash_remind(interaction: discord.Interaction, date: str, time: str, e
 
     # 📤 ตอบกลับในห้องแชทเป็นภาษาไทยสไตล์แบ็คลี่สุดหล่อ!
     await interaction.response.send_message(
-        f"🛸 **ล็อกเป้าหมายตารางงานเรียบร้อยคัปเมท!**\n"
+        f"🛸 **ล็อกเป้าหมายตารางงานเรียบร้อยคัป!**\n"
         f"📌 **กิจกรรม:** {event}\n"
         f"📅 **วันที่:** {clean_date}\n"
         f"⏰ **เวลา:** {time}\n"
@@ -6878,7 +6878,7 @@ async def schedule_list(ctx: commands.Context):
         my_schedules = [s for s in schedules if str(s.get("owner_id")) == str(ctx.author.id)]
 
         if not my_schedules:
-            return await ctx.send("ตอนนี้คุณยังไม่มีตารางนัดหมายที่ฝากผมจำไว้เลยครับเมท! ลองฝากไว้ด้วย `/remind` ได้เลยครับ")
+            return await ctx.send("ตอนนี้คุณยังไม่มีตารางนัดหมายที่ฝากผมจำไว้เลยครับ! ลองฝากไว้ด้วย `/remind` ได้เลยครับ")
 
         # 🗂️ เรียงตามวันที่ + เวลาก่อน-หลัง (นัดที่ใกล้ถึงก่อนจะขึ้นก่อน)
         def _schedule_sort_key(s):
@@ -6900,6 +6900,6 @@ async def schedule_list(ctx: commands.Context):
 
     except Exception as e:
         print(f"🚨 ERROR ระบบดูตารางงาน: {e}")
-        await ctx.send("เกิดข้อผิดพลาดในการดึงตารางนัดหมายครับเมท")
+        await ctx.send("เกิดข้อผิดพลาดในการดึงตารางนัดหมายครับ")
 
 bot.run(DISCORD_TOKEN)
