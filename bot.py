@@ -3270,7 +3270,7 @@ async def on_message(message):
     # ==========================================
     #  คำสั่งดีเทคคำ: แบ็คลี่ เรียก @เพื่อน (ส่งเข้า DM ส่วนตัว)
     # ==========================================
-    if "เรียก" in lower_content and ("แบ็คลี่" in lower_content or "bagley" in lower_content):
+    if "เรียก" in lower_content and is_message_addressed_to_bagley(lower_content):
         can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
         if not can_act:
             return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับเมท")
@@ -4051,7 +4051,7 @@ async def on_message(message):
                         model="gemini-3.1-flash-lite", 
                         contents=[prompt, img]
                     )
-                    ai_text = response.text.strip()
+                    ai_text = (response.text or "").strip()
                     
                     if not ai_text:
                         ai_text = f"หึๆ ภาพนี้มองปุ๊บก็รู้ปั๊บเลยครับเมท! แต่ระบบส่งข้อมูลผมมันเอ๋อนิดหน่อย สรุปมันคือภาพที่ดีครับเมท! 🤠✨"
@@ -4228,7 +4228,7 @@ async def on_message(message):
                     model="gemini-3.1-flash-lite",
                     contents=bagley_prompt
                 )
-                bagley_styled_text = response.text.strip()
+                bagley_styled_text = (response.text or "").strip()
                 if not bagley_styled_text:
                     bagley_styled_text = f"หึๆ เรื่องนี้เมทเคยสอนผมไว้ในคลังสมองแล้วนี่นา! คำตอบคือ: {matched_response} ครับ! 🤠✨"
             except Exception as e:
@@ -4330,7 +4330,7 @@ async def on_message(message):
                     model="gemini-3.1-flash-lite",
                     contents=free_chat_prompt
                 )
-                bagley_styled_text = response.text.strip()
+                bagley_styled_text = (response.text or "").strip()
                 if not bagley_styled_text:
                     bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับเมท!"
 
@@ -5947,7 +5947,7 @@ Voice: [คำพูดรายงานสรุปให้เมทฟัง
             model="gemini-3.1-flash-lite", 
             contents=prompt
         )
-        ai_text = response.text.strip()
+        ai_text = (response.text or "").strip()
         
         analysis_report = ai_text.split("Embed:")[1].split("Voice:")[0].strip()
         voice_report = ai_text.split("Voice:")[1].strip()
