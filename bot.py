@@ -188,6 +188,8 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 YT_API_KEY = os.getenv('YT_API_KEY')
+SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"), http_options={'api_version': 'v1alpha'})
 
@@ -629,6 +631,125 @@ async def check_shared_voice_quota(user_id, guild):
     user_times.append(now)
     voice_action_cooldowns[user_id] = user_times
     return True, 0
+
+# --- ระบบรองรับลิงก์ Spotify (แปลงเป็นชื่อเพลง+ศิลปิน แล้วให้ yt_dlp ไปหาไฟล์เสียงจาก YouTube มาเล่นแทน) ---
+# หมายเหตุ: Spotify API ไม่อนุญาตให้ดึงไฟล์เสียงจริงออกมาเล่นได้ (ผิด ToS ของ Spotify)
+# ดังนั้นบอทจะใช้ Spotify API แค่ "อ่านชื่อเพลง/ชื่อศิลปิน" จากลิงก์ แล้วเอาไปค้นหาบน YouTube ต่อ
+
+SPOTIFY_HTTP_RE = regex_lib.compile(
+    r"open\.spotify\.com/(?:intl-\w+/)?(?P<type>track|album)/(?P<id>[a-zA-Z0-9]+)"
+)
+SPOTIFY_URI_RE = regex_lib.compile(
+    r"^spotify:(?P<type>track|album):(?P<id>[a-zA-Z0-9]+)$"
+)
+
+_spotify_token_cache = {"access_token": None, "expires_at": 0}
+
+def parse_spotify_link(text: str):
+    """แยกประเภท (track/album) และ id ออกจากลิงก์/URI ของ Spotify คืน (None, None) ถ้าไม่ใช่ลิงก์ Spotify"""
+    text = text.strip()
+    m = SPOTIFY_HTTP_RE.search(text)
+    if not m:
+        m = SPOTIFY_URI_RE.match(text)
+    if not m:
+        return None, None
+    return m.group("type"), m.group("id")
+
+async def get_spotify_access_token():
+    """ขอ Access Token จาก Spotify ด้วย Client Credentials Flow (แคชไว้จนกว่าจะหมดอายุ)"""
+    global _spotify_token_cache
+    now_ts = time.time()
+
+    if _spotify_token_cache["access_token"] and now_ts < _spotify_token_cache["expires_at"] - 30:
+        return _spotify_token_cache["access_token"]
+
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+        print("⚠️ [Spotify] ไม่พบ SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET ใน .env")
+        return None
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "client_credentials"},
+                auth=aiohttp.BasicAuth(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
+            ) as resp:
+                if resp.status != 200:
+                    print(f"⚠️ [Spotify] ขอ Token ไม่สำเร็จ: HTTP {resp.status}")
+                    return None
+                data = await resp.json()
+                _spotify_token_cache["access_token"] = data.get("access_token")
+                _spotify_token_cache["expires_at"] = now_ts + data.get("expires_in", 3600)
+                return _spotify_token_cache["access_token"]
+    except Exception as e:
+        print(f"⚠️ [Spotify] ขอ Token พลาด: {e}")
+        return None
+
+async def get_spotify_track_query(token, track_id):
+    """ดึงชื่อเพลง+ศิลปินของ track เดี่ยว คืนเป็นข้อความสำหรับใช้ค้นหาบน YouTube"""
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://api.spotify.com/v1/tracks/{track_id}", headers=headers) as resp:
+                if resp.status != 200:
+                    print(f"⚠️ [Spotify] ดึงข้อมูลเพลงไม่สำเร็จ: HTTP {resp.status}")
+                    return None
+                data = await resp.json()
+                title = data.get("name", "")
+                artists = ", ".join(a.get("name", "") for a in data.get("artists", []))
+                query = f"{title} {artists}".strip()
+                return query or None
+    except Exception as e:
+        print(f"⚠️ [Spotify] ดึงข้อมูลเพลงพลาด: {e}")
+        return None
+
+async def get_spotify_album_queries(token, album_id):
+    """ดึงรายชื่อเพลงทั้งหมดในอัลบั้ม คืนเป็นลิสต์ข้อความสำหรับใช้ค้นหาบน YouTube (เรียงตามลำดับเพลงในอัลบั้ม)"""
+    queries = []
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"https://api.spotify.com/v1/albums/{album_id}/tracks?limit=50"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            while url:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        print(f"⚠️ [Spotify] ดึงรายเพลงในอัลบั้มไม่สำเร็จ: HTTP {resp.status}")
+                        break
+                    data = await resp.json()
+                    for item in data.get("items", []):
+                        title = item.get("name", "")
+                        artists = ", ".join(a.get("name", "") for a in item.get("artists", []))
+                        q = f"{title} {artists}".strip()
+                        if q:
+                            queries.append(q)
+                    url = data.get("next")  # Spotify คืนหน้าถัดไปมาให้เลย ถ้ามีเพลงเกิน 50 เพลง
+    except Exception as e:
+        print(f"⚠️ [Spotify] ดึงรายเพลงในอัลบั้มพลาด: {e}")
+
+    return queries
+
+async def resolve_spotify_link(text: str):
+    """
+    ถ้า text เป็นลิงก์/URI ของ Spotify (track หรือ album) จะคืนลิสต์ข้อความค้นหา (title + artist)
+    ถ้าไม่ใช่ลิงก์ Spotify คืนค่า None (ให้ผู้เรียกไปประมวลผลแบบข้อความค้นหาปกติ)
+    ถ้าเป็นลิงก์ Spotify แต่ดึงข้อมูลไม่สำเร็จ คืนลิสต์เปล่า []
+    """
+    kind, spotify_id = parse_spotify_link(text)
+    if not kind:
+        return None
+
+    token = await get_spotify_access_token()
+    if not token:
+        return []
+
+    if kind == "track":
+        query = await get_spotify_track_query(token, spotify_id)
+        return [query] if query else []
+    elif kind == "album":
+        return await get_spotify_album_queries(token, spotify_id)
+
+    return []
 
 async def play_song(ctx, search):
     global is_playing_music
@@ -4941,7 +5062,7 @@ async def leave(ctx: commands.Context):
             await ctx.send(no_vc_msg)
 
 # --- คำสั่ง Play  ---
-@bot.hybrid_command(name="play", description="ให้ Bagley เปิดเพลงจากชื่อหรือลิ้งค์ YouTube")
+@bot.hybrid_command(name="play", description="ให้ Bagley เปิดเพลงจากชื่อ ลิ้งค์ YouTube หรือลิ้งค์ Spotify (เพลงเดี่ยว/อัลบั้ม)")
 async def play(ctx: commands.Context, *, search: str):
     global is_playing_music
 
@@ -4954,17 +5075,47 @@ async def play(ctx: commands.Context, *, search: str):
             await ctx.send("กรุณาเข้าห้องเสียงก่อนสั่งผมครับ!")
             return
 
+    # 🎧 เช็กก่อนว่าเป็นลิงก์ Spotify ไหม (ถ้าใช่จะแปลงเป็นชื่อเพลง+ศิลปิน แล้วไปหาไฟล์เสียงจาก YouTube ต่อ)
+    search_queries = [search]
+    spotify_kind, _ = parse_spotify_link(search)
+
+    if spotify_kind:
+        spotify_queries = await resolve_spotify_link(search)
+
+        if not spotify_queries:
+            error_msg = "❌ ดึงข้อมูลเพลงจากลิงก์ Spotify นี้ไม่ได้เลยครับ! (ลิงก์อาจไม่ถูกต้อง หรือระบบยังไม่ได้ตั้งค่า Spotify API Key)"
+            if ctx.interaction:
+                if not ctx.interaction.response.is_done():
+                    await ctx.interaction.response.send_message(error_msg, ephemeral=True)
+                else:
+                    await ctx.interaction.followup.send(error_msg, ephemeral=True)
+            else:
+                await ctx.send(error_msg)
+            return
+
+        search_queries = spotify_queries
+
+        if spotify_kind == "album":
+            await ctx.send(f"💿 เจอเพลงในอัลบั้มจาก Spotify ทั้งหมด **{len(search_queries)} เพลง** ครับ! กำลังจัดคิวให้เดี๋ยวนี้เลย~")
+
+    first_query = search_queries[0]
+    rest_queries = search_queries[1:]
+
     if ctx.voice_client and ctx.voice_client.is_playing():
         if is_playing_music:
-            song_queue.append(search) # ถ้าเล่นอยู่ ให้เพิ่มเข้าคิว
+            # ถ้าเล่นอยู่ ให้เพิ่มเข้าคิวทั้งหมด (ทั้งเพลงเดี่ยวหรือทุกเพลงในอัลบั้ม)
+            song_queue.append(first_query)
+            song_queue.extend(rest_queries)
             await ctx.send(f"🎵 เพิ่มเพลงเข้าคิวให้แล้วครับ! (ตอนนี้มี {len(song_queue)} เพลงในคิว)")
         else:
             ctx.voice_client.stop()
             is_playing_music = True
-            await play_song(ctx, search)
+            song_queue.extend(rest_queries)  # เพลงที่เหลือในอัลบั้มต่อเข้าคิว
+            await play_song(ctx, first_query)
     else:
         is_playing_music = True
-        await play_song(ctx, search)
+        song_queue.extend(rest_queries)  # เพลงที่เหลือในอัลบั้มต่อเข้าคิว
+        await play_song(ctx, first_query)
 
 @bot.hybrid_command(name="skip", description="ข้ามเพลงที่กำลังเล่นอยู่")
 async def skip(ctx: commands.Context):
