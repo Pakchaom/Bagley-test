@@ -735,7 +735,7 @@ async def get_spotify_playlist_queries(token, playlist_id):
     headers = {"Authorization": f"Bearer {token}"}
     # ขอแค่ฟิลด์ที่ต้องใช้เพื่อลด response ให้เบาลง
     url = (
-        f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+        f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
         f"?limit=100&fields=next,items(track(name,artists(name)))"
     )
 
@@ -5144,7 +5144,15 @@ async def play(ctx: commands.Context, *, search: str):
         spotify_queries = await resolve_spotify_link(search)
 
         if not spotify_queries:
-            error_msg = "❌ ดึงข้อมูลเพลงจากลิงก์ Spotify นี้ไม่ได้เลยครับ! (ลิงก์อาจไม่ถูกต้อง หรือระบบยังไม่ได้ตั้งค่า Spotify API Key)"
+            if spotify_kind == "playlist":
+                error_msg = (
+                    "❌ ดึงเพลงจาก playlist นี้ไม่ได้ครับ! ถ้า playlist นี้เป็นของ **Spotify เอง** "
+                    "(เช่น เพลย์ลิสต์แนะนำ, Top Hits, เพลย์ลิสต์แนวเพลงต่างๆ) "
+                    "Spotify จะบล็อกไม่ให้แอปภายนอกดึงรายเพลงได้ครับ (ข้อจำกัดของ Spotify เอง แก้ที่โค้ดไม่ได้) "
+                    "ลองใช้ playlist ที่คุณสร้างเอง หรือส่งเป็นลิงก์เพลง/อัลบั้มแทนดูนะครับ"
+                )
+            else:
+                error_msg = "❌ ดึงข้อมูลเพลงจากลิงก์ Spotify นี้ไม่ได้เลยครับ! (ลิงก์อาจไม่ถูกต้อง หรือระบบยังไม่ได้ตั้งค่า Spotify API Key)"
             if ctx.interaction:
                 if not ctx.interaction.response.is_done():
                     await ctx.interaction.response.send_message(error_msg, ephemeral=True)
