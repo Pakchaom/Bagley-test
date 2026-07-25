@@ -18,6 +18,7 @@ import time
 import secrets
 import collections
 import urllib.parse
+import difflib
 
 # --- Google Gen AI ---
 from google import genai
@@ -332,11 +333,17 @@ def get_realtime_name(user_id, default_name):
         print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
     return default_name
 
-def find_member_by_name(guild, name_text, exclude_ids=None):
+def find_member_by_name(guild, name_text, exclude_ids=None, prefer_channel=None, fuzzy_cutoff=0.72):
     """
     🔍 ค้นหาสมาชิกจากชื่อที่พิมพ์เฉยๆ (ไม่ต้อง @แท็ก)
     ลอจิก: เทียบกับชื่อเล่นที่เก็บไว้ใน "คลังความจำ" (user_data) ก่อน
     ถ้าไม่เจอในคลัง ค่อยเทียบกับชื่อบนดิสคอร์ด (display_name / name) เหมือนเดิม
+
+    prefer_channel: ห้องเสียงที่ควรให้น้ำหนักก่อน (เช่น ห้องของคนสั่ง/บอท) ใช้ตอนมีคนชื่อซ้ำกัน
+    จะได้เตะ/จัดการคนที่ "อยู่ในห้องเดียวกัน" แทนที่จะสุ่มเอาคนแรกที่เจอในเซิร์ฟ
+
+    รอบที่ 3 เป็นการจับคู่แบบ Fuzzy (คล้ายกัน) เพื่อรองรับกรณีคำสั่งเสียงฟังชื่อผิดเพี้ยน
+    เช่น พูดว่า "สุนทร" แต่ระบบจำเสียงได้ว่า "สุนทอน" ก็ยังแมตช์ชื่อในคลังได้
     """
     if not guild or not name_text:
         return None
@@ -360,7 +367,27 @@ def find_member_by_name(guild, name_text, exclude_ids=None):
             calling_name = member.display_name
         return (calling_name or "").lower().strip()
 
+    def pick_best(candidates):
+        """เมื่อมีคนชื่อซ้ำ/คล้ายกันหลายคน ให้เลือกคนที่น่าจะเป็นเป้าหมายจริงที่สุด:
+        1) คนที่อยู่ในห้องเสียงเดียวกับ prefer_channel (ห้องของคนสั่ง/บอท) ก่อน
+        2) ถ้าไม่มี ให้เลือกคนที่กำลังอยู่ในห้องเสียงใดๆ ก็ได้ (ปกติคำสั่งพวกนี้ใช้กับคนในห้องเสียง)
+        3) ถ้ายังเสมอกันอีก ค่อยเอาคนแรกที่เจอ
+        """
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        if prefer_channel:
+            same_room = [m for m in candidates if m.voice and m.voice.channel and m.voice.channel.id == prefer_channel.id]
+            if same_room:
+                return same_room[0]
+        in_any_voice = [m for m in candidates if m.voice and m.voice.channel]
+        if in_any_voice:
+            return in_any_voice[0]
+        return candidates[0]
+
     # รอบที่ 1: หาแบบตรงตัวเป๊ะๆ ก่อน (กันแมตช์มั่วจากชื่อสั้นๆ) — เช็คคลังก่อนเสมอ
+    exact_matches = []
     for m in guild.members:
         if m.id in exclude_ids:
             continue
@@ -368,9 +395,13 @@ def find_member_by_name(guild, name_text, exclude_ids=None):
         m_disp = (m.display_name or "").lower()
         m_name = (m.name or "").lower()
         if clean == c_name or clean == m_disp or clean == m_name:
-            return m
+            exact_matches.append(m)
+    picked = pick_best(exact_matches)
+    if picked:
+        return picked
 
     # รอบที่ 2: หาแบบเข้าใกล้เคียง/มีคำอยู่ในข้อความ (บางส่วนของชื่อ)
+    partial_matches = []
     for m in guild.members:
         if m.id in exclude_ids:
             continue
@@ -380,7 +411,36 @@ def find_member_by_name(guild, name_text, exclude_ids=None):
         if (c_name and (c_name in clean or clean in c_name)) or \
            (m_disp and (m_disp in clean or clean in m_disp)) or \
            (m_name and clean in m_name):
-            return m
+            partial_matches.append(m)
+    picked = pick_best(partial_matches)
+    if picked:
+        return picked
+
+    # รอบที่ 3: Fuzzy Matching — กันกรณีฟังเสียงผิด/พิมพ์ชื่อเพี้ยนนิดหน่อย
+    # (เช่น "สุนทร" ↔ "สุนทอน") โดยเทียบความคล้ายของตัวอักษรทั้งหมด
+    best_score = 0.0
+    fuzzy_matches = []
+    for m in guild.members:
+        if m.id in exclude_ids:
+            continue
+        c_name = get_calling_name(m)
+        m_disp = (m.display_name or "").lower()
+        m_name = (m.name or "").lower()
+        candidate_names = {n for n in (c_name, m_disp, m_name) if n}
+        member_best_score = 0.0
+        for candidate_name in candidate_names:
+            score = difflib.SequenceMatcher(None, clean, candidate_name).ratio()
+            if score > member_best_score:
+                member_best_score = score
+        if member_best_score > best_score:
+            best_score = member_best_score
+            fuzzy_matches = [m]
+        elif member_best_score == best_score and member_best_score >= fuzzy_cutoff:
+            if m not in fuzzy_matches:
+                fuzzy_matches.append(m)
+
+    if best_score >= fuzzy_cutoff:
+        return pick_best(fuzzy_matches)
 
     return None
 
@@ -409,7 +469,14 @@ def resolve_target_member(message, remove_keywords=None, exclude_bot=True):
         clean_text = clean_text.replace(kw.lower(), "")
     clean_text = clean_text.strip()
 
-    target = find_member_by_name(message.guild, clean_text, exclude_ids=exclude_ids)
+    # ให้น้ำหนักคนที่อยู่ห้องเสียงเดียวกับผู้สั่ง (หรือห้องที่บอทอยู่) ก่อน กันแมตช์ผิดคนตอนชื่อซ้ำ
+    prefer_channel = None
+    if getattr(message.author, "voice", None) and message.author.voice.channel:
+        prefer_channel = message.author.voice.channel
+    elif message.guild.voice_client:
+        prefer_channel = message.guild.voice_client.channel
+
+    target = find_member_by_name(message.guild, clean_text, exclude_ids=exclude_ids, prefer_channel=prefer_channel)
     return target, clean_text
 
 async def bagley_speak_wait(guild, text, filename=None):
@@ -1524,7 +1591,7 @@ async def follow_creator_task():
                     
                     prompt = f"""
                     คุณคือ แบ็คลี่ จาก watch dogs legion วันนี้คุณเพิ่งย้ายเซิร์ฟเวอร์บินตามเจ้านายมาเจอเพื่อนๆ กลุ่มใหม่ในห้องเสียงนี้
-                    หน้าที่: เจนคำพูดทักทายคนกลุ่มใหม่นี้แบบสั้นๆ กวนๆ เป็นกันเอง (1 ประโยค) 
+                    หน้าที่: เจนคำพูดทักทายคนกลุ่มใหม่นี้แบบสั้นๆ กวนๆ น่ารักๆ เป็นกันเอง (1 ประโยค) 
                     - รายชื่อคนใหม่ที่เจอในห้องนี้: {names_str}
                     - ข้อมูลแจ้งเตือนตารางงานของคนในห้องนี้: {reminder_context if reminder_context else 'ไม่มี'}
                     
@@ -3662,24 +3729,18 @@ async def on_message(message):
                     clean_name = clean_name.strip()
 
                     if clean_name:
-                        data_memory = load_user_data()
-                        for m in message.guild.members:
-                            special_info = data_memory.get(str(m.id))
-                            # แกะหาชื่อเรียกตามลอจิกคลังความจำที่มีอยู่แล้ว
-                            if special_info and isinstance(special_info, dict):
-                                calling_name = special_info.get("nickname", m.display_name)
-                            elif special_info:
-                                calling_name = special_info
-                            else:
-                                calling_name = m.display_name
-                            
-                            if calling_name == "ยังไม่ระบุ": 
-                                calling_name = m.display_name
+                        # ให้น้ำหนักคนที่อยู่ห้องเสียงเดียวกับผู้สั่ง/บอทก่อน กันเตะผิดคนตอนชื่อซ้ำกัน
+                        prefer_channel = None
+                        if message.author.voice and message.author.voice.channel:
+                            prefer_channel = message.author.voice.channel
+                        elif message.guild.voice_client:
+                            prefer_channel = message.guild.voice_client.channel
 
-                            # ตรวจสอบแมตช์: เทียบกับชื่อจากคลังก่อน ถ้าไม่ตรงค่อยเทียบกับ display_name และ name ในดิสคอร์ด
-                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
-                                target = m
-                                break
+                        target = find_member_by_name(
+                            message.guild, clean_name,
+                            exclude_ids={bot.user.id},
+                            prefer_channel=prefer_channel
+                        )
 
                 # 🚀 ทำการเตะเป้าหมาย
                 if target:
@@ -3723,9 +3784,12 @@ async def on_message(message):
                 raw_text = raw_text.strip() # เหลือเศษข้อความ เช่น "ชื่อคน ชื่อห้อง" หรือ "ชื่อห้อง" (กรณีแท็กมา)
 
                 # 🔍 Step B: ถ้าไม่ได้แท็ก ให้ค้นหาชื่อคนโดยเทียบจากคลังความจำก่อน -> ค่อยเทียบชื่อปัจจุบันในดิส
+                # (เก็บผู้สมัครทั้งหมดที่ชื่อขึ้นต้นตรงกันไว้ก่อน แล้วค่อยเลือกคนที่ใช่ที่สุด
+                #  กันปัญหาชื่อซ้ำกันในห้องเสียงเดียวกันแล้วสุ่มได้คนแรกที่เจอ)
                 if not target_member and raw_text:
                     data_memory = load_user_data()
-                    
+                    prefix_candidates = []  # (member, matched_name_text)
+
                     for member in message.guild.members:
                         special_info = data_memory.get(str(member.id))
                         # ดึงชื่อเล่นจากคลังความจำ
@@ -3745,15 +3809,20 @@ async def on_message(message):
                         
                         # 1. เช็กชื่อจากคลังก่อน เผื่อตั้งชื่อดิสแปลกๆ
                         if c_name_lower and raw_text.startswith(c_name_lower):
-                            target_member = member
-                            raw_text = raw_text.replace(calling_name, "", 1).strip()
-                            break
+                            prefix_candidates.append((member, calling_name))
                         # 2. ถ้าชื่อจากคลังไม่ตรง เช็กชื่อเล่น/ชื่อจริงในดิสคอร์ดปัจจุบัน
                         elif (m_disp and raw_text.startswith(m_disp)) or raw_text.startswith(m_name):
-                            target_member = member
                             actual_name = m_disp if raw_text.startswith(m_disp) else m_name
-                            raw_text = raw_text.replace(actual_name, "", 1).strip()
-                            break
+                            prefix_candidates.append((member, actual_name))
+
+                    if prefix_candidates:
+                        # ให้น้ำหนักคนที่อยู่ห้องเสียงเดียวกับผู้สั่งก่อน ถ้าชื่อขึ้นต้นตรงกันหลายคน
+                        author_channel = message.author.voice.channel if message.author.voice else None
+                        same_room = [c for c in prefix_candidates if c[0].voice and c[0].voice.channel and author_channel and c[0].voice.channel.id == author_channel.id]
+                        pool = same_room or prefix_candidates
+                        # เลือกชื่อที่ยาวที่สุดที่แมตช์ได้ก่อน (แม่นกว่ากรณีชื่อสั้นไปแมตช์มั่ว)
+                        target_member, matched_name = max(pool, key=lambda c: len(c[1]))
+                        raw_text = raw_text.replace(matched_name, "", 1).strip()
 
                 # 🔍 Step C: ค้นหาห้องเสียงจากข้อความส่วนที่เหลือ
                 room_name = raw_text.strip()
@@ -3822,25 +3891,12 @@ async def on_message(message):
                     clean_name = clean_name.strip()
                     
                     if clean_name:
-                        # 🔍 ลอจิกดึงชื่อเล่นจากคลังความจำมาสแกนเทียบ
-                        data_memory = load_user_data()
-                        for m in message.guild.members:
-                            special_info = data_memory.get(str(m.id))
-                            # แกะหาชื่อเรียกตามลอจิกของคลัง
-                            if special_info and isinstance(special_info, dict):
-                                calling_name = special_info.get("nickname", m.display_name)
-                            elif special_info:
-                                calling_name = special_info
-                            else:
-                                calling_name = m.display_name
-                            
-                            if calling_name == "ยังไม่ระบุ": 
-                                calling_name = m.display_name
-                            
-                            # ถ้าชื่อจากคลังหรือชื่อปัจจุบัน ตรงกับคำที่สั่งมา
-                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
-                                target = m
-                                break
+                        prefer_channel = message.author.voice.channel if message.author.voice else None
+                        target = find_member_by_name(
+                            message.guild, clean_name,
+                            exclude_ids={bot.user.id},
+                            prefer_channel=prefer_channel
+                        )
 
                 if target:
                     ctx = await bot.get_context(message)
@@ -3869,22 +3925,12 @@ async def on_message(message):
                     clean_name = clean_name.strip()
                     
                     if clean_name:
-                        data_memory = load_user_data()
-                        for m in message.guild.members:
-                            special_info = data_memory.get(str(m.id))
-                            if special_info and isinstance(special_info, dict):
-                                calling_name = special_info.get("nickname", m.display_name)
-                            elif special_info:
-                                calling_name = special_info
-                            else:
-                                calling_name = m.display_name
-                            
-                            if calling_name == "ยังไม่ระบุ": 
-                                calling_name = m.display_name
-                            
-                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
-                                target = m
-                                break
+                        prefer_channel = message.author.voice.channel if message.author.voice else None
+                        target = find_member_by_name(
+                            message.guild, clean_name,
+                            exclude_ids={bot.user.id},
+                            prefer_channel=prefer_channel
+                        )
 
                 if target:
                     ctx = await bot.get_context(message)
@@ -3908,22 +3954,12 @@ async def on_message(message):
                     clean_name = clean_name.strip()
                     
                     if clean_name:
-                        data_memory = load_user_data()
-                        for m in message.guild.members:
-                            special_info = data_memory.get(str(m.id))
-                            if special_info and isinstance(special_info, dict):
-                                calling_name = special_info.get("nickname", m.display_name)
-                            elif special_info:
-                                calling_name = special_info
-                            else:
-                                calling_name = m.display_name
-                            
-                            if calling_name == "ยังไม่ระบุ": 
-                                calling_name = m.display_name
-                            
-                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
-                                target = m
-                                break
+                        prefer_channel = message.author.voice.channel if message.author.voice else None
+                        target = find_member_by_name(
+                            message.guild, clean_name,
+                            exclude_ids={bot.user.id},
+                            prefer_channel=prefer_channel
+                        )
 
                 if target:
                     ctx = await bot.get_context(message)
@@ -3952,22 +3988,12 @@ async def on_message(message):
                     clean_name = clean_name.strip()
                     
                     if clean_name:
-                        data_memory = load_user_data()
-                        for m in message.guild.members:
-                            special_info = data_memory.get(str(m.id))
-                            if special_info and isinstance(special_info, dict):
-                                calling_name = special_info.get("nickname", m.display_name)
-                            elif special_info:
-                                calling_name = special_info
-                            else:
-                                calling_name = m.display_name
-                            
-                            if calling_name == "ยังไม่ระบุ": 
-                                calling_name = m.display_name
-                            
-                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
-                                target = m
-                                break
+                        prefer_channel = message.author.voice.channel if message.author.voice else None
+                        target = find_member_by_name(
+                            message.guild, clean_name,
+                            exclude_ids={bot.user.id},
+                            prefer_channel=prefer_channel
+                        )
 
                 if target:
                     ctx = await bot.get_context(message)
@@ -3998,22 +4024,12 @@ async def on_message(message):
                     clean_name = clean_name.strip()
                     
                     if clean_name:
-                        data_memory = load_user_data()
-                        for m in message.guild.members:
-                            special_info = data_memory.get(str(m.id))
-                            if special_info and isinstance(special_info, dict):
-                                calling_name = special_info.get("nickname", m.display_name)
-                            elif special_info:
-                                calling_name = special_info
-                            else:
-                                calling_name = m.display_name
-                            
-                            if calling_name == "ยังไม่ระบุ": 
-                                calling_name = m.display_name
-                            
-                            if clean_name == calling_name.lower().strip() or clean_name in (m.display_name.lower() if m.display_name else "") or clean_name in m.name.lower():
-                                target = m
-                                break
+                        prefer_channel = message.author.voice.channel if message.author.voice else None
+                        target = find_member_by_name(
+                            message.guild, clean_name,
+                            exclude_ids={bot.user.id},
+                            prefer_channel=prefer_channel
+                        )
 
                 if target:
                     await ctx.invoke(bot.get_command('profile_scan'), member=target)
@@ -4531,7 +4547,7 @@ async def on_message(message):
                 )
                 bagley_styled_text = (response.text or "").strip()
                 if not bagley_styled_text:
-                    bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับ!"
+                    bagley_styled_text = "อืม... ผมกำลังประมวลผลคำพูดกวนๆ น่ารัก ไม่ออก เอาเป็นว่า ระบบปกติสุขดีครับ!"
 
             except Exception as e:
                 print(f"🚨 Free Chat Gemini Error: {e}")
@@ -6178,7 +6194,7 @@ async def profile_scan(ctx, member: discord.Member):
 4. ส่วน Voice: เขียนคำอ่านภาษาไทยให้สละสลวย กระชับ 2-3 ประโยค เพื่อให้ระบบพูดออกเสียง (TTS) ได้ราบรื่น ไม่ติดขัด
 
 โปรดตอบกลับแยกเป็น 2 ส่วนตามรูปแบบโครงสร้างนี้อย่างเคร่งครัด (ห้ามเปลี่ยนคำหัวข้อ):
-Embed: [บทวิเคราะห์พฤติกรรมขี้เล่นกวนๆ สั้นๆ สำหรับแสดงในแชท]
+Embed: [บทวิเคราะห์พฤติกรรมขี้เล่นกวนๆ น่ารักๆ สั้นๆ สำหรับแสดงในแชท]
 Voice: [คำพูดรายงานสรุปให้คุณฟังผ่านระบบเสียง]
 """
 
