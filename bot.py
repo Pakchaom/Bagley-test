@@ -6782,4 +6782,140 @@ async def schedule_list(ctx: commands.Context):
         print(f"🚨 ERROR ระบบดูตารางงาน: {e}")
         await ctx.send("เกิดข้อผิดพลาดในการดึงตารางนัดหมายครับ")
 
+# ============================================================
+# 🎲 ระบบสุ่มแบ่งทีมจากคนในห้องเสียง (/split_team)
+# ไม่ย้ายห้องใครทั้งนั้น แค่สุ่มแล้วบอกผลเป็นข้อความในแชท
+# มีเมนูให้ติ๊กเลือก/ถอดคนที่ไม่ได้เล่นออกก่อนสุ่มได้
+# ============================================================
+class TeamSplitView(discord.ui.View):
+    def __init__(self, author, members, num_teams):
+        super().__init__(timeout=120)
+        self.author = author
+        self.num_teams = num_teams
+
+        # ค่าเริ่มต้น = เลือกทุกคนในห้องไว้ก่อน (ไม่เกิน 25 คนตามกฎ Discord)
+        member_options = [
+            discord.SelectOption(label=m.display_name, value=str(m.id), emoji="🎮", default=True)
+            for m in members if not m.bot
+        ][:25]
+
+        if not member_options:
+            member_options.append(discord.SelectOption(label="ไม่มีคนให้สุ่มคัป", value="none"))
+
+        self.member_select = discord.ui.Select(
+            placeholder="ติ๊กเลือกคนที่จะร่วมสุ่มทีม (ค่าเริ่มต้นคือทุกคนในห้อง)...",
+            min_values=1,
+            max_values=len(member_options),
+            options=member_options
+        )
+        self.member_select.callback = self.member_callback
+        self.add_item(self.member_select)
+
+        confirm_btn = discord.ui.Button(label="🎲 สุ่มทีมเลย!", style=discord.ButtonStyle.green)
+        confirm_btn.callback = self.confirm_callback
+        self.add_item(confirm_btn)
+
+        # ค่าเริ่มต้นตอนยังไม่ได้แตะเมนูเลย = ทุกคนในห้อง
+        self.selected_ids = [str(m.id) for m in members if not m.bot]
+
+    async def member_callback(self, interaction: discord.Interaction):
+        if self.member_select.values and self.member_select.values[0] == "none":
+            return await interaction.response.send_message("ไม่มีใครให้สุ่มเลยคัป!", ephemeral=True)
+
+        self.selected_ids = self.member_select.values
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception as e:
+            print(f"Team split member_callback error: {e}")
+
+    async def confirm_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author.id:
+            return await interaction.response.send_message("ต้องเป็นคนสั่งสุ่มทีมเท่านั้นถึงจะกดยืนยันได้ครับ!", ephemeral=True)
+
+        if not self.selected_ids:
+            return await interaction.response.send_message("ยังไม่ได้เลือกใครเลยครับ รบกวนเลือกก่อนนะ!", ephemeral=True)
+
+        chosen_members = []
+        for m_id in self.selected_ids:
+            if m_id == "none":
+                continue
+            member = interaction.guild.get_member(int(m_id))
+            if member:
+                chosen_members.append(member)
+
+        if len(chosen_members) < self.num_teams:
+            return await interaction.response.send_message(
+                f"❌ คนที่เลือกมีแค่ {len(chosen_members)} คน แต่จะแบ่ง {self.num_teams} ทีมไม่พอครับ!",
+                ephemeral=True
+            )
+
+        # 🎲 สุ่มลำดับแล้วแจกเข้าทีมแบบวนรอบ (จำนวนคนในแต่ละทีมจะเท่ากันที่สุดเท่าที่จะทำได้)
+        random.shuffle(chosen_members)
+        teams = [[] for _ in range(self.num_teams)]
+        for idx, member in enumerate(chosen_members):
+            teams[idx % self.num_teams].append(member)
+
+        report_lines = ["🎲 **ผลการสุ่มทีมจากแบ็คลี่!**\n"]
+        for i, team in enumerate(teams, 1):
+            names = "\n".join(f"• {m.display_name}" for m in team)
+            report_lines.append(f"**ทีม {i}**\n{names}\n")
+        report = "\n".join(report_lines)
+
+        for item in self.children:
+            item.disabled = True
+
+        try:
+            await interaction.response.edit_message(content=report, view=self)
+        except discord.NotFound:
+            await interaction.channel.send(report)
+        except Exception as e:
+            print(f"❌ ระบบสุ่มทีมพัง: {e}")
+            try:
+                await interaction.response.send_message(report)
+            except Exception:
+                pass
+
+        # 🔊 พูดสรุปผลออกไมค์ ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว
+        if interaction.guild.voice_client:
+            team_names_spoken = " ".join(
+                f"ทีม {i} มี {', '.join(m.display_name for m in team)}"
+                for i, team in enumerate(teams, 1)
+            )
+            try:
+                await bagley_speak(interaction.guild, f"สุ่มทีมเรียบร้อยครับ {team_names_spoken}")
+            except Exception as e:
+                print(f"Team split speak error: {e}")
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+@bot.hybrid_command(name="split_team", description="สั่งให้แบ็คลี่สุ่มแบ่งทีมจากคนในห้องเสียงปัจจุบัน (แค่บอกผลในแชท ไม่ย้ายห้องใคร)")
+@app_commands.describe(teams="จำนวนทีมที่ต้องการแบ่ง (ค่าเริ่มต้น 2 ทีม)")
+async def split_team(ctx: commands.Context, teams: int = 2):
+    # 🛡️ กันเคส AI Command Router ส่ง teams มาเป็น string (เช่น "3") แทนที่จะเป็น int
+    try:
+        teams = int(teams)
+    except (TypeError, ValueError):
+        return await ctx.send("❌ จำนวนทีมต้องเป็นตัวเลขนะครับ เช่น 2, 3, 4")
+
+    if not ctx.author.voice or not ctx.author.voice.channel:
+        return await ctx.send("❌ คุณต้องอยู่ในห้องเสียงก่อนนะครับ แบ็คลี่ถึงจะรู้ว่าจะสุ่มทีมจากห้องไหน!")
+
+    if teams < 2:
+        return await ctx.send("❌ ต้องแบ่งอย่างน้อย 2 ทีมนะครับ!")
+
+    voice_channel = ctx.author.voice.channel
+    members = [m for m in voice_channel.members if not m.bot]
+
+    if len(members) < teams:
+        return await ctx.send(f"❌ ในห้องเสียง **{voice_channel.name}** มีแค่ {len(members)} คน แต่จะแบ่ง {teams} ทีมไม่พอครับ!")
+
+    view = TeamSplitView(ctx.author, members, teams)
+    await ctx.send(
+        f"🎲 พร้อมสุ่มทีมจากห้อง **{voice_channel.name}** แล้วครับ! (ตอนนี้เลือกไว้ทุกคน {len(members)} คน แบ่งเป็น {teams} ทีม)\n"
+        f"ถ้ามีใครไม่ได้เล่นด้วย ติ๊กเลือกใหม่ในเมนูด้านล่างเพื่อถอดออกได้เลยครับ แล้วกด **'🎲 สุ่มทีมเลย!'**",
+        view=view
+    )
+
 bot.run(DISCORD_TOKEN)
