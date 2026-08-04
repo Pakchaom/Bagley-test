@@ -288,6 +288,82 @@ def save_voice_data(data):
     except Exception as e:
         print(f"❌ ไม่สามารถบันทึกข้อมูลลง voice_stats.json ได้: {e}")
 
+def _get_saved_voice_name(member):
+    """คืนชื่อที่ควรใช้บันทึก/เรียกในสถิติห้องเสียง (เอาฉายาที่บันทึกไว้ก่อน ถ้าไม่มีก็ใช้ชื่อในเซิร์ฟเวอร์)"""
+    data_memory = load_user_data()
+    special_info = data_memory.get(str(member.id))
+    if special_info and isinstance(special_info, dict):
+        saved_name = special_info.get("nickname", member.display_name)
+    elif special_info:
+        saved_name = special_info
+    else:
+        saved_name = member.display_name
+    if saved_name == "ยังไม่ระบุ":
+        saved_name = member.display_name
+    return saved_name
+
+def _register_voice_entry(member):
+    """บันทึกทันทีว่าสมาชิกคนนี้แวะเข้าห้องเสียงวันนี้แล้ว (แม้ยังไม่ออกจากห้องก็ให้ขึ้นชื่อในรายงาน
+    'ใครเข้าห้องเสียงบ้าง' ได้เลย) โดยจะจำเวลาที่เข้าห้องครั้งแรกของวันนั้นไว้ด้วย (first_join)
+    ไม่ได้แตะ total_time ตรงนี้ - ส่วนนั้นยังคงบวกตอน 'ออก' จากห้องเหมือนเดิม"""
+    try:
+        user_id = str(member.id)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        data = load_voice_data()
+        if data.get("date") != today_str:
+            data = {"date": today_str, "stats": {}}
+
+        stats = data.setdefault("stats", {})
+        guild_id_str = str(member.guild.id)
+        guild_stats = stats.setdefault(guild_id_str, {})
+
+        if user_id not in guild_stats:
+            guild_stats[user_id] = {
+                "total_time": 0,
+                "name": _get_saved_voice_name(member),
+                "first_join": datetime.now(bangkok_tz).strftime("%H:%M"),
+            }
+            save_voice_data(data)
+        elif "first_join" not in guild_stats[user_id]:
+            # เผื่อข้อมูลเก่าก่อนอัปเดตฟีเจอร์นี้ที่ยังไม่มีเวลาบันทึกไว้
+            guild_stats[user_id]["first_join"] = datetime.now(bangkok_tz).strftime("%H:%M")
+            save_voice_data(data)
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาดขณะบันทึกสถิติเข้าห้องเสียง: {e}")
+
+# 🎲 ชุดคำพูดสุ่มต่างๆ เพื่อลดความจำเจของแบ็คลี่ (ใช้ random.choice เลือกทุกครั้งที่พูด)
+VOICE_JOIN_GREETINGS = [
+    "คุณ {name} เข้ามาในห้องแล้วครับ",
+    "คุณ {name} มาถึงแล้วครับ ยินดีต้อนรับ!",
+    "สวัสดีครับ คุณ {name} เพิ่งเข้ามาในห้องเสียงเลย",
+    "แจ้งเตือนครับ คุณ {name} เข้าห้องมาแล้วนะ",
+    "คุณ {name} วาร์ปเข้าห้องมาแล้วครับ",
+    "เอ้า มีคุณ {name} เข้ามาสมทบในห้องด้วยแล้วครับ",
+]
+
+VOICE_REPORT_ON_SPEECH = [
+    "เปิดระบบรายงานห้องเสียงเรียบร้อยครับ",
+    "รับทราบครับ กลับมาพูดทักทายคนเข้า-ออกห้องเหมือนเดิมแล้วนะครับ",
+    "โอเคครับ เปิดระบบรายงานห้องเสียงคืนแล้ว!",
+]
+
+VOICE_REPORT_OFF_SPEECH = [
+    "ปิดระบบรายงานห้องเสียงชั่วคราวเรียบร้อยครับ",
+    "รับทราบครับ งั้นผมขอเงียบไว้ก่อน ไม่พูดทักทายคนเข้า-ออกห้องนะครับ",
+    "โอเคครับ ปิดเสียงทักทายห้องเสียงให้ชั่วคราวแล้ว",
+]
+
+VOICE_GUARD_STAY_MESSAGES = [
+    "รับทราบครับ เจ้านายออกไปแล้ว แต่ผมจะอยู่เฝ้าห้องนี้รอไว้ให้นะคัปพ้ม!",
+    "โอเคครับ ผมจะยืนเฝ้าห้องนี้ต่อไปจนกว่าจะมีคำสั่งใหม่นะครับ",
+    "ไม่ต้องห่วงครับ ผมอยู่เฝ้าห้องนี้ต่อเองครับ",
+]
+
+def _pick_speech(options, **fmt):
+    """สุ่มหยิบประโยคจากลิสต์ แล้วแทนค่าตัวแปรถ้ามี"""
+    text = random.choice(options)
+    return text.format(**fmt) if fmt else text
+
 def get_reminders_for_user(user_id):
     data = load_user_data()
     reminders = data.get("reminders", [])
@@ -1499,6 +1575,15 @@ async def follow_creator_task():
                 sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:3]
                 
                 if sorted_stats:
+                    # 📋 ก่อนอื่นไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้วันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
+                    entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
+                    entrant_names = [get_realtime_name(u_id, info['name']) for u_id, info in entrants_sorted]
+                    if len(entrant_names) == 1:
+                        report_msg += f" วันนี้มีคุณ {entrant_names[0]} แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ"
+                    else:
+                        report_msg += f" วันนี้มีทั้งหมด {len(entrant_names)} คนแวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ ได้แก่ คุณ {', คุณ '.join(entrant_names)}"
+                    report_msg += " ก่อนจะไปดูกันว่าใครอยู่นานที่สุด"
+
                     report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
                     for index, (u_id, info) in enumerate(sorted_stats, 1):
                         u_name = get_realtime_name(u_id, info['name'])
@@ -3454,23 +3539,29 @@ async def on_message(message):
                         return mem.get("nickname")
                 return default
 
-        report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
-        top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
-        
-        for i, (u_id, info) in enumerate(sorted_stats, 1):
-            ts = info['total_time']
-            if ts >= 3600:
-                time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
-            else:
-                time_display = f"{max(1, int(ts//60))}นาที"
-            
-            display_name = get_realtime_name(u_id, info['name'])
-            report += f"{i}. {display_name}: {time_display}\n"
+            # 📋 ก่อนอื่นไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงวันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
+            entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
+            entrant_lines = [f"{get_realtime_name(u_id, info['name'])} (เข้าห้องครั้งแรก {info.get('first_join', '-')})" for u_id, info in entrants_sorted]
 
-        await message.reply(report)
-        if message.guild.voice_client:
-            await bagley_speak(message.guild, f"รายงานผลของวันนี้ครับ อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
-        return
+            report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
+            report += f"🚪 วันนี้มี {len(entrant_lines)} คนแวะเข้าห้องเสียง: " + ", ".join(entrant_lines) + "\n\n"
+
+            top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
+
+            for i, (u_id, info) in enumerate(sorted_stats, 1):
+                ts = info['total_time']
+                if ts >= 3600:
+                    time_display = f"{int(ts//3600)}ชม. {int((ts%3600)//60)}นาที"
+                else:
+                    time_display = f"{max(1, int(ts//60))}นาที"
+
+                display_name = get_realtime_name(u_id, info['name'])
+                report += f"{i}. {display_name}: {time_display}\n"
+
+            await message.reply(report)
+            if message.guild.voice_client:
+                await bagley_speak(message.guild, f"รายงานผลของวันนี้ครับ อันดับหนึ่งคือคุณ {top_name} คุยนานที่สุดครับ")
+            return
 
     # ==========================================
     # 🔇 [ส่วนที่ 7: ระบบเปิด/ปิดรายงานห้องเสียง - ปรับปรุงความแม่นยำ]
@@ -4236,7 +4327,7 @@ async def on_voice_state_update(member, before, after):
                 
                 if room_guard_status.get(guild_id, False):
                     print(f"DEBUG: เจ้านายออกไปแล้ว แต่กิลด์ {guild_id} เปิดโหมดเฝ้าห้องไว้ แบ็คลี่จะอยู่รอที่นี่คัปพ้ม!")
-                    guard_msg = "รับทราบครับ เจ้านายออกไปแล้ว แต่ผมจะอยู่เฝ้าห้องนี้รอไว้ให้นะคัปพ้ม!"
+                    guard_msg = _pick_speech(VOICE_GUARD_STAY_MESSAGES)
                     await bagley_speak_wait(member.guild, guard_msg)
                 else:
                     if remaining_humans <= 4:
@@ -4346,7 +4437,8 @@ async def on_voice_state_update(member, before, after):
                     if is_birthday_today:
                         report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ โอ้ว... วันนี้เป็นวันพิเศษของคุณนี่นา สุขสันต์วันเกิดนะครับ ขอให้มีความสุขมาก ๆ เล่นเกมชนะรัว ๆ เลยนะ!"
                     else:
-                        report = f"คุณ {calling_name} เข้ามาในห้องแล้วครับ"
+                        # 🎲 สุ่มคำทักทายจากชุดคำพูดหลายแบบ กันความจำเจของแบ็คลี่
+                        report = _pick_speech(VOICE_JOIN_GREETINGS, name=calling_name)
                     
                     await bagley_speak_wait(member.guild, report)
 
@@ -4373,6 +4465,9 @@ async def on_voice_state_update(member, before, after):
         if user_id not in user_join_times:
             user_join_times[user_id] = time.time()
             print(f"DEBUG: [⏱️ ขาเข้า] เริ่มจับเวลาให้คุณ {member.display_name} เรียบร้อยครับ!")
+        # 📋 บันทึกทันทีว่าเข้าห้องเสียงวันนี้แล้ว (ถึงจะยังไม่ออกจากห้องเลยก็ให้ขึ้นชื่อ
+        # ในรายงาน "วันนี้ใครเข้าห้องเสียงบ้าง" ได้ พร้อมจำเวลาที่เข้าห้องครั้งแรกไว้ด้วย)
+        _register_voice_entry(member)
 
     if before.channel is not None and after.channel is None:
         join_time = user_join_times.pop(user_id, None)
@@ -4390,20 +4485,11 @@ async def on_voice_state_update(member, before, after):
                 
             guild_stats = stats[guild_id_str]
             if user_id not in guild_stats:
-                data_memory = load_user_data()
-                special_info = data_memory.get(user_id)
-                
-                if special_info and isinstance(special_info, dict):
-                    saved_name = special_info.get("nickname", member.display_name)
-                elif special_info:
-                    saved_name = special_info
-                else:
-                    saved_name = member.display_name
-                    
-                if saved_name == "ยังไม่ระบุ": 
-                    saved_name = member.display_name
-
-                guild_stats[user_id] = {"total_time": 0, "name": saved_name}
+                guild_stats[user_id] = {
+                    "total_time": 0,
+                    "name": _get_saved_voice_name(member),
+                    "first_join": datetime.now(bangkok_tz).strftime("%H:%M"),
+                }
             
             guild_stats[user_id]["total_time"] += duration
             save_voice_data(data)
@@ -6288,11 +6374,11 @@ async def report_voice_toggle(ctx: commands.Context, status: str):
     if is_on:
         voice_report_status[guild_id] = True
         response_text = "เปิดระบบคืนชีพ! 🔊 คราวนี้ใครเข้าหรือออกจากห้องเสียง ผมจะโผล่ไปรายงานส่งเสียงทักทายเหมือนเดิมแล้วครับ!"
-        speech_text = "เปิดระบบรายงานห้องเสียงเรียบร้อยครับ"
+        speech_text = _pick_speech(VOICE_REPORT_ON_SPEECH)
     else:
         voice_report_status[guild_id] = False
         response_text = "รับทราบครับ! 🔇 ผมจะปิดระบบพูดทักทายคนเข้า-ออกห้องเสียงในเซิร์ฟนี้ให้ชั่วคราวน้า (แต่ระบบสถิติยังนับเวลาปกติครับ)"
-        speech_text = "ปิดระบบรายงานห้องเสียงชั่วคราวเรียบร้อยครับ"
+        speech_text = _pick_speech(VOICE_REPORT_OFF_SPEECH)
 
     await ctx.send(response_text)
 
@@ -6574,7 +6660,13 @@ async def voice_stats(ctx: commands.Context):
                     return mem.get("nickname")
             return default
 
+        # 📋 ก่อนอื่นไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงวันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
+        entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
+        entrant_lines = [f"{get_realtime_name(u_id, info['name'])} (เข้าห้องครั้งแรก {info.get('first_join', '-')})" for u_id, info in entrants_sorted]
+
         report = f"📊 **สรุปสถิติห้องเสียง (ประจำวันที่ {today_str})**\n"
+        report += f"🚪 วันนี้มี {len(entrant_lines)} คนแวะเข้าห้องเสียง: " + ", ".join(entrant_lines) + "\n\n"
+
         top_name = get_realtime_name(sorted_stats[0][0], sorted_stats[0][1]['name'])
         
         for i, (u_id, info) in enumerate(sorted_stats, 1):
