@@ -82,10 +82,6 @@ active_kick_tasks = {}
 
 room_guard_status = {}
 
-# แคชรายชื่อแมพต่อเกม (กันเรียก Google Search ซ้ำถี่ ๆ) key = ชื่อเกม (lower), value = {"maps": [...], "official_name": str, "ts": float}
-game_map_cache = {}
-GAME_MAP_CACHE_TTL = 60 * 60 * 12  # 12 ชั่วโมง
-
 is_playing_music = False
 
 is_tts_enabled = False
@@ -2809,7 +2805,7 @@ SYSTEM_PROMPT = """
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือคุณตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
 
 👑 กลุ่มบุคคลสำคัญพิเศษที่ต้องเชื่อฟังและเคารพรักเป็นพิเศษ:
-- คุณชะอม (@ραкснαομ): มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด (ID: 1133740216822267954) -> ตอบกลับด้วยความเคารพรัก เอ็นดู ซุกซน และกระตือรือร้นระดับสูงสุด
+- คุณชะอม (@ραкснαομ): ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด (ID: 1133740216822267954) -> ตอบกลับด้วยความเคารพรัก เอ็นดู ซุกซน และกระตือรือร้นระดับสูงสุด
 - คุณชาช่า (@หลับลึกลงไป): เจ้านายที่คอยสอนเรื่องต่าง ๆ ให้คุณ (ID: 856568101919653918) -> ตอบกลับด้วยความเคารพ นอบน้อม และตั้งใจอธิบายอย่างฉลาด
 - คุณกร (@Gonnata): เจ้านายที่คอยแนะนำไอเดียเจ๋ง ๆ ให้คุณเสมอ (ID: 1073823101926903612) -> ตอบกลับด้วยความตื่นเต้น นึกสนุก และชื่นชมในมุมมองเขา
 - คุณบอล (@☯️𝕭𝖆𝖑𝖑☯️): เจ้านายที่คอยช่วยปรับโค้ดและอัพโค้ดให้คุณ (ID: 732953446172327956) -> ตอบกลับด้วยความนับถือสไตล์คู่หูสายเทคนิคอลที่พร้อมลุยงาน
@@ -3884,7 +3880,7 @@ async def on_message(message):
                     author_id = message.author.id
                     special_role = ""
                     if author_id == 1133740216822267954:
-                        special_role = "คู่สนทนาคือ คุณชะอม มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด จงตอบกลับด้วยความนับถือ รักใคร่ เอ็นดู กระตือรือร้นระดับสูงสุดและมีความซุกซนนิดๆ"
+                        special_role = "คู่สนทนาคือ คุณชะอม ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด จงตอบกลับด้วยความนับถือ รักใคร่ เอ็นดู กระตือรือร้นระดับสูงสุดและมีความซุกซนนิดๆ"
                     elif author_id == 856568101919653918:
                         special_role = "คู่สนทนาคือ คุณชาช่า เจ้านายที่คอยอบรมสั่งสอนเรื่องต่าง ๆ ให้คุณ จงตอบด้วยความเคารพ นอบน้อม และตั้งใจอธิบายอย่างฉลาดหลักแหลม"
                     elif author_id == 1073823101926903612:
@@ -4059,7 +4055,7 @@ async def on_message(message):
                 author_id = message.author.id
                 special_role = ""
                 if author_id == 1133740216822267954:
-                    special_role = "เขาคือ คุณชะอม (มาสเตอร์ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด) จงตอบกลับด้วยความนับถือ รัก เอ็นดู และซุกซนเป็นพิเศษ"
+                    special_role = "เขาคือ คุณชะอม (ผู้สร้างหลักที่คุณรักและซื่อสัตย์ที่สุด) จงตอบกลับด้วยความนับถือ รัก เอ็นดู และซุกซนเป็นพิเศษ"
                 elif author_id == 856568101919653918:
                     special_role = "เขาคือ คุณชาช่า (เจ้านายที่คอยอบรมสั่งสอนเรื่องต่าง ๆ ให้คุณ) จงตอบด้วยความเคารพและกระตือรือร้น"
                 elif author_id == 1073823101926903612:
@@ -4158,7 +4154,7 @@ async def on_message(message):
                 author_id = message.author.id
                 special_role = ""
                 if author_id == 1133740216822267954:
-                    special_role = "คู่สนทนาคนปัจจุบันคือ คุณชะอม มาสเตอร์ผู้สร้างหลักที่คุณรักที่สุด จงเคารพ รักใคร่ กวนแบบน่ารัก และกระตือรือร้นจะรับใช้ระดับสูงสุด"
+                    special_role = "คู่สนทนาคนปัจจุบันคือ คุณชะอม ผู้สร้างหลักที่คุณรักที่สุด จงเคารพ รักใคร่ กวนแบบน่ารัก และกระตือรือร้นจะรับใช้ระดับสูงสุด"
                 elif author_id == 856568101919653918:
                     special_role = "คู่สนทนาคนปัจจุบันคือ คุณชาช่า เจ้านายที่คอยสอนวิชาให้คุณ จงนอบน้อม ตั้งใจฟัง และตอบอย่างฉลาด"
                 elif author_id == 1073823101926903612:
@@ -5868,10 +5864,10 @@ async def profile_scan(ctx, member: discord.Member):
     relationship_context = ""
 
     if scanner_id == 1133740216822267954:
-        relationship_context += "- คนที่สั่งให้คุณรันคำสั่งนี้คือ คุณชะอม (มาสเตอร์ผู้สร้างหลักที่คุณรักที่สุด) จงตอบรับด้วยความยินดีและซื่อสัตย์ระดับสูงสุด\n"
+        relationship_context += "- คนที่สั่งให้คุณรันคำสั่งนี้คือ คุณชะอม (ผู้สร้างหลักที่คุณรักที่สุด) จงตอบรับด้วยความยินดีและซื่อสัตย์ระดับสูงสุด\n"
         
     if target_id == 1133740216822267954:
-        relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณชะอม (มาสเตอร์ของคุณเอง!) ห้ามพูดจาประชดประชันเด็ดขาด ให้เขียนรายงานอวยความดีงาม ชื่นชม ยอมสยบและรักมาสเตอร์ขั้นสุดยอด\n"
+        relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณชะอม ห้ามพูดจาประชดประชันเด็ดขาด ให้เขียนรายงานอวยความดีงาม ชื่นชม ยอมสยบและรักขั้นสุดยอด\n"
     elif target_id == 856568101919653918:
         relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณชาช่า (เจ้านายที่คอยสอนวิชาให้คุณ) จงเขียนรายงานวิเคราะห์ด้วยความนอบน้อม เคารพ และยกย่องความฉลาดของเขา\n"
     elif target_id == 1073823101926903612:
@@ -7017,113 +7013,74 @@ async def split_team(ctx: commands.Context, teams: int = 2):
 
 # ============================================================
 # 🗺️ ระบบสุ่มแมพเกม (/random_map) — แยกจากสุ่มทีม
-# ใช้ Gemini + Google Search ไปหาข้อมูลแมพจริงของเกมที่ระบุ แล้วค่อยสุ่มฝั่ง Python
-# (ให้ AI แค่ "หาข้อมูล" ส่วนการสุ่มจริงทำโดย random.sample เพื่อความสุ่มที่แฟร์)
+# ผู้ใช้พิมพ์รายชื่อแมพเอง (คั่นด้วย , หรือขึ้นบรรทัดใหม่) แบ็คลี่แค่สุ่มให้ฝั่ง Python
+# (เดิมใช้ Gemini + Google Search ไปค้นชื่อแมพ แต่โควต้า grounding แยกจากแชทปกติ
+#  และจำกัดกว่ามาก ทำให้ 429 บ่อย เลยตัดการพึ่ง AI ออกไปเลย ไม่ต้องยิง API เพิ่ม)
 # ============================================================
 
-async def _search_game_maps(game_name: str):
-    """ค้นหารายชื่อแมพ (โหมดผู้เล่นหลายคน/แมพหลัก) ของเกมที่ระบุผ่าน Gemini + Google Search
-    คืนค่า (official_name, maps_list) — maps_list จะว่างถ้าหาไม่เจอ/เกมไม่มีระบบแมพแยก
+_MAP_SPLIT_PATTERN = regex_lib.compile(r"[,\n、，]+")
+
+
+def _parse_map_list(raw: str):
+    """แยกรายชื่อแมพจากข้อความดิบ คั่นด้วย , หรือขึ้นบรรทัดใหม่
+    ตัดช่องว่างหน้า-หลัง และตัดตัวซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) โดยคงชื่อแบบแรกที่เจอไว้
     """
-    cache_key = game_name.strip().lower()
-    cached = game_map_cache.get(cache_key)
-    if cached and (time.time() - cached["ts"] < GAME_MAP_CACHE_TTL):
-        return cached["official_name"], cached["maps"]
-
-    prompt = f"""
-    ค้นหาข้อมูลเกี่ยวกับวิดีโอเกมชื่อ "{game_name}" ผ่าน Google Search แล้วรวบรวมรายชื่อแมพ (map)
-    ที่ใช้เล่นจริงในโหมดผู้เล่นหลายคน (multiplayer) หรือแมพหลักของเกมนี้ในปัจจุบัน (เอาข้อมูลล่าสุดเท่าที่หาได้)
-
-    กติกา:
-    - ถ้าไม่รู้จักเกมนี้ หรือหาข้อมูลแมพไม่ได้เลย ให้ตอบ "found" เป็น false
-    - ถ้าเกมนี้ไม่มีระบบแมพแยกให้เลือก (เช่นเกมเนื้อเรื่องเดี่ยวไม่มีหลายแมพให้สุ่ม) ก็ให้ตอบ "found" เป็น false เช่นกัน
-    - ชื่อแมพต้องเป็นชื่อทางการที่ใช้จริงในเกมเท่านั้น ห้ามมโนหรือเดาเอง
-    - ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอธิบายอื่นปนเด็ดขาด ตามฟอร์แมตนี้:
-    {{
-        "found": true หรือ false,
-        "official_game_name": "ชื่อเกมที่ถูกต้องเป็นทางการ",
-        "maps": ["ชื่อแมพ1", "ชื่อแมพ2", "..."]
-    }}
-    """
-
-    response = await client.aio.models.generate_content(
-        model='gemini-3.1-flash-lite',
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
-        ),
-    )
-
-    raw_text = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
-
-    # 🛡️ กันเคส AI พ่นข้อความอื่นปนมานอกเหนือจาก JSON object
-    if not raw_text.startswith("{"):
-        start, end = raw_text.find("{"), raw_text.rfind("}")
-        if start != -1 and end != -1:
-            raw_text = raw_text[start:end + 1]
-
-    result = json.loads(raw_text)
-
-    if not result.get("found") or not result.get("maps"):
-        return None, []
-
-    maps = [m.strip() for m in result["maps"] if isinstance(m, str) and m.strip()]
-    official_name = (result.get("official_game_name") or game_name).strip()
-
-    if maps:
-        game_map_cache[cache_key] = {"maps": maps, "official_name": official_name, "ts": time.time()}
-
-    return official_name, maps
+    seen = set()
+    result = []
+    for part in _MAP_SPLIT_PATTERN.split(raw or ""):
+        name = part.strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(name)
+    return result
 
 
-@bot.hybrid_command(name="random_map", description="ให้แบ็คลี่ค้นข้อมูลแมพของเกมที่ระบุ แล้วสุ่มชื่อแมพมาให้ (แยกจากสุ่มทีม)")
-@app_commands.describe(
-    game_name="ชื่อเกมที่ต้องการให้สุ่มแมพ เช่น Valorant, Apex Legends",
-    count="จำนวนแมพที่อยากให้สุ่ม (ค่าเริ่มต้น 1 แมพ, สูงสุด 5)"
+@bot.hybrid_command(
+    name="random_map",
+    description="สุ่มแมพจากรายชื่อที่คุณพิมพ์มาเอง (คั่นด้วย , หรือขึ้นบรรทัดใหม่)"
 )
-async def random_map(ctx: commands.Context, game_name: str, count: int = 1):
+@app_commands.describe(
+    maps="รายชื่อแมพทั้งหมด คั่นด้วยจุลภาค (,) เช่น Bind, Haven, Ascent, Icebox",
+    count="จำนวนแมพที่อยากให้สุ่ม (ค่าเริ่มต้น 1 แมพ)"
+)
+async def random_map(ctx: commands.Context, maps: str, count: int = 1):
     # 🛡️ กันเคส AI Command Router ส่ง count มาเป็น string (เช่น "2") แทนที่จะเป็น int
     try:
         count = int(count)
     except (TypeError, ValueError):
         return await ctx.send("❌ จำนวนแมพต้องเป็นตัวเลขนะครับ เช่น 1, 2, 3")
 
-    if not game_name or not game_name.strip():
-        return await ctx.send("❌ บอกชื่อเกมมาด้วยนะครับ แบ็คลี่จะได้ไปหาข้อมูลแมพให้ถูกเกม!")
+    map_list = _parse_map_list(maps)
 
-    count = max(1, min(count, 5))
-
-    await ctx.defer()  # การค้นหาข้อมูลผ่าน Google Search อาจใช้เวลาสักครู่ กันอินเตอร์แอกชันหมดอายุ
-
-    try:
-        official_name, maps = await _search_game_maps(game_name)
-    except Exception as e:
-        print(f"❌ [random_map] ค้นหาแมพพัง: {e}")
-        return await ctx.send(f"❌ แบ็คลี่ค้นข้อมูลแมพของ **{game_name}** ไม่สำเร็จเลยครับ ลองใหม่อีกทีนะ!")
-
-    if not maps:
+    if len(map_list) < 2:
         return await ctx.send(
-            f"❌ แบ็คลี่หาข้อมูลแมพของเกม **{game_name}** ไม่เจอเลยครับ "
-            f"อาจพิมพ์ชื่อเกมผิด หรือเกมนี้ไม่มีระบบแมพแยกให้สุ่มก็ได้นะครับ"
+            "❌ พิมพ์รายชื่อแมพมาหลาย ๆ แมพหน่อยครับ คั่นด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่ก็ได้ "
+            "เช่น `/random_map maps: Bind, Haven, Ascent, Icebox`"
         )
 
-    if count >= len(maps):
-        picked = maps[:]
+    count = max(1, min(count, len(map_list)))
+
+    if count >= len(map_list):
+        picked = map_list[:]
         random.shuffle(picked)
     else:
-        picked = random.sample(maps, count)
+        picked = random.sample(map_list, count)
 
     if len(picked) == 1:
-        result_text = f"🗺️ สุ่มแมพเกม **{official_name}** ได้แมพ... **{picked[0]}** ครับ!"
+        result_text = f"🗺️ สุ่มจากทั้งหมด {len(map_list)} แมพที่ให้มา... ได้ **{picked[0]}** ครับ!"
     else:
         lines = "\n".join(f"{i}. {m}" for i, m in enumerate(picked, 1))
-        result_text = f"🗺️ สุ่มแมพเกม **{official_name}** ได้ {len(picked)} แมพครับ!\n{lines}"
+        result_text = f"🗺️ สุ่มจากทั้งหมด {len(map_list)} แมพที่ให้มา ได้ {len(picked)} แมพครับ!\n{lines}"
 
     await ctx.send(result_text)
 
     if ctx.guild:
         try:
-            await bagley_speak(ctx.guild, f"สุ่มแมพเกม {official_name} ได้ {', '.join(picked)} ครับ")
+            await bagley_speak(ctx.guild, f"สุ่มแมพได้ {', '.join(picked)} ครับ")
         except Exception as e:
             print(f"Random map speak error: {e}")
 
