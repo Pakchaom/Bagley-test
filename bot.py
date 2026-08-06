@@ -6879,6 +6879,7 @@ async def schedule_list(ctx: commands.Context):
 # 🎲 ระบบสุ่มแบ่งทีมจากคนในห้องเสียง (/split_team)
 # ไม่ย้ายห้องใครทั้งนั้น แค่สุ่มแล้วบอกผลเป็นข้อความในแชท
 # มีเมนูให้ติ๊กเลือก/ถอดคนที่ไม่ได้เล่นออกก่อนสุ่มได้
+# เลือกได้ 2 โหมด: สุ่มทีเดียวแยกทีมให้เลย หรือ สุ่มทีละคนทีละฝั่งให้ตื่นเต้น
 # ============================================================
 class TeamSplitView(discord.ui.View):
     def __init__(self, author, members, num_teams):
@@ -6904,9 +6905,13 @@ class TeamSplitView(discord.ui.View):
         self.member_select.callback = self.member_callback
         self.add_item(self.member_select)
 
-        confirm_btn = discord.ui.Button(label="🎲 สุ่มทีมเลย!", style=discord.ButtonStyle.green)
-        confirm_btn.callback = self.confirm_callback
+        confirm_btn = discord.ui.Button(label="🎲 สุ่มทีเดียว (แยกทีมให้เลย)", style=discord.ButtonStyle.green)
+        confirm_btn.callback = self.confirm_all_callback
         self.add_item(confirm_btn)
+
+        stepwise_btn = discord.ui.Button(label="🎯 สุ่มทีละคน (ตื่นเต้นกว่า)", style=discord.ButtonStyle.blurple)
+        stepwise_btn.callback = self.confirm_stepwise_callback
+        self.add_item(stepwise_btn)
 
         # ค่าเริ่มต้นตอนยังไม่ได้แตะเมนูเลย = ทุกคนในห้อง
         self.selected_ids = [str(m.id) for m in members if not m.bot]
@@ -6921,12 +6926,15 @@ class TeamSplitView(discord.ui.View):
         except Exception as e:
             print(f"Team split member_callback error: {e}")
 
-    async def confirm_callback(self, interaction: discord.Interaction):
+    def _get_chosen_members(self, interaction: discord.Interaction):
+        """ตรวจสิทธิ์ + ดึงรายชื่อสมาชิกที่ถูกเลือกไว้ออกมาเป็น object จริง
+        คืนค่า (chosen_members, error_message) — ถ้า error_message ไม่ใช่ None แปลว่าใช้ไม่ได้
+        """
         if interaction.user.id != self.author.id:
-            return await interaction.response.send_message("ต้องเป็นคนสั่งสุ่มทีมเท่านั้นถึงจะกดยืนยันได้ครับ!", ephemeral=True)
+            return None, "ต้องเป็นคนสั่งสุ่มทีมเท่านั้นถึงจะกดยืนยันได้ครับ!"
 
         if not self.selected_ids:
-            return await interaction.response.send_message("ยังไม่ได้เลือกใครเลยครับ รบกวนเลือกก่อนนะ!", ephemeral=True)
+            return None, "ยังไม่ได้เลือกใครเลยครับ รบกวนเลือกก่อนนะ!"
 
         chosen_members = []
         for m_id in self.selected_ids:
@@ -6937,10 +6945,14 @@ class TeamSplitView(discord.ui.View):
                 chosen_members.append(member)
 
         if len(chosen_members) < self.num_teams:
-            return await interaction.response.send_message(
-                f"❌ คนที่เลือกมีแค่ {len(chosen_members)} คน แต่จะแบ่ง {self.num_teams} ทีมไม่พอครับ!",
-                ephemeral=True
-            )
+            return None, f"❌ คนที่เลือกมีแค่ {len(chosen_members)} คน แต่จะแบ่ง {self.num_teams} ทีมไม่พอครับ!"
+
+        return chosen_members, None
+
+    async def confirm_all_callback(self, interaction: discord.Interaction):
+        chosen_members, error = self._get_chosen_members(interaction)
+        if error:
+            return await interaction.response.send_message(error, ephemeral=True)
 
         # 🎲 สุ่มลำดับแล้วแจกเข้าทีมแบบวนรอบ (จำนวนคนในแต่ละทีมจะเท่ากันที่สุดเท่าที่จะทำได้)
         random.shuffle(chosen_members)
@@ -6950,7 +6962,7 @@ class TeamSplitView(discord.ui.View):
 
         report_lines = ["🎲 **ผลการสุ่มทีมจากแบ็คลี่!**\n"]
         for i, team in enumerate(teams, 1):
-            names = "\n".join(f"• {m.display_name}" for m in team)
+            names = "\n".join(f"• {_get_saved_voice_name(m)}" for m in team)
             report_lines.append(f"**ทีม {i}**\n{names}\n")
         report = "\n".join(report_lines)
 
@@ -6968,10 +6980,10 @@ class TeamSplitView(discord.ui.View):
             except Exception:
                 pass
 
-        # 🔊 พูดสรุปผลออกไมค์ ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว
+        # 🔊 พูดสรุปผลออกไมค์ ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว (เอาชื่อจากคลังก่อน ไม่มีค่อยใช้ชื่อโปรไฟล์)
         if interaction.guild.voice_client:
             team_names_spoken = " ".join(
-                f"ทีม {i} มี {', '.join(m.display_name for m in team)}"
+                f"ทีม {i} มี {', '.join(_get_saved_voice_name(m) for m in team)}"
                 for i, team in enumerate(teams, 1)
             )
             try:
@@ -6979,9 +6991,145 @@ class TeamSplitView(discord.ui.View):
             except Exception as e:
                 print(f"Team split speak error: {e}")
 
+    async def confirm_stepwise_callback(self, interaction: discord.Interaction):
+        chosen_members, error = self._get_chosen_members(interaction)
+        if error:
+            return await interaction.response.send_message(error, ephemeral=True)
+
+        for item in self.children:
+            item.disabled = True
+
+        draw_view = TeamDrawView(self.author, chosen_members, self.num_teams)
+        report = draw_view.build_report()
+
+        try:
+            await interaction.response.edit_message(content=report, view=draw_view)
+        except discord.NotFound:
+            msg = await interaction.channel.send(report, view=draw_view)
+            draw_view.message = msg
+        except Exception as e:
+            print(f"❌ ระบบสุ่มทีมทีละคนพัง: {e}")
+            try:
+                msg = await interaction.response.send_message(report, view=draw_view)
+                draw_view.message = msg
+            except Exception:
+                pass
+
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
+
+
+class TeamDrawView(discord.ui.View):
+    """โหมดสุ่มทีละคน — กดปุ่มทีละครั้งเพื่อดึงคนถัดไปเข้าทีมแบบวนรอบ เพิ่มความตื่นเต้นทีละคน
+    พูดชื่อ (ใช้ชื่อจากคลังก่อน ไม่มีค่อยใช้ชื่อโปรไฟล์) ทุกครั้งที่สุ่มได้คนใหม่
+    พอสุ่มครบทุกคนแล้ว ปุ่มจะเปลี่ยนเป็น 'สรุปผล' — กดอีกครั้งเพื่อให้แบ็คลี่พูดสรุปทั้งหมดพร้อมส่งรายละเอียดว่าใครอยู่ทีมไหน
+    """
+
+    def __init__(self, author, chosen_members, num_teams):
+        super().__init__(timeout=180)
+        self.author = author
+        self.num_teams = num_teams
+        self.remaining = list(chosen_members)
+        self.teams = [[] for _ in range(num_teams)]
+        self.summarized = False
+        self.message = None
+
+        self.draw_btn = discord.ui.Button(label="🎯 สุ่มคนต่อไป!", style=discord.ButtonStyle.green)
+        self.draw_btn.callback = self.draw_callback
+        self.add_item(self.draw_btn)
+
+    def build_report(self, just_drawn=None, team_number=None, done=False, summarized=False):
+        lines = ["🎯 **สุ่มทีมทีละคน — แบ็คลี่กำลังจับสลาก!**\n"]
+        for i, team in enumerate(self.teams, 1):
+            names = "\n".join(f"• {_get_saved_voice_name(m)}" for m in team) if team else "_ยังไม่มีใคร_"
+            lines.append(f"**ทีม {i}**\n{names}\n")
+
+        if just_drawn and team_number:
+            lines.append(f"🎉 คุณ **{_get_saved_voice_name(just_drawn)}** อยู่ ทีม {team_number} ครับ\n")
+
+        if summarized:
+            lines.append("✅ สรุปผลการสุ่มทีมทั้งหมดตามด้านบนเลยครับ!")
+        elif done:
+            lines.append("✅ สุ่มครบทุกคนแล้วครับ! กดปุ่มด้านล่างอีกครั้งเพื่อให้แบ็คลี่สรุปผลทั้งหมด")
+        elif self.remaining:
+            lines.append(f"เหลืออีก {len(self.remaining)} คนที่ยังไม่ถูกสุ่ม... กดปุ่มด้านล่างเพื่อสุ่มคนต่อไป!")
+
+        return "\n".join(lines)
+
+    async def draw_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author.id:
+            return await interaction.response.send_message("ต้องเป็นคนสั่งสุ่มทีมเท่านั้นถึงจะกดสุ่มได้ครับ!", ephemeral=True)
+
+        # ---------- กรณีสุ่มครบทุกคนไปแล้ว: กดครั้งนี้ = สรุปผลทั้งหมด ----------
+        if not self.remaining:
+            if self.summarized:
+                return await interaction.response.send_message("สรุปผลไปแล้วครับ!", ephemeral=True)
+
+            self.summarized = True
+            self.draw_btn.disabled = True
+
+            report = self.build_report(done=True, summarized=True)
+
+            try:
+                await interaction.response.edit_message(content=report, view=self)
+            except discord.NotFound:
+                await interaction.channel.send(report)
+            except Exception as e:
+                print(f"❌ ระบบสุ่มทีมทีละคนพัง (summarize): {e}")
+
+            # 🔊 พูดสรุปผลทั้งหมด ใครอยู่ทีมไหนบ้าง (เอาชื่อจากคลังก่อน ไม่มีค่อยใช้ชื่อโปรไฟล์)
+            if interaction.guild.voice_client:
+                team_names_spoken = " ".join(
+                    f"ทีม {i} มี {', '.join(_get_saved_voice_name(m) for m in team)}"
+                    for i, team in enumerate(self.teams, 1)
+                )
+                try:
+                    await bagley_speak(interaction.guild, f"สรุปผลการสุ่มทีมครับ {team_names_spoken}")
+                except Exception as e:
+                    print(f"Team draw summarize speak error: {e}")
+            return
+
+        # ---------- กรณียังมีคนเหลือ: สุ่มคนถัดไปแบบไม่ซ้ำ แล้วยัดเข้าทีมแบบวนรอบ ----------
+        picked = random.choice(self.remaining)
+        self.remaining.remove(picked)
+
+        already_assigned = sum(len(t) for t in self.teams)
+        team_idx = already_assigned % self.num_teams
+        team_number = team_idx + 1
+        self.teams[team_idx].append(picked)
+
+        done = not self.remaining
+        if done:
+            self.draw_btn.label = "📢 สรุปผลทีมทั้งหมด!"
+            self.draw_btn.style = discord.ButtonStyle.blurple
+
+        report = self.build_report(just_drawn=picked, team_number=team_number, done=done)
+
+        try:
+            await interaction.response.edit_message(content=report, view=self)
+        except discord.NotFound:
+            await interaction.channel.send(report)
+        except Exception as e:
+            print(f"❌ ระบบสุ่มทีมทีละคนพัง (draw): {e}")
+
+        # 🔊 ประกาศชื่อคนที่เพิ่งสุ่มได้ออกไมค์ทันทีทุกครั้ง ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว
+        # (เอาชื่อจากคลังความจำที่บันทึกไว้ก่อน ถ้าไม่มีค่อยใช้ชื่อโปรไฟล์ดิสคอร์ดปัจจุบัน — ผ่าน _get_saved_voice_name)
+        if interaction.guild.voice_client:
+            picked_voice_name = _get_saved_voice_name(picked)
+            try:
+                await bagley_speak(interaction.guild, f"คุณ {picked_voice_name} อยู่ ทีม {team_number} ครับ")
+            except Exception as e:
+                print(f"Team draw speak error: {e}")
+
+    async def on_timeout(self):
+        self.draw_btn.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 
 @bot.hybrid_command(name="split_team", description="สั่งให้แบ็คลี่สุ่มแบ่งทีมจากคนในห้องเสียงปัจจุบัน (แค่บอกผลในแชท ไม่ย้ายห้องใคร)")
 @app_commands.describe(teams="จำนวนทีมที่ต้องการแบ่ง (ค่าเริ่มต้น 2 ทีม)")
@@ -7007,27 +7155,30 @@ async def split_team(ctx: commands.Context, teams: int = 2):
     view = TeamSplitView(ctx.author, members, teams)
     await ctx.send(
         f"🎲 พร้อมสุ่มทีมจากห้อง **{voice_channel.name}** แล้วครับ! (ตอนนี้เลือกไว้ทุกคน {len(members)} คน แบ่งเป็น {teams} ทีม)\n"
-        f"ถ้ามีใครไม่ได้เล่นด้วย ติ๊กเลือกใหม่ในเมนูด้านล่างเพื่อถอดออกได้เลยครับ แล้วกด **'🎲 สุ่มทีมเลย!'**",
+        f"ถ้ามีใครไม่ได้เล่นด้วย ติ๊กเลือกใหม่ในเมนูด้านล่างเพื่อถอดออกได้เลยครับ\n"
+        f"แล้วเลือกโหมด: กด **'🎲 สุ่มทีเดียว (แยกทีมให้เลย)'** ถ้าอยากรู้ผลรวดเดียว หรือกด **'🎯 สุ่มทีละคน (ตื่นเต้นกว่า)'** "
+        f"ถ้าอยากให้แบ็คลี่จับสลากทีละคนให้ลุ้นกันไปทีละฝั่ง!",
         view=view
     )
 
 # ============================================================
-# 🗺️ ระบบสุ่มแมพเกม (/random_map) — แยกจากสุ่มทีม
-# ผู้ใช้พิมพ์รายชื่อแมพเอง (คั่นด้วย , หรือขึ้นบรรทัดใหม่) แบ็คลี่แค่สุ่มให้ฝั่ง Python
+# 🎲 ระบบสุ่มของทั่วไป (/random) — เดิมชื่อ /random_map แต่ตอนนี้ใช้สุ่มอะไรก็ได้
+# ผู้ใช้พิมพ์รายการเอง (คั่นด้วย , หรือขึ้นบรรทัดใหม่) แบ็คลี่แค่สุ่มให้ฝั่ง Python
+# ใช้ได้ทั้งสุ่มแมพ สุ่มชื่อคน สุ่มเลข หรือรายการอะไรก็ได้ที่พิมพ์มา
 # (เดิมใช้ Gemini + Google Search ไปค้นชื่อแมพ แต่โควต้า grounding แยกจากแชทปกติ
 #  และจำกัดกว่ามาก ทำให้ 429 บ่อย เลยตัดการพึ่ง AI ออกไปเลย ไม่ต้องยิง API เพิ่ม)
 # ============================================================
 
-_MAP_SPLIT_PATTERN = regex_lib.compile(r"[,\n、，]+")
+_RANDOM_ITEM_SPLIT_PATTERN = regex_lib.compile(r"[,\n、，]+")
 
 
-def _parse_map_list(raw: str):
-    """แยกรายชื่อแมพจากข้อความดิบ คั่นด้วย , หรือขึ้นบรรทัดใหม่
+def _parse_item_list(raw: str):
+    """แยกรายการจากข้อความดิบ คั่นด้วย , หรือขึ้นบรรทัดใหม่
     ตัดช่องว่างหน้า-หลัง และตัดตัวซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) โดยคงชื่อแบบแรกที่เจอไว้
     """
     seen = set()
     result = []
-    for part in _MAP_SPLIT_PATTERN.split(raw or ""):
+    for part in _RANDOM_ITEM_SPLIT_PATTERN.split(raw or ""):
         name = part.strip()
         if not name:
             continue
@@ -7040,48 +7191,48 @@ def _parse_map_list(raw: str):
 
 
 @bot.hybrid_command(
-    name="random_map",
-    description="สุ่มแมพจากรายชื่อที่คุณพิมพ์มาเอง (คั่นด้วย , หรือขึ้นบรรทัดใหม่)"
+    name="random",
+    description="สุ่มอะไรก็ได้จากรายการที่คุณพิมพ์มาเอง เช่น ชื่อแมพ ชื่อคน หรือตัวเลข (คั่นด้วย , หรือขึ้นบรรทัดใหม่)"
 )
 @app_commands.describe(
-    maps="รายชื่อแมพทั้งหมด คั่นด้วยจุลภาค (,) เช่น Bind, Haven, Ascent, Icebox",
-    count="จำนวนแมพที่อยากให้สุ่ม (ค่าเริ่มต้น 1 แมพ)"
+    items="รายการทั้งหมดที่จะสุ่ม คั่นด้วยจุลภาค (,) เช่น Bind, Haven, Ascent, Icebox หรือ ปิงปอง, ตูน, มด หรือ 1, 2, 3, 4, 5",
+    count="จำนวนที่อยากให้สุ่ม (ค่าเริ่มต้น 1)"
 )
-async def random_map(ctx: commands.Context, maps: str, count: int = 1):
+async def random_pick(ctx: commands.Context, items: str, count: int = 1):
     # 🛡️ กันเคส AI Command Router ส่ง count มาเป็น string (เช่น "2") แทนที่จะเป็น int
     try:
         count = int(count)
     except (TypeError, ValueError):
-        return await ctx.send("❌ จำนวนแมพต้องเป็นตัวเลขนะครับ เช่น 1, 2, 3")
+        return await ctx.send("❌ จำนวนที่จะสุ่มต้องเป็นตัวเลขนะครับ เช่น 1, 2, 3")
 
-    map_list = _parse_map_list(maps)
+    item_list = _parse_item_list(items)
 
-    if len(map_list) < 2:
+    if len(item_list) < 2:
         return await ctx.send(
-            "❌ พิมพ์รายชื่อแมพมาหลาย ๆ แมพหน่อยครับ คั่นด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่ก็ได้ "
-            "เช่น `/random_map maps: Bind, Haven, Ascent, Icebox`"
+            "❌ พิมพ์รายการมาหลาย ๆ อันหน่อยครับ คั่นด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่ก็ได้ "
+            "เช่น `/random items: Bind, Haven, Ascent, Icebox` หรือจะสุ่มชื่อคน สุ่มเลข ก็ใส่รายการมาได้เลยครับ"
         )
 
-    count = max(1, min(count, len(map_list)))
+    count = max(1, min(count, len(item_list)))
 
-    if count >= len(map_list):
-        picked = map_list[:]
+    if count >= len(item_list):
+        picked = item_list[:]
         random.shuffle(picked)
     else:
-        picked = random.sample(map_list, count)
+        picked = random.sample(item_list, count)
 
     if len(picked) == 1:
-        result_text = f"🗺️ สุ่มจากทั้งหมด {len(map_list)} แมพที่ให้มา... ได้ **{picked[0]}** ครับ!"
+        result_text = f"🎲 สุ่มจากทั้งหมด {len(item_list)} รายการที่ให้มา... ได้ **{picked[0]}** ครับ!"
     else:
         lines = "\n".join(f"{i}. {m}" for i, m in enumerate(picked, 1))
-        result_text = f"🗺️ สุ่มจากทั้งหมด {len(map_list)} แมพที่ให้มา ได้ {len(picked)} แมพครับ!\n{lines}"
+        result_text = f"🎲 สุ่มจากทั้งหมด {len(item_list)} รายการที่ให้มา ได้ {len(picked)} อย่างครับ!\n{lines}"
 
     await ctx.send(result_text)
 
     if ctx.guild:
         try:
-            await bagley_speak(ctx.guild, f"สุ่มแมพได้ {', '.join(picked)} ครับ")
+            await bagley_speak(ctx.guild, f"สุ่มได้ {', '.join(picked)} ครับ")
         except Exception as e:
-            print(f"Random map speak error: {e}")
+            print(f"Random pick speak error: {e}")
 
 bot.run(DISCORD_TOKEN)

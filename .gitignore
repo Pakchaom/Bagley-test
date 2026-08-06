@@ -29,3 +29,4 @@ run_bagley.vbs
 
 build/
 dist/
+__pycache__/
