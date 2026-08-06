@@ -72,6 +72,16 @@ bot_follow_targets = {}
 
 created_party_channels = []
 
+# ============================================================
+# 🎲🔀 ระบบแยกห้องทีมหลังสุ่มทีม (/split_team -> แยกห้องจริง + /back)
+# เก็บสถานะต่อกิลด์: ห้องเดิมที่แบ็คลี่รอ, ห้องทีมที่สร้างขึ้น, รายชื่อ
+# คนที่ถูกแบ็คลี่ย้ายออกไป (เฉพาะคนกลุ่มนี้เท่านั้นถึงจะสั่ง /back ได้) และ
+# ค่าโหมดเฝ้าห้องเดิมก่อนเริ่มแยกทีม (กันระบบ auto-follow เจ้านายแอบลากบอทออกจากห้องเดิม)
+# โครงสร้าง: {guild_id: {"origin_channel_id": int, "team_channel_ids": [int,...],
+#                          "moved_member_ids": set[int], "prev_guard_status": bool}}
+# ============================================================
+active_team_splits = {}
+
 guard_room_status = {}
 
 bangkok_tz = zoneinfo.ZoneInfo("Asia/Bangkok")
@@ -4280,6 +4290,7 @@ async def on_voice_state_update(member, before, after):
     if member.id == bot.user.id and after.channel is None:
         voice_report_status.pop(guild_id, None)
         room_guard_status.pop(guild_id, None) # รีเซ็ตโหมดเฝ้าห้องคัปพ้ม
+        active_team_splits.pop(guild_id, None) # 🔀 แบ็คลี่ออกจากห้องแล้ว เลิกจำ session แยกห้องทีมของกิลด์นี้
         print(f"DEBUG: ตัวบอทออกจากห้องเสียงแล้ว ทำการรีเซ็ตสวิตช์รายงานเสียงและโหมดเฝ้าห้องของกิลด์ {guild_id}")
 
     voice_client = member.guild.voice_client
@@ -6890,10 +6901,12 @@ async def schedule_list(ctx: commands.Context):
 # เลือกได้ 2 โหมด: สุ่มทีเดียวแยกทีมให้เลย หรือ สุ่มทีละคนทีละฝั่งให้ตื่นเต้น
 # ============================================================
 class TeamSplitView(discord.ui.View):
-    def __init__(self, author, members, num_teams):
+    def __init__(self, author, members, num_teams, origin_channel=None):
         super().__init__(timeout=120)
         self.author = author
         self.num_teams = num_teams
+        # 🏠 ห้องเสียงต้นทางที่สุ่มออกมา (ใช้ตอนถามว่าจะแยกห้องจริงมั้ย)
+        self.origin_channel = origin_channel
 
         # ค่าเริ่มต้น = เลือกทุกคนในห้องไว้ก่อน (ไม่เกิน 25 คนตามกฎ Discord)
         member_options = [
@@ -6999,6 +7012,9 @@ class TeamSplitView(discord.ui.View):
             except Exception as e:
                 print(f"Team split speak error: {e}")
 
+        # 🔀 ถามต่อว่าจะให้แบ็คลี่แยกห้องจริงตามผลสุ่มเลยมั้ย
+        await _ask_to_split_rooms(interaction, self.author, teams, self.origin_channel)
+
     async def confirm_stepwise_callback(self, interaction: discord.Interaction):
         chosen_members, error = self._get_chosen_members(interaction)
         if error:
@@ -7007,7 +7023,7 @@ class TeamSplitView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
-        draw_view = TeamDrawView(self.author, chosen_members, self.num_teams)
+        draw_view = TeamDrawView(self.author, chosen_members, self.num_teams, self.origin_channel)
         report = draw_view.build_report()
 
         try:
@@ -7034,7 +7050,7 @@ class TeamDrawView(discord.ui.View):
     พอสุ่มครบทุกคนแล้ว ปุ่มจะเปลี่ยนเป็น 'สรุปผล' — กดอีกครั้งเพื่อให้แบ็คลี่พูดสรุปทั้งหมดพร้อมส่งรายละเอียดว่าใครอยู่ทีมไหน
     """
 
-    def __init__(self, author, chosen_members, num_teams):
+    def __init__(self, author, chosen_members, num_teams, origin_channel=None):
         super().__init__(timeout=180)
         self.author = author
         self.num_teams = num_teams
@@ -7042,6 +7058,8 @@ class TeamDrawView(discord.ui.View):
         self.teams = [[] for _ in range(num_teams)]
         self.summarized = False
         self.message = None
+        # 🏠 ห้องเสียงต้นทางที่สุ่มออกมา (ใช้ตอนถามว่าจะแยกห้องจริงมั้ย)
+        self.origin_channel = origin_channel
 
         self.draw_btn = discord.ui.Button(label="🎯 สุ่มคนต่อไป!", style=discord.ButtonStyle.green)
         self.draw_btn.callback = self.draw_callback
@@ -7096,6 +7114,9 @@ class TeamDrawView(discord.ui.View):
                     await bagley_speak(interaction.guild, f"สรุปผลการสุ่มทีมครับ {team_names_spoken}")
                 except Exception as e:
                     print(f"Team draw summarize speak error: {e}")
+
+            # 🔀 ถามต่อว่าจะให้แบ็คลี่แยกห้องจริงตามผลสุ่มเลยมั้ย
+            await _ask_to_split_rooms(interaction, self.author, self.teams, self.origin_channel)
             return
 
         # ---------- กรณียังมีคนเหลือ: สุ่มคนถัดไปแบบไม่ซ้ำ แล้วยัดเข้าทีมแบบวนรอบ ----------
@@ -7139,6 +7160,247 @@ class TeamDrawView(discord.ui.View):
                 pass
 
 
+# ============================================================
+# 🔀🏠 ระบบแยกห้องเสียงจริงหลังสุ่มทีมเสร็จ + คำสั่ง /back พากลับมารวมกัน
+# หลังสุ่มทีมเสร็จ (ไม่ว่าโหมดสุ่มทีเดียว หรือสุ่มทีละคน) แบ็คลี่จะถามว่า
+# จะให้แยกห้องจริงตามผลสุ่มมั้ย ถ้าตกลง -> สร้างห้องทีมละ 1 ห้อง (ทีม 1, ทีม 2, ...)
+# แล้วย้ายแต่ละทีมเข้าห้องของตัวเอง ส่วนแบ็คลี่จะรออยู่ห้องเดิมเสมอ
+# พอแข่งเสร็จ ใครก็ได้ที่ถูกแยกไป พิมพ์ back เพื่อพาทุกคนกลับมารวมกันที่ห้องเดิม
+# โดยแบ็คลี่จะไม่รายงานทีละคนว่าใครเข้ามาบ้าง (กันด้วย is_moving_group เหมือนฟีเจอร์ย้ายห้องอื่น ๆ)
+# ============================================================
+
+async def _ask_to_split_rooms(interaction: discord.Interaction, author, teams, origin_channel):
+    """หลังสุ่มทีมเสร็จ (ทั้งสองโหมด) ถามผู้สั่งว่าจะให้แบ็คลี่แยกห้องเสียงจริงตามผลสุ่มเลยมั้ย"""
+    if not interaction.guild or not origin_channel:
+        return
+    if not teams or all(len(t) == 0 for t in teams):
+        return
+
+    prompt_text = (
+        f"อยากให้แบ็คลี่แยกห้องเสียงตามผลสุ่มนี้เลยมั้ยครับ? "
+        f"(จะสร้างห้องทีมทั้งหมด {len([t for t in teams if t])} ห้อง แล้วย้ายแต่ละทีมเข้าห้องของตัวเอง "
+        f"ส่วนแบ็คลี่จะรออยู่ห้อง **{origin_channel.name}** เหมือนเดิมครับ)"
+    )
+
+    view = TeamRoomSplitPromptView(author, teams, origin_channel)
+    try:
+        msg = await interaction.channel.send(prompt_text, view=view)
+        view.message = msg
+    except Exception as e:
+        print(f"❌ ถามแยกห้องทีมไม่ได้: {e}")
+
+    # 🔊 พูดถามออกไมค์ด้วย ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว (ให้เหมือนพร้อมท์ยืนยันอื่น ๆ ในบอท)
+    if interaction.guild.voice_client:
+        try:
+            await bagley_speak(
+                interaction.guild,
+                f"อยากให้ผมแยกห้องเสียงตามผลสุ่มนี้เลยมั้ยครับ จะรออยู่ห้อง {origin_channel.name} เหมือนเดิมนะครับถ้าแยกให้"
+            )
+        except Exception as e:
+            print(f"Ask split rooms speak error: {e}")
+
+
+class TeamRoomSplitPromptView(discord.ui.View):
+    def __init__(self, author, teams, origin_channel):
+        super().__init__(timeout=120)
+        self.author = author
+        self.teams = teams
+        self.origin_channel = origin_channel
+        self.message = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message(
+                "ต้องเป็นคนสั่งสุ่มทีมเท่านั้นถึงจะตอบคำถามนี้ได้ครับ!", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="✅ แยกห้องเลยครับ", style=discord.ButtonStyle.green)
+    async def confirm_split(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for item in self.children:
+            item.disabled = True
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            pass
+        await _execute_team_room_split(interaction, self.teams, self.origin_channel)
+
+    @discord.ui.button(label="❌ ไม่ต้องครับ", style=discord.ButtonStyle.grey)
+    async def decline_split(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for item in self.children:
+            item.disabled = True
+        try:
+            await interaction.response.edit_message(content="ได้ครับ ไม่แยกห้องให้ก็ได้ครับ 👍", view=self)
+        except Exception:
+            try:
+                await interaction.response.send_message("ได้ครับ ไม่แยกห้องให้ก็ได้ครับ 👍", ephemeral=True)
+            except Exception:
+                pass
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
+async def _execute_team_room_split(interaction: discord.Interaction, teams, origin_channel):
+    """สร้างห้องทีมละ 1 ห้อง ย้ายสมาชิกแต่ละทีมเข้าห้องของตัวเอง แล้วบันทึก session ไว้ให้ /back ใช้ทีหลัง"""
+    global is_moving_group, room_guard_status
+    guild = interaction.guild
+    category = origin_channel.category
+
+    is_moving_group = True  # 🔇 กันไม่ให้แบ็คลี่รายงานทีละคนตอนย้ายกันยกทีม
+    created_channels = []
+    moved_member_ids = set()
+    total_moved = 0
+
+    try:
+        for i, team in enumerate(teams, 1):
+            if not team:
+                continue
+            room_name = f"ทีม {i}"
+            try:
+                new_channel = await guild.create_voice_channel(name=room_name, category=category)
+            except Exception as e:
+                print(f"❌ สร้างห้อง {room_name} ไม่ได้: {e}")
+                continue
+
+            created_channels.append(new_channel.id)
+            created_party_channels.append(new_channel.id)
+
+            for member in team:
+                fresh_member = guild.get_member(member.id)
+                if fresh_member and fresh_member.voice:
+                    try:
+                        await fresh_member.edit(voice_channel=new_channel)
+                        moved_member_ids.add(fresh_member.id)
+                        total_moved += 1
+                    except Exception as e:
+                        print(f"❌ ย้าย {fresh_member.display_name} เข้าห้อง {room_name} ไม่ได้: {e}")
+    finally:
+        await asyncio.sleep(1)
+        is_moving_group = False
+
+    if not created_channels:
+        try:
+            await interaction.channel.send("❌ สร้างห้องทีมไม่สำเร็จเลยครับ ขอโทษด้วยนะครับ")
+        except Exception:
+            pass
+        return
+
+    # 🛡️ [กันหลุด] ระบบ auto-follow เจ้านาย (follow_creator_task) จะเช็ค room_guard_status
+    # ทุกรอบ ถ้าเจ้านายไปอยู่ห้องอื่นระหว่างที่แบ็คลี่ต้องรออยู่ห้องเดิม บอทจะโดนลากตามออกไปทันที
+    # เลยต้องเปิดโหมดเฝ้าห้องชั่วคราวไว้ตลอดรอบแยกทีม (เก็บค่าดั้งเดิมไว้คืนให้ตอน /back)
+    prev_guard_status = room_guard_status.get(guild.id, False)
+    room_guard_status[guild.id] = True
+
+    # 💾 บันทึก session ของกิลด์นี้ไว้ ให้คำสั่ง /back รู้ว่าต้องพาใครกลับไปห้องไหน
+    active_team_splits[guild.id] = {
+        "origin_channel_id": origin_channel.id,
+        "team_channel_ids": created_channels,
+        "moved_member_ids": moved_member_ids,
+        "prev_guard_status": prev_guard_status,
+    }
+
+    try:
+        await interaction.channel.send(
+            f"🔀 แยกห้องเรียบร้อยครับ! ย้ายไป {len(created_channels)} ห้อง รวม {total_moved} คน\n"
+            f"แบ็คลี่จะรออยู่ห้อง **{origin_channel.name}** เหมือนเดิมนะครับ (ล็อกโหมดเฝ้าห้องไว้ชั่วคราว จะได้ไม่แอบตามใครออกไประหว่างแข่ง) "
+            f"พอแข่งเสร็จแล้ว ใครก็ได้ในกลุ่มที่ถูกแยกไป พิมพ์ `back` (หรือ `/back`) เพื่อพากลับมารวมกันได้เลยครับ!"
+        )
+    except Exception as e:
+        print(f"❌ ส่งข้อความสรุปแยกห้องไม่ได้: {e}")
+
+    if guild.voice_client:
+        try:
+            await bagley_speak(
+                guild,
+                f"แยกห้องเรียบร้อยครับ ผมจะรออยู่ห้อง {origin_channel.name} เหมือนเดิมนะครับ ไม่แอบตามใครออกไปแน่นอน "
+                f"พร้อมแล้วพิมพ์ back เพื่อกลับมารวมกันได้เลยครับ"
+            )
+        except Exception as e:
+            print(f"Team room split speak error: {e}")
+
+
+@bot.hybrid_command(
+    name="back",
+    description="พาทุกคนที่แบ็คลี่แยกห้องออกไปตอนสุ่มทีม กลับมารวมกันที่ห้องเดิม (ใช้ได้เฉพาะคนที่ถูกแยกไปเท่านั้น)"
+)
+async def back_from_teams(ctx: commands.Context):
+    global is_moving_group, room_guard_status
+
+    if not ctx.guild:
+        return await ctx.send("❌ คำสั่งนี้ใช้ได้เฉพาะในดิสคอร์ดเซิร์ฟเวอร์เท่านั้นครับ")
+
+    session = active_team_splits.get(ctx.guild.id)
+    if not session:
+        return await ctx.send("❌ ตอนนี้ไม่มีการแยกห้องทีมที่แบ็คลี่จัดไว้อยู่เลยครับ")
+
+    author_voice_channel_id = (
+        ctx.author.voice.channel.id if ctx.author.voice and ctx.author.voice.channel else None
+    )
+    # 🔒 พิมพ์ back ได้เฉพาะจากห้องที่แบ็คลี่แยกออกไป หรือห้องที่แบ็คลี่รออยู่เท่านั้น
+    allowed_channel_ids = set(session["team_channel_ids"]) | {session["origin_channel_id"]}
+    if author_voice_channel_id not in allowed_channel_ids:
+        return await ctx.send(
+            "❌ ต้องอยู่ในห้องที่แบ็คลี่แยกออกไป หรือห้องที่แบ็คลี่รออยู่ ถึงจะสั่ง `back` ได้ครับ"
+        )
+
+    # 🔒 ใช้ได้เฉพาะคนที่ถูกแบ็คลี่แยกห้องออกไปตอนสุ่มทีมรอบนี้เท่านั้น
+    if ctx.author.id not in session["moved_member_ids"]:
+        return await ctx.send("❌ คำสั่งนี้ใช้ได้เฉพาะคนที่ถูกแบ็คลี่แยกห้องออกไปตอนสุ่มทีมเท่านั้นครับ")
+
+    origin_channel = ctx.guild.get_channel(session["origin_channel_id"])
+    if not origin_channel:
+        active_team_splits.pop(ctx.guild.id, None)
+        return await ctx.send("❌ ห้องเดิมหายไปแล้วครับ (อาจถูกลบ) เลยพากลับไม่ได้ ขอโทษด้วยนะครับ")
+
+    is_moving_group = True  # 🔇 กันไม่ให้แบ็คลี่รายงานทีละคนตอนพากลับกันยกทีม
+    moved_back = 0
+    try:
+        for member_id in list(session["moved_member_ids"]):
+            member = ctx.guild.get_member(member_id)
+            if member and member.voice and member.voice.channel and member.voice.channel.id in session["team_channel_ids"]:
+                try:
+                    await member.edit(voice_channel=origin_channel)
+                    moved_back += 1
+                except Exception as e:
+                    print(f"❌ พา {member.display_name} กลับห้องเดิมไม่ได้: {e}")
+
+        # 🧹 เก็บกวาดห้องทีมที่สร้างไว้ทิ้งทั้งหมด (จบรอบแล้ว ไม่ใช้ต่อ)
+        for channel_id in session["team_channel_ids"]:
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                try:
+                    await channel.delete(reason="จบรอบแยกห้องทีม - แบ็คลี่พาทุกคนกลับหมดแล้ว")
+                except Exception as e:
+                    print(f"❌ ลบห้องทีม {channel.name} ไม่ได้: {e}")
+            if channel_id in created_party_channels:
+                created_party_channels.remove(channel_id)
+    finally:
+        await asyncio.sleep(1)
+        is_moving_group = False
+
+    active_team_splits.pop(ctx.guild.id, None)
+
+    # 🛡️ คืนค่าโหมดเฝ้าห้องกลับไปเป็นแบบที่ตั้งไว้ก่อนหน้ารอบแยกทีม (ถ้าเดิมปิดอยู่ก็ปิดคืนให้)
+    room_guard_status[ctx.guild.id] = session.get("prev_guard_status", False)
+
+    # 🚫 ไม่รายงานทีละคนว่าใครเข้ามาบ้าง พูดสรุปทีเดียวจบตามที่ขอเป๊ะ ๆ
+    await ctx.send("กลับมาแล้วหรอครับทุกคน ยินดีกับฝั่งที่ชนะด้วยนะครับ 🎉")
+
+    if ctx.guild.voice_client:
+        try:
+            await bagley_speak(ctx.guild, "กลับมาแล้วหรอครับทุกคน ยินดีกับฝั่งที่ชนะด้วยนะครับ")
+        except Exception as e:
+            print(f"Back command speak error: {e}")
+
+
 @bot.hybrid_command(name="split_team", description="สั่งให้แบ็คลี่สุ่มแบ่งทีมจากคนในห้องเสียงปัจจุบัน (แค่บอกผลในแชท ไม่ย้ายห้องใคร)")
 @app_commands.describe(teams="จำนวนทีมที่ต้องการแบ่ง (ค่าเริ่มต้น 2 ทีม)")
 async def split_team(ctx: commands.Context, teams: int = 2):
@@ -7160,7 +7422,7 @@ async def split_team(ctx: commands.Context, teams: int = 2):
     if len(members) < teams:
         return await ctx.send(f"❌ ในห้องเสียง **{voice_channel.name}** มีแค่ {len(members)} คน แต่จะแบ่ง {teams} ทีมไม่พอครับ!")
 
-    view = TeamSplitView(ctx.author, members, teams)
+    view = TeamSplitView(ctx.author, members, teams, origin_channel=voice_channel)
     await ctx.send(
         f"🎲 พร้อมสุ่มทีมจากห้อง **{voice_channel.name}** แล้วครับ! (ตอนนี้เลือกไว้ทุกคน {len(members)} คน แบ่งเป็น {teams} ทีม)\n"
         f"ถ้ามีใครไม่ได้เล่นด้วย ติ๊กเลือกใหม่ในเมนูด้านล่างเพื่อถอดออกได้เลยครับ\n"
