@@ -747,29 +747,28 @@ async def bagley_hijack_alert(voice_channel, message_text):
 
 # --- ระบบเสียงกลางของ Bagley ---
 async def bagley_speak(guild, text):
-    """ฟังก์ชันกลางสำหรับสั่งให้ Bagley พูดในห้องเสียงที่บอทอยู่"""
+    """ฟังก์ชันกลางสำหรับสั่งให้ Bagley พูดในห้องเสียงที่บอทอยู่
+
+    🛠️ [แก้บั๊ก]: เดิมฟังก์ชันนี้เช็ค vc.is_playing() แล้ว "ดรอปข้อความทิ้งเงียบๆ" ทันที
+    ถ้าบอทกำลังพูด/เล่นเสียงอะไรอยู่ก่อนแล้ว (เช่น ประกาศ "แยกห้องเรียบร้อยครับ..." ที่พูดยาว
+    และหลาย ๆ ที่ในระบบสุ่มทีมก็เรียก bagley_speak ต่อกันเร็ว ๆ) ทำให้ประโยคที่ควรพูดต่อ
+    (เช่นตอนกด /back) หายไปเงียบ ๆ โดยไม่มี error ให้เห็นเลย
+    ตอนนี้เปลี่ยนมาใช้ bagley_speak_wait ซึ่งมีล็อกต่อกิลด์ + รอให้เสียงก่อนหน้าเล่นจบก่อน
+    แล้วค่อยพูดต่อเป็นคิว (ไม่ดรอปทิ้ง) และใช้ชื่อไฟล์ที่ไม่ซ้ำกันในแต่ละครั้งด้วย
+    """
     if not guild: return
     vc = guild.voice_client
-    if vc and vc.is_connected():
-        if vc.is_playing():
-            return
-        
-        try:
-            clean_text = regex_lib.sub(r'[^\u0e00-\u0e7fa-zA-Z0-9\s\.\!\?]', '', text)
-            
-            clean_text = clean_text.strip()
+    if not (vc and vc.is_connected()):
+        return
 
-            if not clean_text:
-                return
-            
-            voice = "th-TH-NiwatNeural"
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save("bagley_system_voice.mp3")
-            
-            source = discord.FFmpegPCMAudio("bagley_system_voice.mp3", executable="C:/ffmpeg/bin/ffmpeg.exe")
-            vc.play(source)
-        except Exception as e:
-            print(f"Bagley Voice Error: {e}")
+    clean_text = regex_lib.sub(r'[^\u0e00-\u0e7fa-zA-Z0-9\s\.\!\?]', '', text).strip()
+    if not clean_text:
+        return
+
+    try:
+        await bagley_speak_wait(guild, text)
+    except Exception as e:
+        print(f"Bagley Voice Error: {e}")
 
 async def check_shared_voice_quota(user_id, guild):
     now = datetime.now()
@@ -7033,6 +7032,13 @@ class TeamSplitView(discord.ui.View):
             except Exception:
                 pass
 
+        # 🔊 พูดบอกว่าเริ่มจับสลากทีละคนแล้ว ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว
+        if interaction.guild.voice_client:
+            try:
+                await bagley_speak(interaction.guild, "เริ่มจับสลากทีละคนแล้วนะครับ")
+            except Exception as e:
+                print(f"Stepwise draw start speak error: {e}")
+
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
@@ -7232,6 +7238,13 @@ class TeamRoomSplitPromptView(discord.ui.View):
             except Exception:
                 pass
 
+        # 🔊 พูดตอบด้วย ให้เหมือนพูดถามก่อนหน้านี้
+        if interaction.guild.voice_client:
+            try:
+                await bagley_speak(interaction.guild, "ได้ครับ ไม่แยกห้องให้ก็ได้ครับ")
+            except Exception as e:
+                print(f"Decline split speak error: {e}")
+
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
@@ -7424,6 +7437,16 @@ async def split_team(ctx: commands.Context, teams: int = 2):
         f"ถ้าอยากให้แบ็คลี่จับสลากทีละคนให้ลุ้นกันไปทีละฝั่ง!",
         view=view
     )
+
+    # 🔊 พูดออกไมค์ด้วยว่าพร้อมสุ่มทีมแล้ว ถ้าแบ็คลี่อยู่ในห้องเสียงอยู่แล้ว
+    if ctx.guild.voice_client:
+        try:
+            await bagley_speak(
+                ctx.guild,
+                f"พร้อมสุ่มทีมจากห้อง {voice_channel.name} แล้วครับ เลือกโหมดในแชทได้เลย"
+            )
+        except Exception as e:
+            print(f"Split team invite speak error: {e}")
 
 # ============================================================
 # 🎲 ระบบสุ่มของทั่วไป (/random) — เดิมชื่อ /random_map แต่ตอนนี้ใช้สุ่มอะไรก็ได้
