@@ -64,7 +64,9 @@ def _build_command_tools(bot: commands.Bot):
                 desc = (f"{base_desc} — ชื่อเล่น/ชื่อดิสคอร์ดของสมาชิกเป้าหมาย "
                          f"ให้ใส่ตามที่ผู้ใช้พูดมาเป๊ะๆ ไม่ต้องแปลงเป็น ID เอง")
             elif annotation in (discord.VoiceChannel, discord.TextChannel):
-                desc = f"{base_desc} — ชื่อห้องตามที่ผู้ใช้พูดถึง (ไม่ต้องแปลงเป็น ID)"
+                desc = (f"{base_desc} — ชื่อห้องตามที่ผู้ใช้พูดถึง (ไม่ต้องแปลงเป็น ID) "
+                         f"ถ้าผู้ใช้พูดว่า 'ห้องนี้', 'ตรงนี้', 'ที่นี่' หรือคำใกล้เคียงที่หมายถึง "
+                         f"ห้องเสียงที่ตัวเองอยู่อยู่แล้ว ให้ใส่คำนั้นตามที่พูดมาเป๊ะๆ ไม่ต้องเดาชื่อห้องเอง")
             elif annotation in (discord.Role,):
                 desc = f"{base_desc} — ชื่อยศ/role ตามที่ผู้ใช้พูดถึง"
             else:
@@ -135,10 +137,32 @@ async def _resolve_member_param(message, raw_value: str, find_member_by_name):
     )
 
 
+# คำที่ผู้ใช้มักพูดแทน "ห้องเสียงที่ตัวเองอยู่ตอนนี้" (ไม่ใช่ชื่อห้องจริง ๆ)
+# ถ้า AI แกะพารามิเตอร์มาได้ตรงกับคำเหล่านี้ ให้ตีความเป็นห้องที่ผู้พูดอยู่ตอนนี้เลย
+# ไม่ต้องไปหาห้องที่ชื่อ "ห้องนี้" ในเซิร์ฟเวอร์ (ซึ่งไม่มีอยู่จริง)
+_CURRENT_ROOM_KEYWORDS = (
+    "ห้องนี้", "ห้องเดียวกัน", "ห้องเดียวกับผม", "ห้องเดียวกับฉัน", "ห้องเดียวกับเรา",
+    "ตรงนี้", "ที่นี่", "มาที่นี่", "ห้องปัจจุบัน", "ห้องที่ผมอยู่", "ห้องที่ฉันอยู่",
+    "this room", "this channel", "here",
+)
+
+
 async def _resolve_voice_channel_param(message, raw_value: str, find_member_by_name=None):
     if not message.guild or not raw_value:
         return None
     target = raw_value.strip().lower()
+
+    # เข้าใจ "ห้องนี้ / ตรงนี้ / ที่นี่" ฯลฯ ว่าหมายถึงห้องเสียงที่ผู้พูดอยู่ตอนนี้
+    if any(keyword in target for keyword in _CURRENT_ROOM_KEYWORDS):
+        author_voice = getattr(message.author, "voice", None)
+        if author_voice and author_voice.channel:
+            return author_voice.channel
+        # ถ้าผู้พูดไม่ได้อยู่ในห้องเสียงเลย ให้ลองใช้ห้องที่บอทอยู่ตอนนี้แทน
+        voice_client = message.guild.voice_client
+        if voice_client and voice_client.channel:
+            return voice_client.channel
+        return None
+
     exact = discord.utils.find(lambda c: c.name.lower() == target, message.guild.voice_channels)
     if exact:
         return exact
