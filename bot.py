@@ -28,6 +28,12 @@ from PIL import Image
 # --- AI Command Router (ให้ AI ตัดสินใจว่าข้อความควรเรียกคำสั่งไหน) ---
 from ai_command_router import ai_route_and_execute
 
+# --- ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราวที่ AI เขียนสด ---
+import bagley_learning
+import bagley_autonomy
+import bagley_trust
+import ephemeral_tools
+
 # --- Voice & Media ---
 from gtts import gTTS
 import edge_tts
@@ -2978,6 +2984,9 @@ intents.members = True
 intents.voice_states = True    
 intents.guild_messages = True   
 intents.dm_messages = True     
+intents.presences = True       # 🎮 เปิด Presence Intent เพื่อให้อ่าน member.activity (เกมที่กำลังเล่นอยู่) ได้
+# ⚠️ ต้องเปิดสวิตช์ "PRESENCE INTENT" ในหน้า Discord Developer Portal ของบอทนี้ด้วย ไม่งั้น
+#    Discord จะปฏิเสธการเชื่อมต่อทันทีตอน bot.run() (จำได้ว่าเปิดแล้วในเว็บ แต่เช็คอีกทีให้แน่ใจ)
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # 🚫 ดักคำสั่ง slash (/) ทั้งหมดตั้งแต่ก่อนจะรันจริง ถ้าคนนั้นโดนแบนคำสั่งอยู่ ให้ตอบปฏิเสธแทน
@@ -3154,6 +3163,31 @@ async def on_ready():
         bot._voice_relay_started = True
         asyncio.create_task(start_voice_relay_server())
 
+    # ============================================================
+    # 🧠🌱🤝⚡ ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราวที่ AI เขียนสด
+    # ============================================================
+    try:
+        bagley_learning.configure(bot, client, conn)
+        bagley_learning.init_learning_db(conn)
+        if not bagley_learning.learning_loop.is_running():
+            bagley_learning.learning_loop.start()
+
+        bagley_autonomy.configure(bot, client, bagley_speak)
+        if not bagley_autonomy.autonomy_loop.is_running():
+            bagley_autonomy.autonomy_loop.start()
+
+        bagley_trust.configure(conn)
+        bagley_trust.init_trust_db(conn)
+
+        # คนใน ALLOWED_TEACH_USERS ได้สิทธิ์สร้างความสามารถชั่วคราวทันทีเสมอ
+        # คนอื่นๆ จะได้สิทธิ์อัตโนมัติถ้าคุยกับแบ็คลี่คุ้นเคยพอ (ดู bagley_trust.py)
+        ephemeral_tools.configure(client, is_user_blocked_fn=is_user_blocked)
+        ephemeral_tools.ALLOWED_DYNAMIC_USERS = set(ALLOWED_TEACH_USERS)
+
+        print("🧠 ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราว: Started.")
+    except Exception as e:
+        print(f"⚠️ ระบบเรียนรู้/อยากพูดเอง/คำสั่งชั่วคราว เริ่มไม่สำเร็จ: {e}")
+
 @bot.event
 async def on_message(message):
     global is_webhook_enabled, conn, is_tts_enabled, is_playing_music
@@ -3301,6 +3335,10 @@ async def on_message(message):
     # ถ้าตีความว่าเป็นคำสั่ง -> เรียกคำสั่งจริงให้ทันทีแล้ว return เลย
     # ถ้าไม่ใช่คำสั่ง (คุยเล่นทั่วไป) -> ไหลลงไปทำ teach memory / free chat ตามปกติ
     # ==========================================
+    # 🧠 [ระบบเรียนรู้] สะสมข้อความในห้องไว้ให้ AI สรุปเป็น insight เป็นระยะ (ไม่ใช่ทุกข้อความที่คุยกับแบ็คลี่)
+    if not message.author.bot and message.content.strip():
+        bagley_learning.track_message(message.channel.id, message.author.display_name, message.content)
+
     stripped_for_ai = message.content.strip()
     if stripped_for_ai and not stripped_for_ai.startswith(bot.command_prefix):
         should_try_ai_command = (
@@ -3309,7 +3347,18 @@ async def on_message(message):
             or is_message_addressed_to_bagley(lower_content)
         )
         if should_try_ai_command:
+            # 🤝 [ระบบ Trust] นับว่าคนนี้คุยกับแบ็คลี่ตรงๆ อีกครั้ง (ใช้สะสมสิทธิ์ ephemeral tools)
+            if message.guild is not None and not message.author.bot:
+                bagley_trust.track_interaction(message.author.id, message.guild.id)
+
             handled = await ai_route_and_execute(message, bot, client, find_member_by_name)
+            if handled:
+                return
+
+            # ⚡ [Ephemeral Tools] ไม่ตรงคำสั่งไหนที่มีอยู่แล้วเลย -> ลองให้ AI เขียนความสามารถชั่วคราวดู
+            # (เฉพาะคนที่มีสิทธิ์ตาม ephemeral_tools._is_dynamic_allowed เท่านั้น คนอื่นจะคืน False เฉยๆ
+            #  แล้วไหลลงไปทำ teach memory / free chat ตามปกติ ไม่กระทบผู้ใช้ทั่วไป)
+            handled = await ephemeral_tools.try_create_and_run(message, message.content)
             if handled:
                 return
 
