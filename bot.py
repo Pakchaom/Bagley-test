@@ -1640,6 +1640,12 @@ async def follow_creator_task():
         # เช็กสลับห้อง
         if voice_client and voice_client.is_connected():
             if voice_client.channel == target_channel:
+                # 🛠️ [แก้บั๊ก] เดิมโค้ด return ตรงนี้ทันที ทำให้ระบบเตือนเล่นเกมนาน
+                # กับระบบชวนตี้คนนอกห้อง ไม่ถูกเรียกอีกเลยตราบใดที่บอทยังอยู่ห้องเดิม
+                # (มันจะรันแค่ตอนบอทเพิ่งเข้าห้อง/ย้ายห้องครั้งแรกเท่านั้น)
+                # เปลี่ยนให้ยังเช็คสองระบบนี้ทุกครั้งที่ลูปนาทีวิ่งมา ก่อนจะ return
+                await check_and_warn_gamers(guild_to_join)
+                await check_and_invite_party(guild_to_join)
                 return
             else:
                 print(f"🔄 [Auto Follow] เจ้านายย้ายห้องแล้ว! กำลังพาน้องแบ็คลี่บินจากห้อง {voice_client.channel.name} ไปห้อง {target_channel.name}")
