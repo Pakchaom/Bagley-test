@@ -27,6 +27,12 @@
 #         handled = await ephemeral_tools.try_create_and_run(message, message.content)
 #         if handled:
 #             return
+#
+# 🛡️ [อัปเดต] เพิ่มด่านคัดกรองคำขอก่อนเขียนโค้ด (_looks_like_capability_request)
+#   ข้อความที่ไม่ใช่คำขอ action จริงๆ (คุยเล่น/ทักทาย/ถามข้อมูล) จะได้ False กลับไป
+#   ทันที ไม่ถือว่า handled แล้ว ปล่อยให้ on_message ไหลลงไปทำ Free Chat / Teach
+#   Memory (ที่มี system prompt ตัวเต็มของแบ็คลี่) ต่อตามปกติ ดูรายละเอียดที่
+#   คอมเมนต์เหนือ _looks_like_capability_request() ด้านล่าง
 # ============================================================
 
 import asyncio
@@ -126,13 +132,59 @@ def _code_is_safe(code: str) -> bool:
     return not any(tok in lowered for tok in _FORBIDDEN_TOKENS)
 
 
+# ============================================================
+# 🛡️ [แก้บั๊ก] ด่านคัดกรองก่อนสร้างความสามารถชั่วคราว
+# ============================================================
+# ปัญหาเดิม: try_create_and_run() เอาข้อความดิบทุกข้อความ (แม้แต่ทักทายเฉยๆ
+# หรือถามเรื่องความจำ/ตัวตนของแบ็คลี่) ไปยิง prompt เขียนโค้ดทันที โดยไม่เช็คก่อน
+# ว่าข้อความนี้ "ควรเป็นงานสร้างความสามารถชั่วคราว" จริงไหม ผลคือ:
+#   1. คำถามคุยเล่นธรรมดาถูกตีความเป็น "งาน" แล้ว AI เขียนโค้ดที่ทำไม่ได้ ก็จะ
+#      fallback ไปพูดข้อความทื่อๆ (แค่ await api.send(...) อธิบายว่าทำไม่ได้)
+#      ซึ่งไม่มี persona/character ของแบ็คลี่อยู่เลย
+#   2. ฟังก์ชันคืนค่า True เสมอไม่ว่าผลจะเป็นยังไง -> on_message เจอ handled=True
+#      แล้ว return ทันที ทำให้ไม่มีทางไหลไปถึงโค้ดส่วน Free Chat / Teach Memory
+#      ที่มี system prompt ตัวเต็มของแบ็คลี่อีกต่อไป (นี่คือสาเหตุที่บอท
+#      "ลืมพร้อมต์ตัวเอง" หลังคุยเรื่องทั่วไป)
+#
+# ทางแก้: เพิ่มด่านคัดกรองเบา ๆ ก่อน — ถามให้ AI ตัดสินสั้น ๆ ว่าข้อความนี้เป็น
+# คำขอให้บอท "ทำ action" จริง ๆ (ที่ไม่มีคำสั่งสำเร็จรูปรองรับ) หรือแค่คุยเล่น/
+# ถามข้อมูล/ทักทาย ถ้าไม่ใช่คำขอ action ให้คืน False ทันที (ไม่นับว่า handled)
+# ปล่อยให้ข้อความไหลลงไปทำงานปกติ (Free Chat / Teach Memory) ต่อไป
+# ============================================================
+async def _looks_like_capability_request(task_description: str) -> bool:
+    if _client is None:
+        return False
+    try:
+        prompt = (
+            "คุณคือระบบคัดกรองก่อนที่จะให้ AI อีกตัวเขียนโค้ดสร้างความสามารถชั่วคราวให้บอทดิสคอร์ด\n"
+            f'ข้อความจากผู้ใช้: "{task_description}"\n\n'
+            "จงพิจารณาว่าข้อความนี้เป็น \"คำสั่งให้บอทลงมือทำ action บางอย่างในเซิร์ฟเวอร์จริงๆ\" "
+            "(เช่น ย้ายคนไปห้องเสียง, เปลี่ยนชื่อห้อง, กดรีแอคชั่น ฯลฯ) หรือไม่\n"
+            "ถ้าข้อความนี้เป็นแค่การทักทาย, คุยเล่นทั่วไป, ถามคำถาม, ถามเกี่ยวกับตัวบอทเอง/ความจำ, "
+            "หรือเป็นการสนทนาทั่วไปที่ไม่ได้ต้องการให้บอททำ action ใดๆ ให้ตอบว่า NO\n"
+            "ตอบเพียงคำเดียวเท่านั้น: YES หรือ NO ห้ามอธิบายเพิ่มเติมใดๆ ทั้งสิ้น"
+        )
+        resp = await _client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+        text = (getattr(resp, "text", "") or "").strip().upper()
+        return text.startswith("YES")
+    except Exception as e:
+        print(f"⚠️ [Ephemeral] คัดกรองคำขอพลาด: {e}")
+        return False  # เกิดข้อผิดพลาด -> เซฟตี้กว่าโดยถือว่าไม่ใช่คำขอ action ปล่อยไหลไป free chat แทน
+
+
 async def try_create_and_run(message: discord.Message, task_description: str) -> bool:
     """คืน True ถ้าตีความว่าเป็นงานที่ควรสร้างความสามารถชั่วคราว
     (ไม่ว่าจะสำเร็จ, ปฏิเสธเพราะไม่ปลอดภัย, หรือ error ก็ตอบผู้ใช้ไปแล้วในทุกกรณี)
+    คืน False ถ้าข้อความนี้ไม่ใช่คำขอ action จริงๆ (เช่นคุยเล่น/ถามข้อมูล) -> ปล่อยให้
+    ไหลลงไปทำงานปกติ (Free Chat / Teach Memory) ต่อ ไม่ถือว่า handled
     """
     if not _is_dynamic_allowed(message):
         return False
     if _client is None:
+        return False
+
+    # 🛡️ ด่านคัดกรองก่อน: ต้องดูเหมือนเป็นคำขอ action จริงๆ เท่านั้น ถึงจะไปต่อ
+    if not await _looks_like_capability_request(task_description):
         return False
 
     prompt = (
