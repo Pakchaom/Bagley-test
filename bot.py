@@ -74,6 +74,16 @@ reported_guilds_today = {}
 
 last_party_invites = {}
 
+# 🔒 กันชวนตี้/วาร์ปซ้ำ (ลอจิก "ชวน" — บอทวาร์ปเข้าห้องเสียงไปตื๊อแล้ววาร์ปกลับ)
+# ถ้ามีการวาร์ปไปชวนคนคนเดียวกันในกิลด์เดียวกันอยู่แล้ว (ไม่ว่าจะถูกสั่งผ่าน
+# AI Command Router -> /invite_voice หรือผ่านการดีเทคคำใน on_message โดยตรง)
+# จะไม่ปล่อยให้วาร์ป/พูดตื๊อซ้ำกันสองรอบ โครงสร้าง: set of (guild_id, target_member_id)
+active_warp_invites = set()
+
+# 🔒 กันเรียกซ้ำ (ลอจิก "เรียก" — บอทส่ง DM มีปุ่มตอบรับ + ลิงก์ห้องเสียง ไม่วาร์ปตามไป)
+# คนละความสามารถกับ "ชวน" ด้านบน แต่กันซ้ำด้วยแพทเทิร์นเดียวกัน
+active_dm_calls = set()
+
 bot_follow_targets = {}
 
 created_party_channels = []
@@ -2048,96 +2058,200 @@ async def check_and_invite_party(guild):
                             print(f"❌ เกิดข้อผิดพลาดในระบบแม่สื่อชวนตี้: {e}")
 
 async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, target_member: discord.Member):
+    """ลอจิก "ชวน" — บอทวาร์ปตัวเองเข้าไปในห้องเสียงเป้าหมาย เปิดไมค์ตื๊อชวนตัวต่อตัว
+    3 รอบ แล้ววาร์ปกลับห้องเดิม (คนละความสามารถกับ execute_dm_call ที่แค่ส่ง DM
+    พร้อมปุ่มตอบรับ ไม่วาร์ปตามไปหา)"""
     guild = ctx_or_interaction.guild
-    
+
     # 🕵️‍♂️ ดึงชื่อเล่นเรียลไทม์จากคลัง
     host_name = get_realtime_name(host_member.id, host_member.display_name)
     target_name = get_realtime_name(target_member.id, target_member.display_name)
-    
-    # 1. ตรวจสอบสถานะห้องเสียงของผู้ใช้คำสั่ง
-    if not host_member.voice or not host_member.voice.channel:
-        msg = " คุณต้องอยู่ในห้องเสียงก่อนนะครับ ถึงจะสั่งให้ผมไปชวนเพื่อนได้คัปพ้ม!"
+
+    # 🔒 กันชวนซ้ำ/ทับกัน: นี่คือจุดเดียวที่ทำการวาร์ปเข้าห้องเสียงไปตื๊อชวนจริง
+    # ไม่ว่าจะถูกเรียกจาก /invite_voice ตรงๆ, AI Command Router ตีความจากแชทแล้วสั่ง
+    # /invite_voice ให้เอง, หรือจากบล็อกดีเทคคำสำรองใน on_message ก็ตาม ถ้ามีการวาร์ป
+    # ไปชวนคนคนเดียวกันในกิลด์นี้ค้างอยู่แล้ว จะกันไม่ให้วาร์ป/พูดตื๊อซ้ำสองรอบ
+    invite_key = (guild.id, target_member.id)
+    if invite_key in active_warp_invites:
+        msg = f"กำลังวาร์ปไปชวนคุณ {target_name} อยู่แล้วครับ ขอลุยรอบนี้ให้จบก่อนนะครับ ยังไม่ต้องสั่งซ้ำ 🙏"
         if isinstance(ctx_or_interaction, discord.Interaction):
             await ctx_or_interaction.response.send_message(msg, ephemeral=True)
         else:
             await ctx_or_interaction.send(msg)
         return
+    active_warp_invites.add(invite_key)
 
-    host_channel = host_member.voice.channel
-
-    # 2. ตรวจสอบสถานะห้องเสียงของเพื่อนที่จะไปชวน
-    if not target_member.voice or not target_member.voice.channel:
-        msg = f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับ ชวนไม่ได้คัปพ้ม"
-        if isinstance(ctx_or_interaction, discord.Interaction):
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
-        return
-
-    target_channel = target_member.voice.channel
-
-    if host_channel.id == target_channel.id:
-        msg = f"อ้าว คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555"
-        if isinstance(ctx_or_interaction, discord.Interaction):
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
-        return
-
-    # 3. ตรวจจับเกมที่คนสั่งกำลังเล่นอยู่คัปพ้ม
-    game_name = None
-    for activity in host_member.activities:
-        if activity.type == discord.ActivityType.playing:
-            game_name = activity.name
-            break
-
-    game_speech = f"เกม {game_name}" if game_name else "เล่นเกมด้วยกัน"
-
-    # แจ้งสถานะก่อนบอทบินวาร์ป
-    start_msg = f"🛸 รับทราบคัปพ้ม! แบ็คลี่กำลังวาร์ปไปชวนคุณ {target_name} ที่ห้อง **{target_channel.name}** ให้คัป!"
-    if isinstance(ctx_or_interaction, discord.Interaction):
-        await ctx_or_interaction.response.send_message(start_msg)
-        text_channel = ctx_or_interaction.channel
-    else:
-        await ctx_or_interaction.send(start_msg)
-        text_channel = ctx_or_interaction.channel
-
-    # 4. ลอจิกวาร์ปข้ามมิติ
     try:
-        vc = guild.voice_client
-        if vc:
-            await vc.move_to(target_channel)
+        # 1. ตรวจสอบสถานะห้องเสียงของผู้ใช้คำสั่ง
+        if not host_member.voice or not host_member.voice.channel:
+            msg = " คุณต้องอยู่ในห้องเสียงก่อนนะครับ ถึงจะสั่งให้ผมไปชวนเพื่อนได้คัปพ้ม!"
+            if isinstance(ctx_or_interaction, discord.Interaction):
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        host_channel = host_member.voice.channel
+
+        # 2. ตรวจสอบสถานะห้องเสียงของเพื่อนที่จะไปชวน
+        if not target_member.voice or not target_member.voice.channel:
+            msg = f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับ ชวนไม่ได้คัปพ้ม"
+            if isinstance(ctx_or_interaction, discord.Interaction):
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        target_channel = target_member.voice.channel
+
+        if host_channel.id == target_channel.id:
+            msg = f"อ้าว คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555"
+            if isinstance(ctx_or_interaction, discord.Interaction):
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        # 3. ตรวจจับเกมที่คนสั่งกำลังเล่นอยู่คัปพ้ม
+        game_name = None
+        for activity in host_member.activities:
+            if activity.type == discord.ActivityType.playing:
+                game_name = activity.name
+                break
+
+        game_speech = f"เกม {game_name}" if game_name else "เล่นเกมด้วยกัน"
+
+        # แจ้งสถานะก่อนบอทบินวาร์ป
+        start_msg = f"🛸 รับทราบคัปพ้ม! แบ็คลี่กำลังวาร์ปไปชวนคุณ {target_name} ที่ห้อง **{target_channel.name}** ให้คัป!"
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            await ctx_or_interaction.response.send_message(start_msg)
+            text_channel = ctx_or_interaction.channel
         else:
-            vc = await target_channel.connect()
+            await ctx_or_interaction.send(start_msg)
+            text_channel = ctx_or_interaction.channel
 
-        # สร้างประโยคตื๊อ 3 รอบ
-        invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับ!"
-        
-        # ส่งข้อความปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
-        view = PartyInviteView(target_member, host_channel, timeout=60)
-        invite_msg = await text_channel.send(f"📢 **คำเชิญชวนเข้าตี้ด่วน!** คุณ {host_name} ชวนคุณ {target_name} ไปจอย {game_speech} คัปพ้ม!", view=view)
+        # 4. ลอจิกวาร์ปข้ามมิติ
+        try:
+            vc = guild.voice_client
+            if vc:
+                await vc.move_to(target_channel)
+            else:
+                vc = await target_channel.connect()
 
-        # วนลูปพูดตื๊อ 3 รอบ (เว้นระยะรอบละประมาณ 18 วินาที รวมเป็น 1 นาที)
-        for i in range(3):
-            if view.accepted or view.is_finished(): 
-                break # ถ้าเขากดปุ่มแล้วให้หยุดตื๊อทันทีคัปพ้ม
-            
-            print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
-            await bagley_speak_wait(guild, invite_quote)
-            
-            # นอนรอสักแป๊บเผื่อเขากดปุ่ม
-            await asyncio.sleep(18)
+            # สร้างประโยคตื๊อ 3 รอบ
+            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับ!"
 
-        # 5. เมื่อเสร็จสิ้นภารกิจ (หมดเวลา 1 นาที หรือกดปฏิเสธ) วาร์ปกลับห้องเดิม
-        await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัป", view=None)
-        
-        # ถ้าวาร์ปกลับไปหาคนสั่งได้ก็กลับคัป
-        if guild.voice_client:
-            await guild.voice_client.move_to(host_channel)
-            await bagley_speak_wait(guild, " แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับ!")
+            # ส่งข้อความปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
+            view = PartyInviteView(target_member, host_channel, timeout=60)
+            invite_msg = await text_channel.send(f"📢 **คำเชิญชวนเข้าตี้ด่วน!** คุณ {host_name} ชวนคุณ {target_name} ไปจอย {game_speech} คัปพ้ม!", view=view)
 
-    except Exception as e:
-        print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
+            # วนลูปพูดตื๊อ 3 รอบ (เว้นระยะรอบละประมาณ 18 วินาที รวมเป็น 1 นาที)
+            for i in range(3):
+                if view.accepted or view.is_finished():
+                    break  # ถ้าเขากดปุ่มแล้วให้หยุดตื๊อทันทีคัปพ้ม
+
+                print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
+                await bagley_speak_wait(guild, invite_quote)
+
+                # นอนรอสักแป๊บเผื่อเขากดปุ่ม
+                await asyncio.sleep(18)
+
+            # 5. เมื่อเสร็จสิ้นภารกิจ (หมดเวลา 1 นาที หรือกดปฏิเสธ) วาร์ปกลับห้องเดิม
+            await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัป", view=None)
+
+            # ถ้าวาร์ปกลับไปหาคนสั่งได้ก็กลับคัป
+            if guild.voice_client:
+                await guild.voice_client.move_to(host_channel)
+                await bagley_speak_wait(guild, " แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับ!")
+
+        except Exception as e:
+            print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
+
+    finally:
+        # 🔓 ปลดล็อกเสมอ ไม่ว่าจะจบแบบสำเร็จ, error, หรือ return กลางทางจากเงื่อนไขด้านบน
+        active_warp_invites.discard(invite_key)
+
+
+async def execute_dm_call(ctx_or_interaction, host_member: discord.Member, target_member: discord.Member):
+    """ลอจิก "เรียก" — คนละความสามารถกับ execute_warp_invite (ชวน) โดยเจตนา:
+    บอทจะ "ส่งข้อความส่วนตัว (DM)" ไปหาคนที่ถูกเรียก พร้อมปุ่ม ✅ ตอบรับ / ❌ ปฏิเสธ
+    และลิงก์เชิญเข้าห้องเสียง ให้เขากดไปเองตอนพร้อม บอทไม่ได้วาร์ปตัวเองเข้าไปหาเลย
+    (ต่างจาก "ชวน" ที่บอทวาร์ปเข้าไปเปิดไมค์ตื๊อถึงห้องเป้าหมายแล้ววาร์ปกลับ)"""
+    guild = ctx_or_interaction.guild
+
+    async def _reply(text, ephemeral=False):
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            await ctx_or_interaction.response.send_message(text, ephemeral=ephemeral)
+        else:
+            await ctx_or_interaction.send(text)
+
+    if target_member.id == bot.user.id:
+        await _reply("🤖 เอ๋... จะให้ผมส่ง DM หาตัวเองทำไมกันครับ! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
+        return
+
+    if target_member.id == host_member.id:
+        await _reply("🤖 หว่า... จะเรียกตัวเองทำไมกันครับ! คุณก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
+        return
+
+    if not host_member.voice or not host_member.voice.channel:
+        await _reply("❌ คุณต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับ!")
+        return
+
+    # 🔒 กันเรียกซ้ำ/ทับกัน: กันไม่ให้มีการส่ง DM เชิญคนคนเดียวกันในกิลด์นี้ซ้อนกันสองรอบ
+    call_key = (guild.id, target_member.id)
+    if call_key in active_dm_calls:
+        await _reply(f"เพิ่งส่งสัญญาณไปเรียกคุณ {target_member.display_name} ทาง DM ไปแล้วครับ รอเขาตอบรับก่อนนะครับ ยังไม่ต้องเรียกซ้ำ 🙏")
+        return
+
+    can_act, rem = await check_shared_voice_quota(host_member.id, guild)
+    if not can_act:
+        await _reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
+        return
+
+    active_dm_calls.add(call_key)
+    try:
+        current_channel = ctx_or_interaction.channel
+        voice_channel = host_member.voice.channel
+        guild_name = guild.name if guild else "เซิร์ฟเวอร์"
+
+        class GatherView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=120.0)
+
+            @discord.ui.button(label="🟢 ไปหาเดี๋ยวนี้ (Join)", style=discord.ButtonStyle.success)
+            async def accept_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await current_channel.send(f"🤖 **[BAGLEY]**: {target_member.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับ! 🚀")
+
+                try:
+                    invite = await voice_channel.create_invite(max_age=1800, max_uses=1)
+                    await interaction.response.send_message(f"รับทราบครับ! นี่คือลิงก์เข้าห้องเสียงครับ วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
+                except Exception as e:
+                    await interaction.response.send_message(f"รับทราบครับ! (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})", ephemeral=True)
+
+                if guild and guild.voice_client and guild.voice_client.is_connected():
+                    print(f"🔊 [BAGLEY VOICE LOG]: รายงานเสียงในห้อง -> {target_member.name} กำลังมาแล้ว")
+
+                self.stop()
+
+            @discord.ui.button(label="🔴 ไม่ว่าง/ติดธุระ (Decline)", style=discord.ButtonStyle.danger)
+            async def decline_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await current_channel.send(f"🤖 **[BAGLEY]**: แจ้งสถานะครับ... พอดี {target_member.mention} กดปฏิเสธจากใน DM ว่าติดธุระด่วนอยู่ครับ 💤")
+                await interaction.response.send_message("ปฏิเสธคำเชิญเรียบร้อยครับ", ephemeral=True)
+                self.stop()
+
+        try:
+            view = GatherView()
+            await target_member.send(
+                f"🔔 **สวัสดีครับคุณ {target_member.display_name}**\n"
+                f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากคุณ **{host_member.display_name}** ในดิส `{guild_name}`\n"
+                f"รบกวนตามไปพบกันที่ห้อง {current_channel.mention} หน่อยน้าครับ! 👇",
+                view=view
+            )
+            await _reply(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_member.mention} เรียบร้อยแล้วครับ! รอการตอบรับได้เลยครับ")
+        except discord.Forbidden:
+            await _reply(f"หว่า... ผมไม่สามารถส่ง DM หา {target_member.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับ 🔒")
+    finally:
+        active_dm_calls.discard(call_key)
 
 @tasks.loop(time=[
     dt_time(hour=0, minute=0, tzinfo=bangkok_tz), 
@@ -3865,84 +3979,39 @@ async def on_message(message):
             return
 
     # ==========================================
-    #  คำสั่งดีเทคคำ: แบ็คลี่ เรียก @เพื่อน (ส่งเข้า DM ส่วนตัว)
+    #  คำสั่งดีเทคคำ (fallback): แบ็คลี่ เรียก @เพื่อน (ส่งเข้า DM ส่วนตัว)
+    # ------------------------------------------
+    # 🔗 คนละความสามารถกับ "ชวน" ด้านล่าง (ซึ่งบอทวาร์ปเข้าห้องเสียงไปตื๊อเอง) โดยเจตนา
+    # "เรียก" แค่ส่ง DM มีปุ่มตอบรับ/ปฏิเสธ + ลิงก์ห้องเสียงให้กดเอง บอทไม่วาร์ปตามไปหา
+    # เพื่อให้ AI Command Router แยกสองความสามารถนี้ออกจากกันได้แม่นยำขึ้น ตอนนี้ทั้งคู่
+    # ถูกแยกเป็นฟังก์ชันกลางคนละตัว (execute_dm_call / execute_warp_invite) และมีคำสั่ง
+    # slash แยกกันคนละตัว (/call_member กับ /invite_voice) ที่คำอธิบายเขียนแยกความต่างไว้
+    # ชัดเจน ให้ Gemini เลือกเรียกฟังก์ชันที่ตรงกับเจตนาจริงๆ ของผู้ใช้
     # ==========================================
     if "เรียก" in lower_content and is_message_addressed_to_bagley(lower_content):
-        can_act, rem = await check_shared_voice_quota(message.author.id, message.guild)
-        if not can_act:
-            return await message.reply(f"⚠️ **Cooldown!** รอก่อนอีก {rem} วินาทีนะครับ")
-        
         target_user, _ = resolve_target_member(
             message,
             remove_keywords=["แบ็คลี่", "bagley", "คุณ", "หน่อย", "เรียก"]
         )
 
         if target_user:
-            
-            if target_user.id == bot.user.id:
-                await message.reply("🤖 เอ๋... จะให้ผมส่ง DM หาตัวเองทำไมกันครับ! ผมสแตนด์บายรออยู่ในนี้แล้วนะ")
-                return
-                
-            if target_user.id == message.author.id:
-                await message.reply("🤖 หว่า... จะเรียกตัวเองทำไมกันครับ! คุณก็อยู่ในเซิร์ฟเวอร์นี้อยู่แล้วน้า 🤣")
-                return
-
-            if not message.author.voice or not message.author.voice.channel:
-                await message.reply("❌ คุณต้องเข้าห้องเสียงก่อนถึงจะเรียกเพื่อนให้ส่งลิงก์ได้นะครับ!")
-                return
-
-            current_channel = message.channel
-            voice_channel = message.author.voice.channel
-            inviter = message.author
-            guild_name = message.guild.name if message.guild else "เซิร์ฟเวอร์"
-
-            class GatherView(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=120.0)
-
-                @discord.ui.button(label="🟢 ไปหาเดี๋ยวนี้ (Join)", style=discord.ButtonStyle.success)
-                async def accept_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                    await current_channel.send(f"🤖 **[BAGLEY]**: {target_user.mention} กดปุ่มตอบรับคำเชิญจากใน DM แล้ว และกำลังมาครับ! 🚀")
-                    
-                    try:
-                        invite = await voice_channel.create_invite(max_age=1800, max_uses=1)
-                        await interaction.response.send_message(f"รับทราบครับ! นี่คือลิงก์เข้าห้องเสียงครับ วาร์ปตามไปได้เลย: {invite.url}", ephemeral=True)
-                    except Exception as e:
-                        await interaction.response.send_message(f"รับทราบครับ! (แต่บอทสร้างลิงก์เชิญไม่สำเร็จ: {e})", ephemeral=True)
-                    
-                    if message.guild and message.guild.voice_client and message.guild.voice_client.is_connected():
-                        print(f"🔊 [BAGLEY VOICE LOG]: รายงานเสียงในห้อง -> {target_user.name} กำลังมาแล้ว")
-                    
-                    self.stop()
-
-                @discord.ui.button(label="🔴 ไม่ว่าง/ติดธุระ (Decline)", style=discord.ButtonStyle.danger)
-                async def decline_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                    await current_channel.send(f"🤖 **[BAGLEY]**: แจ้งสถานะครับ... พอดี {target_user.mention} กดปฏิเสธจากใน DM ว่าติดธุระด่วนอยู่ครับ 💤")
-                    await interaction.response.send_message("ปฏิเสธคำเชิญเรียบร้อยครับ", ephemeral=True)
-                    self.stop()
-
-            try:
-                view = GatherView()
-                await target_user.send(
-                    f"🔔 **สวัสดีครับคุณ {target_user.display_name}**\n"
-                    f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากคุณ **{inviter.display_name}** ในดิส `{guild_name}`\n"
-                    f"รบกวนตามไปพบกันที่ห้อง {current_channel.mention} หน่อยน้าครับ! 👇", 
-                    view=view
-                )
-                await message.reply(f"🤖 **[BAGLEY]**: ส่งรหัสสัญญาณลับเข้าไปที่ DM ของ {target_user.mention} เรียบร้อยแล้วครับ! รอการตอบรับได้เลยครับ")
-            except discord.Forbidden:
-                await message.reply(f"หว่า... ผมไม่สามารถส่ง DM หา {target_user.mention} ได้ครับ เหมือนเขาจะปิดรับ DM ส่วนตัวไว้ชั่วคราวครับ 🔒")
+            ctx = await bot.get_context(message)
+            await execute_dm_call(ctx, message.author, target_user)
             return
-        
+
     # ==========================================
-    #  คำสั่งดีเทคคำ: แบ็คลี่ ชวน @เพื่อน หน่อย (วาร์ปไปตื๊อในห้องเสียง)
+    #  คำสั่งดีเทคคำ (fallback): แบ็คลี่ ชวน @เพื่อน หน่อย (วาร์ปไปตื๊อในห้องเสียง)
+    # ------------------------------------------
+    # 🔗 คนละความสามารถกับ "เรียก" ด้านบน (ซึ่งแค่ส่ง DM ไม่วาร์ปตามไปหา) โดยเจตนา
+    # เรียกใช้ execute_warp_invite() ตัวเดียวกับที่ /invite_voice และ AI Command Router
+    # ใช้ (มีล็อกกันวาร์ปซ้ำในตัวแล้ว) แทนการ reimplement ลอจิกซ้ำเองในนี้
     # ==========================================
     if "ชวน" in lower_content and "หน่อย" in lower_content and ("แบ็คลี่" in lower_content or "bagley" in lower_content):
         if message.guild is None:
             await message.reply("คำสั่งนี้ต้องใช้ในห้องแชทของเซิร์ฟเวอร์เท่านั้นครับ!")
             return
 
-        # 👥 ดึงคนสั่ง และคนที่จะให้ไปชวน (ขยับแท็บเข้ามาในบล็อกเงื่อนไขแล้วคัป)
+        # 👥 ดึงคนสั่ง และคนที่จะให้ไปชวน
         host_member = message.author
         target_member, _ = resolve_target_member(
             message,
@@ -3952,84 +4021,8 @@ async def on_message(message):
             await message.reply("❌ คุณต้องพิมพ์ชื่อเพื่อนหรือแท็ก @ชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน ชื่อเพื่อน หน่อย` น้า")
             return
 
-        # 🕵️‍♂️ ดึงชื่อเล่นเรียลไทม์จากคลัง
-        host_name = get_realtime_name(host_member.id, host_member.display_name)
-        target_name = get_realtime_name(target_member.id, target_member.display_name)
-
-        # 1. ตรวจสอบสถานะห้องเสียงของผู้ใช้คำสั่ง
-        if not host_member.voice or not host_member.voice.channel:
-            await message.reply("❌ คุณต้องอยู่ในห้องเสียงก่อนนะครับ ถึงจะสั่งให้ผมไปชวนเพื่อนได้คัปพ้ม!")
-            return
-
-        host_channel = host_member.voice.channel
-
-        # 2. ตรวจสอบสถานะห้องเสียงของเพื่อนที่จะไปชวน
-        if not target_member.voice or not target_member.voice.channel:
-            await message.reply(f"ดูเหมือนคุณ {target_name} จะไม่ได้อยู่ในห้องเสียงห้องไหนเลยนะครับ ชวนไม่ได้คัปพ้ม")
-            return
-
-        target_channel = target_member.voice.channel
-
-        if host_channel.id == target_channel.id:
-            await message.reply(f"อ้าว คุณ {target_name} ก็อยู่นั่งหายใจรดต้นคอในห้องเสียงเดียวกันอยู่แล้วนี่ครับเนี่ย! 555")
-            return
-
-        # 3. ตรวจจับเกมที่คนสั่งกำลังเล่นอยู่คัปพ้ม
-        game_name = None
-        for activity in host_member.activities:
-            if activity.type == discord.ActivityType.playing:
-                game_name = activity.name
-                break
-
-        game_speech = f"เกม {game_name}" if game_name else "เล่นเกมด้วยกัน"
-
-        # แจ้งสถานะก่อนบอทบินวาร์ป
-        await message.reply(f"🛸 รับทราบคัปพ้ม! แบ็คลี่กำลังวาร์ปไปชวนคุณ {target_name} ที่ห้อง **{target_channel.name}** ให้คัป!")
-
-        # 🟢 ปรับปรุงตรงนี้: สั่งให้ text_channel ชี้เข้าห้องแชทข้อความของห้องเสียงปลายทางทันที!
-        if hasattr(target_channel, "text_channel") and target_channel.text_channel is not None:
-            text_channel = target_channel.text_channel
-        else:
-            text_channel = message.channel  # แผนสำรอง: ถ้าห้องเสียงนั้นไม่มีห้องแชทพิมพ์ ให้ส่งในห้องเดิมคัปพ้ม
-
-        # 4. ลоจิกวาร์ปข้ามมิติไปตื๊อพ่นเสียง
-        try:
-            guild = message.guild
-            vc = guild.voice_client
-            if vc:
-                await vc.move_to(target_channel)
-            else:
-                vc = await target_channel.connect()
-
-            # สร้างประโยคตื๊อเปิดไมค์พูด
-            invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปเล่น {game_speech} ด้วยกันที่ห้องนู้น รีบๆ มานะ ทีมต้องการตัว!"
-            
-            # ส่งปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
-            view = PartyInviteView(target_member, host_channel)
-            invite_msg = await text_channel.send(f"📢 **คำเชิญชวนเข้าตี้ด่วน!** คุณ {host_name} ชวนคุณ {target_name} ไปจอย {game_speech} คัปพ้ม!", view=view)
-
-            # วนลูปพูดตื๊อ 3 รอบ (เว้นระยะรอบละประมาณ 18 วินาที รวมเป็นเวลา 1 นาที)
-            for i in range(3):
-                if view.accepted or view.is_finished(): 
-                    break  # ถ้ากดตอบรับ/ปฏิเสธ หรือหมดเวลา ให้หยุดพ่นเสียงทันทีคัป
-                
-                print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
-                await bagley_speak_wait(guild, invite_quote)
-                await asyncio.sleep(18)
-
-            # เคลียร์ปุ่มเมื่อจบภารกิจ 1 นาที
-            try:
-                await invite_msg.edit(content=f"⌛ คำเชิญชวนถึงคุณ {target_name} สิ้นสุดลงแล้วคัป", view=None)
-            except:
-                pass
-            
-            # 5. วาร์ปบินกลับมาเฝ้าคนสั่งที่ห้องเดิมคัปพ้ม
-            if guild.voice_client:
-                await guild.voice_client.move_to(host_channel)
-                await bagley_speak_wait(guild, "แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับ!")
-
-        except Exception as e:
-            print(f"❌ เกิดข้อผิดพลาดในระบบวาร์ปตื๊อชวนตี้: {e}")
+        ctx = await bot.get_context(message)
+        await execute_warp_invite(ctx, host_member, target_member)
         return
 
     # ==========================================
@@ -4406,7 +4399,7 @@ async def on_message(message):
 
             except Exception as e:
                 print(f"🚨 Free Chat Gemini Error: {e}")
-                bagley_styled_text = "สัญญากลขัดข้องนิดหน่อย สมองส่วนคุยเล่นเอ๋อชั่วคราวครับ! 🤖🛸"
+                bagley_styled_text = "สัญญากลขัดข้อง เชื่อมต่อส่วนสมองไม่สำเร็จ! 🤖🛸"
 
             await message.reply(bagley_styled_text)
             
@@ -7001,9 +6994,29 @@ async def pull_room(ctx: commands.Context):
     else:
         await ctx.send("คุณต้องเข้ามานั่งในห้องเสียงหลักก่อนนะครับ แบ็คลี่ถึงจะรู้ว่าจะให้ดึงคนมาไว้ที่ห้องไหนคัปพ้ม!")
 
-@bot.hybrid_command(name="invite_voice", description="สั่งให้แบ็คลี่วาร์ปไปเปิดไมค์ตื๊อชวนเพื่อนจากห้องอื่นมาเข้าตี้คัปพ้ม")
+@bot.hybrid_command(
+    name="invite_voice",
+    description=(
+        "\"ชวน\" — สั่งให้แบ็คลี่วาร์ปตัวเองเข้าไปในห้องเสียงของเพื่อนคนนั้นโดยตรง "
+        "เปิดไมค์พูดตื๊อเชิญตัวต่อตัว 3 รอบ แล้ววาร์ปกลับห้องเดิม ใช้เมื่อผู้ใช้พูดว่า "
+        "'ชวน' และต้องการให้บอทไปตื๊อถึงห้องเสียงเป้าหมายเอง "
+        "(ต่างจาก call_member/'เรียก' ที่แค่ส่งข้อความส่วนตัว (DM) ไปแจ้ง ไม่วาร์ปตามไปหา)"
+    )
+)
 async def invite_voice(ctx: commands.Context, เพื่อนที่จะชวน: discord.Member):
     await execute_warp_invite(ctx, ctx.author, เพื่อนที่จะชวน)
+
+@bot.hybrid_command(
+    name="call_member",
+    description=(
+        "\"เรียก\" — สั่งให้แบ็คลี่ส่งข้อความส่วนตัว (DM) ไปหาเพื่อนคนนั้น พร้อมปุ่มตอบรับ/ปฏิเสธ "
+        "และลิงก์เชิญเข้าห้องเสียงให้เขากดไปเอง บอทไม่ได้วาร์ปตัวเองตามไปหา ใช้เมื่อผู้ใช้พูดว่า "
+        "'เรียก' และแค่ต้องการฝากข้อความ/ลิงก์ไปแจ้งเฉยๆ "
+        "(ต่างจาก invite_voice/'ชวน' ที่บอทวาร์ปเข้าไปตื๊อถึงห้องเสียงเป้าหมายแล้ววาร์ปกลับ)"
+    )
+)
+async def call_member(ctx: commands.Context, เพื่อนที่จะเรียก: discord.Member):
+    await execute_dm_call(ctx, ctx.author, เพื่อนที่จะเรียก)
 
 @bot.hybrid_command(name="remind", description="สั่งให้แบ็คลี่บันทึกกำหนดการและแจ้งเตือนในห้องเสียงเมื่อถึงวัน")
 @app_commands.describe(
