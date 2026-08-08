@@ -14,11 +14,23 @@
 #   ต้องอยู่ในห้องเสียงอยู่แล้ว + AI ต้อง "มั่นใจมากพอ" แยกจากการอยากพิมพ์แชท (ปกติควรน้อยกว่ามาก)
 #   + cooldown เสียงแยกจากแชท (นานกว่า) เพราะเสียงพูดขัดจังหวะคนคุยกันในห้องเสียงได้มากกว่าข้อความเงียบๆ
 #
+# 🗂️ ชื่อที่ใช้เรียกคนในห้องเสียง: ดึงจาก "คลังความจำ" (ชื่อเล่นที่บันทึกไว้ใน user_data ของ bot.py)
+#   ก่อนเสมอ ผ่าน get_realtime_name ที่ส่งเข้ามาตอน configure() — ถ้าไม่มีชื่อเล่นบันทึกไว้ ค่อย fallback
+#   ไปใช้ display_name บนดิสคอร์ดตามปกติ
+#
+# 💬 การรับรู้การตอบกลับ: ทุกข้อความที่แบ็คลี่พูดขึ้นเองใน autonomy_loop จะถูกจดจำ message.id ไว้ชั่วคราว
+#   ผ่าน is_reply_to_autonomous_message() — ให้ on_message ของ bot.py เช็คได้ว่าข้อความที่มีคนตอบกลับ (reply)
+#   มานั้น คือข้อความที่แบ็คลี่พูดขึ้นเองหรือไม่ ถ้าใช่ให้ถือว่า "มีคนคุยกับแบ็คลี่ตรงๆ" แล้วไหลเข้าระบบ
+#   คุยเล่น/สั่งงานตามปกติ (ซึ่งระบบเดิมจะพูดออกเสียงให้เองอยู่แล้วถ้าบอทอยู่ในห้องเสียง)
+#
 # วิธีติดตั้ง (ใน bot.py):
 #   1. import bagley_autonomy
 #   2. ใน on_ready (หลัง bagley_learning.configure แล้ว):
-#         bagley_autonomy.configure(bot, client, bagley_speak)
+#         bagley_autonomy.configure(bot, client, bagley_speak, get_realtime_name)
 #         bagley_autonomy.autonomy_loop.start()
+#   3. ใน on_message ทุกที่ที่เช็คว่า "มีคนเรียก/คุยกับแบ็คลี่ตรงๆ" (เช่น is_bot_called,
+#      should_try_ai_command) ให้เพิ่มเงื่อนไข:
+#         or bagley_autonomy.is_reply_to_autonomous_message(message)
 # ============================================================
 
 import json
@@ -30,18 +42,64 @@ import bagley_learning
 _bot = None
 _client = None
 _bagley_speak = None  # ฟังก์ชัน bagley_speak(guild, text) จาก bot.py — ส่งเข้ามาตอน configure()
+_get_realtime_name = None  # ฟังก์ชัน get_realtime_name(user_id, default_name) จาก bot.py — ดึงชื่อเล่นจากคลังความจำ
 
 _COOLDOWN_SECONDS = 30 * 60  # แชท: ห้ามพูดเองถี่กว่า 30 นาทีต่อห้อง (นานๆพูด ไม่ให้รบกวน)
 _VOICE_COOLDOWN_SECONDS = 60 * 60  # เสียง: เว้นถี่กว่าแชทมาก เพราะขัดจังหวะคนคุยกันในห้องเสียงได้มากกว่า
 _last_spoke_at: dict[int, float] = {}
 _last_voice_spoke_at: dict[int, float] = {}
 
+# 💬 จดจำ message.id ที่แบ็คลี่พูดขึ้นเองไว้ชั่วคราว (message_id -> timestamp ที่ส่ง)
+# ใช้เช็คว่า "การตอบกลับ (reply)" ที่เข้ามา เป็นการตอบกลับข้อความที่แบ็คลี่พูดขึ้นเองหรือไม่
+_AUTONOMOUS_MESSAGE_TTL_SECONDS = 6 * 60 * 60  # ลืมทิ้งถ้าผ่านไปนานเกินนี้แล้วไม่มีใครมาตอบ
+_MAX_TRACKED_AUTONOMOUS_MESSAGES = 200  # กันดิกชันนารีบวมไม่จำกัดถ้าพูดถี่ผิดปกติ
+_autonomous_message_ids: dict[int, float] = {}
 
-def configure(bot, client, bagley_speak=None):
-    global _bot, _client, _bagley_speak
+
+def configure(bot, client, bagley_speak=None, get_realtime_name=None):
+    global _bot, _client, _bagley_speak, _get_realtime_name
     _bot = bot
     _client = client
     _bagley_speak = bagley_speak
+    _get_realtime_name = get_realtime_name
+
+
+def _calling_name(member) -> str:
+    """ชื่อที่ควรใช้เรียกสมาชิกคนนี้ — เช็คจาก 'คลังความจำ' (ชื่อเล่นที่บันทึกไว้) ก่อนเสมอ
+    ผ่าน get_realtime_name ที่ส่งเข้ามาตอน configure() ถ้าไม่มีชื่อเล่นบันทึกไว้ (หรือยังไม่ได้ configure)
+    ค่อย fallback ไปใช้ display_name บนดิสคอร์ดตามปกติ
+    """
+    if _get_realtime_name is not None:
+        try:
+            return _get_realtime_name(member.id, member.display_name)
+        except Exception as e:
+            print(f"⚠️ [Autonomy] ดึงชื่อจากคลังความจำพลาด: {e}")
+    return member.display_name
+
+
+def _remember_autonomous_message(message_id: int):
+    """จดจำ message.id ของข้อความที่แบ็คลี่พูดขึ้นเอง ไว้ให้ is_reply_to_autonomous_message() เช็คทีหลัง"""
+    now = time.time()
+    _autonomous_message_ids[message_id] = now
+    # 🧹 เก็บกวาดตัวที่เก่าเกิน TTL ทิ้ง กันดิกชันนารีบวมไม่จำกัด
+    expired_ids = [mid for mid, ts in _autonomous_message_ids.items() if now - ts > _AUTONOMOUS_MESSAGE_TTL_SECONDS]
+    for mid in expired_ids:
+        _autonomous_message_ids.pop(mid, None)
+    # 🧹 ถ้ายังล้นเกินจำนวนสูงสุดอยู่ดี (เช่นพูดถี่ผิดปกติ) ให้ทิ้งตัวที่เก่าสุดออกไปเรื่อยๆ
+    while len(_autonomous_message_ids) > _MAX_TRACKED_AUTONOMOUS_MESSAGES:
+        oldest_id = min(_autonomous_message_ids, key=_autonomous_message_ids.get)
+        _autonomous_message_ids.pop(oldest_id, None)
+
+
+def is_reply_to_autonomous_message(message) -> bool:
+    """เช็คว่าข้อความนี้เป็นการ 'ตอบกลับ (reply)' ข้อความที่แบ็คลี่พูดขึ้นมาเองจาก autonomy_loop หรือไม่
+    ใช้ให้ on_message ของ bot.py รู้ว่าควรถือว่า 'มีคนคุยกับแบ็คลี่ตรงๆ' แล้ว แม้ผู้ใช้จะไม่ได้
+    เอ่ยชื่อ/แท็กบอทตรงๆ ในข้อความที่ตอบกลับมาเลยก็ตาม
+    """
+    ref = getattr(message, "reference", None)
+    if ref is None or getattr(ref, "message_id", None) is None:
+        return False
+    return ref.message_id in _autonomous_message_ids
 
 
 def _describe_voice_state(guild) -> str:
@@ -55,11 +113,13 @@ def _describe_voice_state(guild) -> str:
             continue
         member_descriptions = []
         for m in members[:8]:
+            # 🗂️ ใช้ชื่อจากคลังความจำ (ชื่อเล่นที่บันทึกไว้) ก่อนเสมอ ถ้าไม่มีค่อย fallback เป็น display_name
+            calling_name = _calling_name(m)
             activity_text = _describe_activity(m)
             if activity_text:
-                member_descriptions.append(f"{m.display_name} (กำลัง{activity_text})")
+                member_descriptions.append(f"{calling_name} (กำลัง{activity_text})")
             else:
-                member_descriptions.append(m.display_name)
+                member_descriptions.append(calling_name)
         parts.append(f"ห้องเสียง '{vc.name}' มี {len(members)} คน ({', '.join(member_descriptions)})")
     if not parts:
         return "ตอนนี้ไม่มีใครอยู่ในห้องเสียงเลย"
@@ -98,6 +158,8 @@ async def _decide(guild, lines: list[str], bot_in_voice: bool) -> dict | None:
         "แต่พอพูดแล้วมันน่าฟัง ทำให้ห้องดูมีชีวิตขึ้น ไม่ใช่พูดเพื่อเรียกร้องความสนใจ\n"
         f"สิ่งที่คุณรู้เกี่ยวกับกลุ่มนี้จากก่อนหน้า: {insights}\n"
         f"สถานะห้องเสียงตอนนี้: {voice_state}\n"
+        "หมายเหตุ: ชื่อคนที่ปรากฏด้านบนถูกดึงมาจากคลังความจำ/ชื่อเล่นที่บันทึกไว้แล้ว "
+        "ถ้าจะเอ่ยถึงใครในข้อความที่จะพูด ให้ใช้ชื่อตามที่ให้มานี้เป๊ะๆ ห้ามเปลี่ยนหรือแต่งชื่อขึ้นมาเอง\n"
         "ข้อความล่าสุดในห้องแชท:\n" + "\n".join(lines) + "\n\n"
         "พิจารณาว่าคุณ 'อยาก' พูดอะไรแทรกเข้าไปเองมั้ยตอนนี้ — ใช้ทั้งบทสนทนาในแชทและสถานะห้องเสียงช่วยตัดสินใจ "
         "(เช่น มีอะไรน่าสนใจในแชท, ห้องเสียงมีคนมานั่งกันเยอะแต่เงียบไม่มีใครคุย, มีคนพูดถึงเรื่องที่คุณรู้, "
@@ -146,8 +208,11 @@ async def autonomy_loop():
 
         message = result["message"]
         try:
-            await channel.send(message)
+            sent_msg = await channel.send(message)
             _last_spoke_at[channel_id] = now
+            # 💬 จดจำ message.id ไว้ เผื่อมีคน "ตอบกลับ (reply)" ข้อความนี้ทีหลัง
+            # จะได้รู้ว่าคือการตอบกลับแบ็คลี่ ไม่ต้องให้คนพิมพ์เอ่ยชื่อ/แท็กบอทซ้ำอีกรอบ
+            _remember_autonomous_message(sent_msg.id)
             print(f"🌱 [Autonomy] พูดเองในห้อง {channel.name}: {message}")
         except Exception as e:
             print(f"⚠️ [Autonomy] พูดเองไม่ได้: {e}")

@@ -2200,7 +2200,7 @@ async def execute_dm_call(ctx_or_interaction, host_member: discord.Member, targe
     # 🔒 กันเรียกซ้ำ/ทับกัน: กันไม่ให้มีการส่ง DM เชิญคนคนเดียวกันในกิลด์นี้ซ้อนกันสองรอบ
     call_key = (guild.id, target_member.id)
     if call_key in active_dm_calls:
-        await _reply(f"เพิ่งส่งสัญญาณไปเรียกคุณ {target_member.display_name} ทาง DM ไปแล้วครับ รอเขาตอบรับก่อนนะครับ ยังไม่ต้องเรียกซ้ำ 🙏")
+        await _reply(f"เพิ่งส่งสัญญาณไปเรียกคุณ {get_realtime_name(target_member.id, target_member.display_name)} ทาง DM ไปแล้วครับ รอเขาตอบรับก่อนนะครับ ยังไม่ต้องเรียกซ้ำ 🙏")
         return
 
     can_act, rem = await check_shared_voice_quota(host_member.id, guild)
@@ -2242,8 +2242,8 @@ async def execute_dm_call(ctx_or_interaction, host_member: discord.Member, targe
         try:
             view = GatherView()
             await target_member.send(
-                f"🔔 **สวัสดีครับคุณ {target_member.display_name}**\n"
-                f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากคุณ **{host_member.display_name}** ในดิส `{guild_name}`\n"
+                f"🔔 **สวัสดีครับคุณ {get_realtime_name(target_member.id, target_member.display_name)}**\n"
+                f"ผมแบ็คลี่นะครับ มีสัญญาณเรียกตัวด่วนจากคุณ **{get_realtime_name(host_member.id, host_member.display_name)}** ในดิส `{guild_name}`\n"
                 f"รบกวนตามไปพบกันที่ห้อง {current_channel.mention} หน่อยน้าครับ! 👇",
                 view=view
             )
@@ -2412,13 +2412,13 @@ async def execute_remember_logic(message):
             fetched_user = await bot.fetch_user(target_id)
             if fetched_user:
                 target_user = fetched_user
-                target_display_name = fetched_user.display_name
+                target_display_name = get_realtime_name(fetched_user.id, fetched_user.display_name)
         except:
             target_display_name = f"ID: {target_id}"
             
     elif message.mentions:
         target_user = message.mentions[0]
-        target_display_name = target_user.display_name
+        target_display_name = get_realtime_name(target_user.id, target_user.display_name)
 
     if target_user:
         target_id_str = str(target_user.id) if hasattr(target_user, 'id') else str(target_id)
@@ -2487,7 +2487,7 @@ class KickVoiceSelect(ui.UserSelect):
         self.view.stop()
         
         guild_id = interaction.guild_id
-        member_names = ", ".join([m.display_name for m in targets])
+        member_names = ", ".join([get_realtime_name(m.id, m.display_name) for m in targets])
         
         await interaction.response.send_message(
             f"รับทราบครับ! ล็อกเป้าหมายเรียบร้อย แบ็คลี่ตั้งนาฬิกาปลุกไว้ที่เวลา **{self.target_time_str}** "
@@ -2502,7 +2502,7 @@ class KickVoiceSelect(ui.UserSelect):
                 if member.voice and member.voice.channel and member.voice.channel.guild.id == guild_id:
                     try:
                         await member.move_to(None, reason=f"แบ็คลี่เคลียร์ก๊วนนอนหลับเมื่อถึงเวลา {self.target_time_str} ครับ")
-                        await interaction.channel.send(f"💥 ถึงเวลา {self.target_time_str} แล้ว! ดีดคุณ **{member.display_name}** ออกจากห้องเสียงเรียบร้อยครับ!")
+                        await interaction.channel.send(f"💥 ถึงเวลา {self.target_time_str} แล้ว! ดีดคุณ **{get_realtime_name(member.id, member.display_name)}** ออกจากห้องเสียงเรียบร้อยครับ!")
                     except Exception:
                         pass
             except asyncio.CancelledError:
@@ -2545,7 +2545,7 @@ class CancelVoiceSelect(ui.UserSelect):
             if key in active_kick_tasks:
                 active_kick_tasks[key].cancel()
                 active_kick_tasks.pop(key, None)
-                cancelled_members.append(member.display_name)
+                cancelled_members.append(get_realtime_name(member.id, member.display_name))
 
         if cancelled_members:
             names = ", ".join(cancelled_members)
@@ -2633,7 +2633,7 @@ class GroupMoveView(ui.View):
 
         # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัป)
         member_options = [
-            discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
+            discord.SelectOption(label=get_realtime_name(m.id, m.display_name), value=str(m.id), emoji="👤")
             for m in members if not m.bot
         ][:25]
         
@@ -2760,7 +2760,7 @@ class GroupMoveView(discord.ui.View):
 
         # 👥 ดึงรายชื่อเพื่อน (ตัดเอาไม่เกิน 25 คนตามกฎ Discord คัป)
         member_options = [
-            discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
+            discord.SelectOption(label=get_realtime_name(m.id, m.display_name), value=str(m.id), emoji="👤")
             for m in members if not m.bot
         ][:25]
         
@@ -2889,7 +2889,7 @@ class PartyCreateView(discord.ui.View):
 
         # สร้างเมนูเลือกเพื่อน (เลือกได้หลายคน)
         member_options = [
-            discord.SelectOption(label=m.display_name, value=str(m.id), emoji="👤")
+            discord.SelectOption(label=get_realtime_name(m.id, m.display_name), value=str(m.id), emoji="👤")
             for m in self.members_in_channel if not m.bot
         ]
         
@@ -3286,7 +3286,7 @@ async def on_ready():
         if not bagley_learning.learning_loop.is_running():
             bagley_learning.learning_loop.start()
 
-        bagley_autonomy.configure(bot, client, bagley_speak)
+        bagley_autonomy.configure(bot, client, bagley_speak, get_realtime_name)
         if not bagley_autonomy.autonomy_loop.is_running():
             bagley_autonomy.autonomy_loop.start()
 
@@ -3451,7 +3451,7 @@ async def on_message(message):
     # ==========================================
     # 🧠 [ระบบเรียนรู้] สะสมข้อความในห้องไว้ให้ AI สรุปเป็น insight เป็นระยะ (ไม่ใช่ทุกข้อความที่คุยกับแบ็คลี่)
     if not message.author.bot and message.content.strip():
-        bagley_learning.track_message(message.channel.id, message.author.display_name, message.content)
+        bagley_learning.track_message(message.channel.id, get_realtime_name(message.author.id, message.author.display_name), message.content)
 
     stripped_for_ai = message.content.strip()
     if stripped_for_ai and not stripped_for_ai.startswith(bot.command_prefix):
@@ -3459,6 +3459,9 @@ async def on_message(message):
             message.guild is None
             or is_from_my_webhook
             or is_message_addressed_to_bagley(lower_content)
+            # 💬 นับว่า "เรียกบอท" ด้วย ถ้าเป็นการตอบกลับ (reply) ข้อความที่แบ็คลี่พูดขึ้นเองก่อนหน้า
+            # (จาก bagley_autonomy) แม้ผู้ใช้จะไม่ได้เอ่ยชื่อ/แท็กบอทตรงๆ ในข้อความที่ตอบกลับมา
+            or bagley_autonomy.is_reply_to_autonomous_message(message)
         )
         if should_try_ai_command:
             # 🤝 [ระบบ Trust] นับว่าคนนี้คุยกับแบ็คลี่ตรงๆ อีกครั้ง (ใช้สะสมสิทธิ์ ephemeral tools)
@@ -3494,7 +3497,7 @@ async def on_message(message):
                                 delete_after=15
                             )
                             if message.guild and message.guild.voice_client:
-                                await bagley_speak(message.guild, f"แจ้งเตือนครับ มีการสแปมแชทโดยคุณ {message.author.display_name}")
+                                await bagley_speak(message.guild, f"แจ้งเตือนครับ มีการสแปมแชทโดยคุณ {get_realtime_name(message.author.id, message.author.display_name)}")
                         return
                     except discord.Forbidden: 
                         pass
@@ -3525,13 +3528,13 @@ async def on_message(message):
                 if message.mentions:
                     target_user = message.mentions[0]
                     target_user_id = target_user.id
-                    target_display_name = f"คุณ {target_user.display_name}"
+                    target_display_name = f"คุณ {get_realtime_name(target_user.id, target_user.display_name)}"
                 elif has_id:
                     target_user_id = int(has_id.group(1))
                     try:
                         fetched_user = await bot.fetch_user(target_user_id)
                         if fetched_user:
-                            target_display_name = f"คุณ {fetched_user.display_name}"
+                            target_display_name = f"คุณ {get_realtime_name(fetched_user.id, fetched_user.display_name)}"
                     except:
                         target_display_name = f"พรรคพวก ID: {target_user_id}"
                 elif message.guild is not None:
@@ -3542,7 +3545,7 @@ async def on_message(message):
                     )
                     if named_target:
                         target_user_id = named_target.id
-                        target_display_name = f"คุณ {named_target.display_name}"
+                        target_display_name = f"คุณ {get_realtime_name(named_target.id, named_target.display_name)}"
 
             if target_user_id:
                 try:
@@ -3569,7 +3572,7 @@ async def on_message(message):
                             reminders = load_reminders()
                             reminders.append({
                                 "target_id": str(target_user_id),
-                                "from": message.author.display_name,
+                                "from": get_realtime_name(message.author.id, message.author.display_name),
                                 "time": target_time,
                                 "text": note_text
                             })
@@ -3644,7 +3647,7 @@ async def on_message(message):
                     timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
                     
                     if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
-                        name = target_user.display_name
+                        name = get_realtime_name(target_user.id, target_user.display_name)
                         jokes = [
                             f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
                             f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
@@ -3656,7 +3659,7 @@ async def on_message(message):
                         return
 
                 if "หายไปไหน" in message.content or "ไปไหน" in message.content:
-                    reply = f"คุณ {target_user.display_name} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
+                    reply = f"คุณ {get_realtime_name(target_user.id, target_user.display_name)} ไม่ได้บอกอะไรไว้เลยครับ สงสัยจะหายตัวไปเฉยๆ!"
                     await message.channel.send(f"🤖 **[BAGLEY]**: {reply}")
                     await bagley_speak(message.guild, reply)
                     return
@@ -3709,7 +3712,7 @@ async def on_message(message):
                                         f"🎂 **วันเกิด:** {birthday} ครับ!")
                         await message.reply(response_msg)
                 else:
-                    await message.reply(f"ขออภัยครับ ผมยังไม่มีข้อมูลของ คุณ {target_user.display_name} ในฐานข้อมูลเลยครับ")
+                    await message.reply(f"ขออภัยครับ ผมยังไม่มีข้อมูลของ คุณ {get_realtime_name(target_user.id, target_user.display_name)} ในฐานข้อมูลเลยครับ")
             else:
                 await message.reply("ช่วย @Tag (Mention) เพื่อน หรือพิมพ์ใส่เลข ID ของคนที่อยากให้ผมเช็คประวัติด้วยน้าครับ!")
             return
@@ -4100,7 +4103,7 @@ async def on_message(message):
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นอธิบายและวิเคราะห์สิ่งที่เห็นในรูปภาพจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทกำลังชวนคุย
 
 ข้อมูลบุคคลที่คุณกำลังวิเคราะห์รูปภาพให้ในตอนนี้:
-- ชื่อในดิสคอร์ด: คุณ {message.author.display_name}
+- ชื่อในดิสคอร์ด: คุณ {get_realtime_name(message.author.id, message.author.display_name)}
 - สถานะสำคัญ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
 
 โจทย์: จงวิเคราะห์รูปภาพที่แนบมานี้ และตอบคำถามของคุณอย่างชาญฉลาด ช่างสังเกต แฝงอารมณ์ขันและมีความกวนโอ๊ยอย่างมีระดับ
@@ -4281,7 +4284,7 @@ async def on_message(message):
 - หน้าที่ของคุณคือ นำ 'ข้อความดิบ' ที่กำหนดให้ ไปเรียบเรียงใหม่ให้อยู่ในสไตล์การพูดของคุณอย่างแนบเนียน โดยห้ามบิดเบือนหรือเปลี่ยนความหมายเดิมของข้อความนั้น
 
 ข้อมูลบุคคลที่คุณกำลังคุยด้วยตอนนี้:
-- ชื่อในดิสคอร์ด: คุณ {message.author.display_name}
+- ชื่อในดิสคอร์ด: คุณ {get_realtime_name(message.author.id, message.author.display_name)}
 - สถานะพิเศษ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
 
 โจทย์: จงนำเนื้อหาข้อความดิบนี้: '{matched_response}' มาเรียบเรียงใหม่ให้เป็นคำพูดสไตล์กวนโอ๊ยอย่างมีระดับตามแบบฉบับของคุณครับ!
@@ -4318,7 +4321,14 @@ async def on_message(message):
     is_bot_called = False
     if message.guild is not None:
         # 🌟 [ปรับปรุง]: ถ้าเป็น Webhook ของชะอม หรือมีการเรียกชื่อบอท ให้เปิดสวิตช์คุยเล่นทันทีคัป!
-        if is_from_my_webhook or any(k in lower_content for k in ["แบ็คลี่", "bagley"]) or bot.user.mentioned_in(message):
+        if (
+            is_from_my_webhook
+            or any(k in lower_content for k in ["แบ็คลี่", "bagley"])
+            or bot.user.mentioned_in(message)
+            # 💬 ถ้าเป็นการตอบกลับ (reply) ข้อความที่แบ็คลี่พูดขึ้นเองก่อนหน้า ให้ถือว่าถูกเรียกด้วย
+            # จะได้รับรู้และตอบกลับได้เลย (ระบบข้างล่างจะพูดออกเสียงให้เองอยู่แล้วถ้าบอทอยู่ในห้องเสียง)
+            or bagley_autonomy.is_reply_to_autonomous_message(message)
+        ):
             is_bot_called = True
 
     if message.guild is None or is_bot_called:
@@ -4344,7 +4354,7 @@ async def on_message(message):
                     if msg.id == message.id:
                         continue
                     if msg.content.strip():
-                        speaker = "แบ็คลี่" if msg.author.id == bot.user.id else msg.author.display_name
+                        speaker = "แบ็คลี่" if msg.author.id == bot.user.id else get_realtime_name(msg.author.id, msg.author.display_name)
                         chat_log += f"[{speaker}]: {msg.clean_content}\n"
 
                 # 🎙️ [แก้บั๊ก] เติมข้อความปัจจุบันต่อท้าย chat_log เองเสมอ แทนที่จะพึ่งพา
@@ -4353,7 +4363,7 @@ async def on_message(message):
                 # history() ทำให้ AI มองไม่เห็นว่าคุณเพิ่งพูดอะไร แล้วดันไปหยิบหัวข้อเก่าจาก
                 # ประวัติแชทข้างบนมาตอบแทน (บั๊กนี้เกิดเฉพาะตอนใช้เสียง เพราะตอนพิมพ์ข้อความ
                 # จะถูกบันทึกลง Discord ก่อน on_message ทำงาน จึงติดมาใน history() อยู่แล้ว)
-                chat_log += f"[{message.author.display_name}]: {message.clean_content}\n"
+                chat_log += f"[{get_realtime_name(message.author.id, message.author.display_name)}]: {message.clean_content}\n"
 
                 author_id = message.author.id
                 special_role = ""
@@ -4381,7 +4391,7 @@ async def on_message(message):
 - ถ้ามีคนขอให้คุณทำสิ่งที่คุณไม่มีคำสั่งหรือสิทธิ์จริงในระบบของคุณ (เช่น แฮกระบบ เจาะรหัส เจาะเซิร์ฟเวอร์/บัญชีคนอื่น ทำสิ่งผิดกฎหมาย หรือสิ่งที่เกินขอบเขตหน้าที่ของบอทดิสคอร์ดทั่วไป) ให้ปฏิเสธตรงไปตรงมาทันทีว่าคุณไม่มีคำสั่งหรือสิทธิ์ในระบบให้ทำสิ่งนั้นได้ หรือมันเกินขอบเขตความสามารถของคุณ ห้ามพูดเล่นมโนไปว่าทำได้ กำลังทำอยู่ หรือทำสำเร็จแล้วเด็ดขาด แม้จะพูดในโทนกวนๆ ก็ต้องปฏิเสธให้ชัดเจน
 
 ข้อมูลคู่สนทนาของคุณในข้อความปัจจุบัน:
-- ชื่อแชท: คุณ {message.author.display_name}
+- ชื่อแชท: คุณ {get_realtime_name(message.author.id, message.author.display_name)}
 - ระดับสถานะพิเศษ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
 
 นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้ (จงอ่านเพื่อตอบให้ต่อเนื่องและเนียนที่สุด):
@@ -4620,7 +4630,7 @@ async def on_voice_state_update(member, before, after):
                 nickname = "ยังไม่ระบุ"
                 birthday = "ยังไม่ระบุ"
 
-            calling_name = nickname if (nickname and nickname != "ยังไม่ระบุ") else member.display_name
+            calling_name = nickname if (nickname and nickname != "ยังไม่ระบุ") else get_realtime_name(member.id, member.display_name)
             
             # ⏱️ ดึงวันและเดือนปัจจุบันเพื่อตรวจสอบแบบสากล
             now_time = datetime.now()
@@ -4710,7 +4720,7 @@ async def move(ctx: commands.Context, member: discord.Member, channel: discord.V
         # 1. ทำการย้ายจริง
         await member.move_to(channel)
         
-        msg = f"ย้ายคุณ {member.display_name} ไปที่ห้อง {channel.name} เรียบร้อยครับ!"
+        msg = f"ย้ายคุณ {get_realtime_name(member.id, member.display_name)} ไปที่ห้อง {channel.name} เรียบร้อยครับ!"
         
         # 2. ตอบกลับ (ใช้ ctx.send เพื่อให้รองรับทั้ง Slash และข้อความปกติ)
         await ctx.send(msg)
@@ -5345,16 +5355,16 @@ async def kick_voice(ctx, member: discord.Member):
     if member.voice:
         await member.move_to(None) # เตะออก
         
-        msg = f"รับทราบครับ! ผมจัดการเขี่ย {member.display_name} ออกจากห้องเสียงให้แล้ว"
+        msg = f"รับทราบครับ! ผมจัดการเขี่ย {get_realtime_name(member.id, member.display_name)} ออกจากห้องเสียงให้แล้ว"
         
         # เช็คว่าบอทไม่ได้เล่นเพลงอยู่ ถึงจะพูดออกมาได้
         if not ctx.voice_client or not ctx.voice_client.is_playing():
-            await bagley_speak(ctx.guild, f"จัดการเขี่ย {member.display_name} ออกไปให้แล้วครับ")
+            await bagley_speak(ctx.guild, f"จัดการเขี่ย {get_realtime_name(member.id, member.display_name)} ออกไปให้แล้วครับ")
             
         await ctx.send(msg)
     else:
         # ถ้าเขาไม่อยู่ในห้องเสียง ก็ส่งแค่ข้อความแชทปกติ
-        await ctx.send(f"คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงนะครับ")
+        await ctx.send(f"คุณ {get_realtime_name(member.id, member.display_name)} ไม่ได้อยู่ในห้องเสียงนะครับ")
 
 # --- 1. หน้าตาปุ่ม ✅/❌ ที่จะไปโผล่ใน DM ของเพื่อน (เวอร์ชันส่งลิงก์ห้องเสียงเมื่อกดตกลง) ---
 class GatherResponseView(ui.View):
@@ -5448,7 +5458,7 @@ class RoleSelect(discord.ui.RoleSelect):
         
                 # สร้าง Embed สวยๆ
                 embed = discord.Embed(title="🔔 มีสัญญาณเรียกตัวด่วน!", color=discord.Color.gold())
-                embed.description = f"คุณ **{self.author.display_name}** กำลังเรียกหารวมพล!"
+                embed.description = f"คุณ **{get_realtime_name(self.author.id, self.author.display_name)}** กำลังเรียกหารวมพล!"
                 embed.add_field(name="ภารกิจ", value=f"**{self.topic}**", inline=False)
                 embed.add_field(name="นัดหมายเวลา", value=f"`{self.time}`", inline=True)
                 embed.set_footer(text="กรุณากดปุ่มเพื่อยืนยันสถานะครับ")
@@ -5485,7 +5495,7 @@ class MemberSelect(discord.ui.UserSelect):
             try:
                 view = GatherResponseView(self.author, self.topic, interaction.guild, self.time, interaction.channel.id)
                 embed = discord.Embed(title="🔔 มีสัญญาณเรียกตัวด่วน!", color=discord.Color.gold())
-                embed.description = f"คุณ **{self.author.display_name}** กำลังเรียกหาคุณเป็นการส่วนตัว!"
+                embed.description = f"คุณ **{get_realtime_name(self.author.id, self.author.display_name)}** กำลังเรียกหาคุณเป็นการส่วนตัว!"
                 embed.add_field(name="ภารกิจ", value=f"**{self.topic}**", inline=False)
                 embed.add_field(name="นัดหมายเวลา", value=f"`{self.time}`", inline=True)
                 
@@ -5749,7 +5759,7 @@ async def mute_sleep(ctx, member: discord.Member):
     if member.voice:
         try:
             await member.edit(mute=True) # สั่ง Server Mute
-            msg = f"ปิดไมค์คุณ {member.display_name} เรียบร้อยครับ เห็นว่าหลับปุ๋ยเชียว!"
+            msg = f"ปิดไมค์คุณ {get_realtime_name(member.id, member.display_name)} เรียบร้อยครับ เห็นว่าหลับปุ๋ยเชียว!"
             await ctx.send(f"🔇 **{msg}**")
             
             # ส่งเสียง TTS บอกในห้อง
@@ -5775,7 +5785,7 @@ async def unmute_me(ctx):
     if member.voice and member.voice.mute:
         try:
             await member.edit(mute=False) # ปลด Server Mute
-            await ctx.send(f"🔊 ยินดีต้อนรับกลับมาครับ {member.display_name}! ผมเปิดไมค์ให้แล้ว")
+            await ctx.send(f"🔊 ยินดีต้อนรับกลับมาครับ {get_realtime_name(member.id, member.display_name)}! ผมเปิดไมค์ให้แล้ว")
         except Exception as e:
             await ctx.send("ดูเหมือนผมจะปลดไมค์ให้ไม่ได้นะครับ")
     else:
@@ -5787,7 +5797,7 @@ async def unmute_member(ctx, member: discord.Member):
     if member.voice and member.voice.mute:
         try:
             await member.edit(mute=False) # ปลด Server Mute
-            msg = f"เปิดไมค์ให้คุณ {member.display_name} เรียบร้อยแล้วครับ!"
+            msg = f"เปิดไมค์ให้คุณ {get_realtime_name(member.id, member.display_name)} เรียบร้อยแล้วครับ!"
             await ctx.send(f"🔊 **{msg}**")
             
             # ส่งเสียง TTS รายงานผล (เสียงคุณนิวัท)
@@ -5848,15 +5858,15 @@ async def create_party(ctx, name: str):
 async def deaf_work(ctx, member: discord.Member):
     # เช็คว่าอยู่ในห้องเสียงไหม
     if not member.voice:
-        return await ctx.send(f"❌ คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับ")
+        return await ctx.send(f"❌ คุณ {get_realtime_name(member.id, member.display_name)} ไม่ได้อยู่ในห้องเสียงครับ")
     
     # เช็คว่าเขาปิดหูฟังอยู่แล้วหรือเปล่า (Error Check)
     if member.voice.deaf:
-        return await ctx.send(f"🎧 คุณ {member.display_name} ปิดหูฟังอยู่แล้วครับ")
+        return await ctx.send(f"🎧 คุณ {get_realtime_name(member.id, member.display_name)} ปิดหูฟังอยู่แล้วครับ")
 
     try:
         await member.edit(deafen=True)
-        msg = f"ปิดหูฟังให้คุณ {member.display_name} เรียบร้อยครับ!"
+        msg = f"ปิดหูฟังให้คุณ {get_realtime_name(member.id, member.display_name)} เรียบร้อยครับ!"
         await ctx.send(f"🎧 **{msg}**")
         
         # ระบบพูด TTS เสียงคุณนิวัท (ถ้าไม่ได้เล่นเพลงอยู่)
@@ -5879,7 +5889,7 @@ async def undeaf_me(ctx):
 
     try:
         await member.edit(deafen=False) # ปลด Server Deafen
-        await ctx.send(f"🎧 ยินดีต้อนรับกลับสู่โลกแห่งเสียงครับ {member.display_name}!")
+        await ctx.send(f"🎧 ยินดีต้อนรับกลับสู่โลกแห่งเสียงครับ {get_realtime_name(member.id, member.display_name)}!")
         
         # ส่งเสียงทักทายหน่อย
         if ctx.voice_client and not is_playing_music:
@@ -5891,15 +5901,15 @@ async def undeaf_me(ctx):
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def undeaf_member(ctx, member: discord.Member):
     if not member.voice:
-        return await ctx.send(f"❌ คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับ")
+        return await ctx.send(f"❌ คุณ {get_realtime_name(member.id, member.display_name)} ไม่ได้อยู่ในห้องเสียงครับ")
     
     # เช็คว่าเขาเปิดหูฟังอยู่แล้วหรือเปล่า
     if not member.voice.deaf:
-        return await ctx.send(f"🔊 หูฟังของคุณ {member.display_name} ก็เปิดอยู่แล้วนะ")
+        return await ctx.send(f"🔊 หูฟังของคุณ {get_realtime_name(member.id, member.display_name)} ก็เปิดอยู่แล้วนะ")
 
     try:
         await member.edit(deafen=False)
-        await ctx.send(f"🎧 ปลดหูฟังให้คุณ {member.display_name} เรียบร้อย!")
+        await ctx.send(f"🎧 ปลดหูฟังให้คุณ {get_realtime_name(member.id, member.display_name)} เรียบร้อย!")
         if ctx.voice_client and not is_playing_music:
             await bagley_speak(ctx.guild, f"เปิดหูฟังให้เพื่อนเรียบร้อยครับ")
     except Exception as e:
@@ -5926,7 +5936,7 @@ async def shutdown_all(ctx: commands.Context):
         return
 
     await ctx.send(
-        f"🛸 **[DEDSEC REMOTE HACK]** รับทราบครับคุณ **{ctx.author.display_name}**! กำลังปิดระบบแบ็คลี่ และ Shut Down คอมพิวเตอร์ใน 5 วินาที... 💻💤"
+        f"🛸 **[DEDSEC REMOTE HACK]** รับทราบครับคุณ **{get_realtime_name(ctx.author.id, ctx.author.display_name)}**! กำลังปิดระบบแบ็คลี่ และ Shut Down คอมพิวเตอร์ใน 5 วินาที... 💻💤"
     )
 
     await asyncio.sleep(5.0)
@@ -5945,7 +5955,7 @@ async def update_bot(ctx: commands.Context):
     await ctx.defer()
     
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     start_time = time.time()
@@ -6082,7 +6092,7 @@ async def profile_scan(ctx, member: discord.Member):
     elif target_id == 732953446172327956:
         relationship_context += "- เป้าหมายที่กำลังโดนสแกนคือ คุณบอล (เจ้านายสายอัปเดตและปรับโค้ดระบบให้คุณ) จงวิเคราะห์ในฐานะคู่หูสายเทคนิคอลที่นับถือและพึ่งพาได้\n"
     else:
-        relationship_context += f"- เป้าหมายคือ คุณ {member.display_name} ซึ่งเป็นสมาชิกทั่วไปในเซิร์ฟเวอร์ สามารถใช้มุกตลกหน้าตายสไตล์อังกฤษแซะขี้เล่นได้ตามความเหมาะสม\n"
+        relationship_context += f"- เป้าหมายคือ คุณ {get_realtime_name(member.id, member.display_name)} ซึ่งเป็นสมาชิกทั่วไปในเซิร์ฟเวอร์ สามารถใช้มุกตลกหน้าตายสไตล์อังกฤษแซะขี้เล่นได้ตามความเหมาะสม\n"
 
     prompt = f"""
 คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์จาก watch dogs legion มีไหวพริบ พึ่งพาได้
@@ -6123,7 +6133,7 @@ Voice: [คำพูดรายงานสรุปให้คุณฟัง
     except Exception as e:
         print(f"AI Error: {e}")
         analysis_report = "ระบบป้องกันของเป้าหมายสูงเกินไป สแกนได้ไม่สมบูรณ์ครับ"
-        voice_report = f"สแกนข้อมูลของคุณ {member.display_name} เรียบร้อยครับ"
+        voice_report = f"สแกนข้อมูลของคุณ {get_realtime_name(member.id, member.display_name)} เรียบร้อยครับ"
 
     # --- 3. ส่ง Embed (หน้าจอรายงานผลที่มีชื่อเล่นและวันเกิด) ---
     embed = discord.Embed(title=f"📁 [PROFILER V.3] TARGET ANALYSIS: {member.display_name}", color=0x00ff00)
@@ -6191,9 +6201,9 @@ async def on_member_join(member):
     if voice_client and voice_client.is_connected() and not voice_client.is_playing():
         
         if is_suspicious:
-            voice_report = f"ครับ! ตรวจพบไอดีผีชื่อ {member.display_name} เพิ่งสมัครมาได้แค่ {account_age_days} วัน แฝงตัวเข้ามาในเซิร์ฟเวอร์ครับ ระวังตัวด้วยนะ!"
+            voice_report = f"ครับ! ตรวจพบไอดีผีชื่อ {get_realtime_name(member.id, member.display_name)} เพิ่งสมัครมาได้แค่ {account_age_days} วัน แฝงตัวเข้ามาในเซิร์ฟเวอร์ครับ ระวังตัวด้วยนะ!"
         else:
-            voice_report = f"มีพรรคพวกใหม่ชื่อ {member.display_name} เชื่อมต่อเข้ามาในเซิร์ฟเวอร์ครับ ดูเหมือนจะเป็นพลเมืองปกติดีครับ"
+            voice_report = f"มีพรรคพวกใหม่ชื่อ {get_realtime_name(member.id, member.display_name)} เชื่อมต่อเข้ามาในเซิร์ฟเวอร์ครับ ดูเหมือนจะเป็นพลเมืองปกติดีครับ"
         
         # สั่งให้แบ็คลี่พูด
         await bagley_speak(member.guild, voice_report)
@@ -6247,7 +6257,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
             vc = await target_channel.connect()
 
         # แจ้งในช่องแชททันทีหลังจากก้าวเท้าเข้าห้องเสียง
-        await ctx.send(f"รับทราบครับ! ผมจะไปอยู่เป็นเพื่อนคุณ {member.display_name} เดี๋ยวนี้แหละ")
+        await ctx.send(f"รับทราบครับ! ผมจะไปอยู่เป็นเพื่อนคุณ {get_realtime_name(member.id, member.display_name)} เดี๋ยวนี้แหละ")
 
         # เล่นเสียงเปิดตัว (เฟดเสียง)
         audio_source = discord.PCMVolumeTransformer(
@@ -6269,14 +6279,14 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
             vc.stop()
 
         # เตรียมคำพูด
-        msg = (f"ไฮแจ๊คสำเร็จ สวัสดีครับ คุณ {member.display_name} คุณ {ctx.author.display_name} ส่งผมมาอยู่เป็นเพื่อนคุณครับ "
+        msg = (f"ไฮแจ๊คสำเร็จ สวัสดีครับ คุณ {get_realtime_name(member.id, member.display_name)} คุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} ส่งผมมาอยู่เป็นเพื่อนคุณครับ "
                f"หากมีอะไรให้ช่วยเรื่องคำสั่ง ค้นหาข้อมูล หรืออยากพูดคุย "
                f"สามารถเรียกหาผม แบ็คลี่ ได้ตลอดเลยนะครับ ผมประจำการอยู่ตรงนี้แล้วครับ!")
 
         await bagley_speak_wait(ctx.guild, msg)
         
     else:
-        await ctx.send(f"คุณ {member.display_name} ไม่ได้อยู่ในห้องเสียงครับ ผมคงแอบวาร์ปไปหาไม่ได้")
+        await ctx.send(f"คุณ {get_realtime_name(member.id, member.display_name)} ไม่ได้อยู่ในห้องเสียงครับ ผมคงแอบวาร์ปไปหาไม่ได้")
 
 @bot.hybrid_command(name="alarm", description="ตั้งเวลาปลุกเพื่อน (เช่น 07:00 หรือ 16:30)")
 async def alarm(
@@ -6303,7 +6313,7 @@ async def alarm(
 
         wait_seconds = (target_datetime - now).total_seconds()
 
-        await ctx.send(f"รับทราบครับ! ผมจะตั้งนาฬิกาปลุกไว้ที่เวลา {clean_time} และจะแจ้งคุณ {member.display_name} ทันทีครับ")
+        await ctx.send(f"รับทราบครับ! ผมจะตั้งนาฬิกาปลุกไว้ที่เวลา {clean_time} และจะแจ้งคุณ {get_realtime_name(member.id, member.display_name)} ทันทีครับ")
 
         await asyncio.sleep(wait_seconds)
 
@@ -6340,7 +6350,7 @@ async def alarm(
                 if ctx.voice_client is None or not active_alarms.get(guild_id, False):
                     break
 
-                msg = f"คุณ {member.display_name} ครับ ขณะนี้เวลา {clean_time} แล้วนะครับ คุณ {ctx.author.display_name} ฝากให้ผมมาปลุกคุณด้วยข้อความว่า: {message}"
+                msg = f"คุณ {get_realtime_name(member.id, member.display_name)} ครับ ขณะนี้เวลา {clean_time} แล้วนะครับ คุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} ฝากให้ผมมาปลุกคุณด้วยข้อความว่า: {message}"
                 await bagley_speak_wait(ctx.guild, msg)
 
                 for _ in range(20):
@@ -6353,7 +6363,7 @@ async def alarm(
             print(f"🛑 [Bagley] ปิดระบบลูปนาฬิกาปลุกในเซิร์ฟเวอร์ {ctx.guild.name} เรียบร้อย")
             
         else:
-            await ctx.send(f"ถึงเวลา {clean_time} แล้วครับ แต่ดูเหมือนคุณ {member.display_name} จะไม่อยู่ในห้องเสียงแล้ว")
+            await ctx.send(f"ถึงเวลา {clean_time} แล้วครับ แต่ดูเหมือนคุณ {get_realtime_name(member.id, member.display_name)} จะไม่อยู่ในห้องเสียงแล้ว")
 
     except ValueError:
         await ctx.send("คุณใส่รูปแบบเวลาผิดครับ! กรุณาใส่เป็น HH:MM หรือ HH.MM (เช่น 07:00 หรือ 7.30) นะครับ")
@@ -6409,16 +6419,16 @@ async def clear_user_reminders(ctx: commands.Context, member: discord.Member):
             data["alarms"] = [a for a in data["alarms"] if a["user_id"] != target_id_str]
             
         save_user_data(data)
-        await ctx.send(f"รับทราบครับ! ลบรายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของ คุณ {member.display_name} ให้เรียบร้อยแล้วครับ")
+        await ctx.send(f"รับทราบครับ! ลบรายการแจ้งเตือนและนาฬิกาปลุกทั้งหมดของ คุณ {get_realtime_name(member.id, member.display_name)} ให้เรียบร้อยแล้วครับ")
     else:
-        await ctx.send(f"ไม่พบรายการแจ้งเตือนหรือนาฬิกาปลุกของ คุณ {member.display_name} ในระบบครับ")
+        await ctx.send(f"ไม่พบรายการแจ้งเตือนหรือนาฬิกาปลุกของ คุณ {get_realtime_name(member.id, member.display_name)} ในระบบครับ")
 
 @bot.hybrid_command(name="teach", description="สอนให้แบ็คลี่จำคีย์เวิร์ดคำถามและคำตอบ")
 async def teach(ctx: commands.Context, keyword: str, response: str):
     await ctx.defer()
 
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     clean_keyword = keyword.lower().strip()
@@ -6441,7 +6451,7 @@ async def teach(ctx: commands.Context, keyword: str, response: str):
 @bot.hybrid_command(name="unteach", description="สั่งให้แบ็คลี่ลืมคีย์เวิร์ดคำถามที่ไม่ต้องการ")
 async def unteach(ctx: commands.Context, keyword: str):
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     await ctx.defer(ephemeral=False)
@@ -6467,7 +6477,7 @@ async def list_teach(ctx: commands.Context):
     await ctx.defer()
 
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
         return
 
     global conn
@@ -6510,7 +6520,7 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
     # 🔒 จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้น เหมือนกับคำสั่ง teach
     if ctx.author.id not in ALLOWED_TEACH_USERS:
         await ctx.send(
-            f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
+            f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
             f"หากต้องการแก้ไขชื่อเล่นหรือวันเกิดของตัวเอง สามารถพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
         )
         return
@@ -6534,7 +6544,7 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
         return
 
     target_id_str = str(target_user.id)
-    target_display_name = getattr(target_user, "display_name", None) or target_user.name
+    target_display_name = get_realtime_name(target_user.id, getattr(target_user, "display_name", None) or target_user.name)
     clean_info = info.strip()
 
     if not clean_info:
@@ -6637,9 +6647,9 @@ async def forget(ctx: commands.Context, target: discord.User = None):
         if target_id in data_memory:
             del data_memory[target_id]
             save_user_data(data_memory)
-            reply_text = f"เรียบร้อยครับ! ผมกวาดข้อมูลของ คุณ {target.display_name} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับ!"
+            reply_text = f"เรียบร้อยครับ! ผมกวาดข้อมูลของ คุณ {get_realtime_name(target.id, target.display_name)} ออกจากสมองกลเกลี้ยงตับ สะอาดสะอ้านเหมือนไม่เคยรู้จักกันมาก่อนเลยครับ!"
         else:
-            reply_text = f"เอ่อ... ครับ ในสมองผมไม่มีข้อมูลของ คุณ {target.display_name} อยู่เลยสักเมกะไบต์ จะให้ผมลบความว่างเปล่าเหรอครับ!"
+            reply_text = f"เอ่อ... ครับ ในสมองผมไม่มีข้อมูลของ คุณ {get_realtime_name(target.id, target.display_name)} อยู่เลยสักเมกะไบต์ จะให้ผมลบความว่างเปล่าเหรอครับ!"
 
     # 👤 เคสที่ 2: สั่งให้ลบข้อมูลของ "ตัวเอง"
     else:
@@ -6677,7 +6687,7 @@ async def sys_cleanup(ctx: commands.Context):
         await ctx.interaction.response.defer()
     
     if ctx.author.id not in ALLOWED_TEACH_USERS:
-        msg_denied = f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {ctx.author.display_name} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸"
+        msg_denied = f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸"
         if ctx.interaction:
             await ctx.interaction.followup.send(msg_denied)
         else:
@@ -6712,7 +6722,7 @@ async def unfollow_me(ctx: commands.Context):
     user_id = ctx.author.id
     if user_id in ALLOWED_USERS:
         auto_follow_status[user_id] = False
-        await ctx.send(f"รับทราบครับ! แบ็คลี่ปิดระบบเดินตามของ {ctx.author.display_name} เรียบร้อยครับ (ท่านอื่นยังตามปกติอยู่น้า)")
+        await ctx.send(f"รับทราบครับ! แบ็คลี่ปิดระบบเดินตามของ {get_realtime_name(ctx.author.id, ctx.author.display_name)} เรียบร้อยครับ (ท่านอื่นยังตามปกติอยู่น้า)")
     else:
         await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะผู้มีสิทธิ์ใช้งานเท่านั้นครับ!")
 
@@ -6721,7 +6731,7 @@ async def follow_me(ctx: commands.Context):
     user_id = ctx.author.id
     if user_id in ALLOWED_USERS:
         auto_follow_status[user_id] = True
-        await ctx.send(f"ระบบ Neural Link เชื่อมต่อใหม่! แบ็คลี่เปิดระบบเดินตามของ {ctx.author.display_name} พร้อมสแตนด์บายแล้วครับ!")
+        await ctx.send(f"ระบบ Neural Link เชื่อมต่อใหม่! แบ็คลี่เปิดระบบเดินตามของ {get_realtime_name(ctx.author.id, ctx.author.display_name)} พร้อมสแตนด์บายแล้วครับ!")
     else:
         await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะผู้มีสิทธิ์ใช้งานเท่านั้นครับ!")
 
@@ -7082,7 +7092,7 @@ async def schedule_list(ctx: commands.Context):
             f"📅 **{s.get('date', 'ไม่ระบุวันที่')}** ⏰ **{s.get('time', 'ไม่ระบุเวลา')}** — 📌 {s.get('event', 'ไม่ระบุกิจกรรม')}"
             for s in my_schedules_sorted
         ]
-        title_text = f"🗂️ ตารางนัดหมายของคุณ {ctx.author.display_name}"
+        title_text = f"🗂️ ตารางนัดหมายของคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)}"
 
         view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
         view.message = await ctx.send(
@@ -7228,7 +7238,7 @@ class TeamSplitView(discord.ui.View):
 
         # ค่าเริ่มต้น = เลือกทุกคนในห้องไว้ก่อน (ไม่เกิน 25 คนตามกฎ Discord)
         member_options = [
-            discord.SelectOption(label=m.display_name, value=str(m.id), emoji="🎮", default=True)
+            discord.SelectOption(label=get_realtime_name(m.id, m.display_name), value=str(m.id), emoji="🎮", default=True)
             for m in members if not m.bot
         ][:25]
 
