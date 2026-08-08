@@ -199,6 +199,19 @@ _PARAM_RESOLVERS = {
 # ฟังก์ชันหลัก: เรียกใช้จาก on_message
 # --------------------------------------------------------------
 
+def _looks_like_personal_reminder(text: str) -> bool:
+    """เช็คว่าข้อความนี้น่าจะเป็นรูปแบบ 'เตือนฉันตอน...' / 'เตือน @เพื่อน ตอน...' ที่ควรปล่อยให้ระบบ
+    เตือนตัวเอง/เพื่อน (reminders) ของ bot.py จัดการเอง แทนที่จะให้ AI Router เดามาเรียก /remind แทน
+
+    เหตุผล: /remind เก็บลง 'schedules' (ตารางนัด) ซึ่งเดิม AI ชอบทายวันที่มาไม่ตรง (เช่นใส่คำว่า
+    'วันนี้' ดิบๆ) แล้วยังทำงานคนละแบบกับระบบเตือนตัวเอง/เพื่อนที่มีลูปเช็คทุกนาทีและวาร์ปเข้าห้อง
+    เสียงมาเตือนจริง (bagley_hijack_alert) ทำให้สองระบบชนกันและพฤติกรรมไม่สม่ำเสมอ
+    เงื่อนไขตรงนี้ต้องตรงกับเงื่อนไขในบล็อก 'ส่วนที่ 2' ของ bot.py เป๊ะๆ (มีคำว่า 'เตือน' และมีคำว่า
+    'ตอน' หรือ 'เวลา') เพื่อให้แน่ใจว่าข้อความที่ตกไปให้ระบบเดิมจัดการ จะไม่ถูก AI Router แย่งไปก่อน"""
+    lowered = text.lower()
+    return "เตือน" in lowered and ("ตอน" in lowered or "เวลา" in lowered)
+
+
 async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_by_name, model="gemini-3.1-flash-lite") -> bool:
     """
     ให้ AI พิจารณาว่าข้อความนี้ควรสั่งคำสั่งไหนของบอท (ถ้ามี)
@@ -206,8 +219,14 @@ async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_b
     Returns:
         True  -> ตีความเป็นคำสั่งแล้ว (ไม่ว่าจะสั่งสำเร็จ หรือหา entity ไม่เจอแล้วแจ้งผู้ใช้ไปแล้ว)
                  ผู้เรียกควร `return` ทันทีเพื่อไม่ให้ไหลลงไปทำ free-chat ต่อ
-        False -> ไม่ใช่คำสั่ง ปล่อยให้ไหลไปทำงานส่วนอื่นต่อ (เช่น free chat / teach memory)
+        False -> ไม่ใช่คำสั่ง ปล่อยให้ไหลไปทำงานส่วนอื่นต่อ (เช่น free chat / teach memory / ระบบเตือนตัวเอง-เพื่อน)
     """
+    # 🛡️ กันไม่ให้ AI Router แย่งข้อความแบบ "เตือนฉันตอน.../เตือน @เพื่อน ตอน..." ไปเรียก /remind
+    # ปล่อยให้ตกไปใช้ระบบเตือนตัวเอง/เพื่อนเดิมใน bot.py แทน (ส่วนที่ 2) ซึ่งทำงานถูกต้องกว่าและ
+    # วาร์ปเข้าห้องเสียงมาเตือนจริงแล้ว (ผ่าน bagley_hijack_alert)
+    if _looks_like_personal_reminder(message.content):
+        return False
+
     try:
         response = await client.aio.models.generate_content(
             model=model,

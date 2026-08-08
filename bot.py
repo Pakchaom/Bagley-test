@@ -231,6 +231,82 @@ def load_user_data():
     except FileNotFoundError:
         return {}
 
+# ============================================================
+# 🗓️ ระบบช่วยจัดการ "ตารางนัดหมาย" (schedules) กลาง
+# แก้บั๊ก: เดิม /remind (ทั้งพิมพ์ตรงๆ และผ่าน AI Command Router เวลาพิมพ์
+# "เตือนฉันตอน...") ถ้าไม่ได้ระบุวันที่มาชัดเจน จะเก็บคำว่า "วันนี้" ดิบๆ
+# ลงไปเป็นค่า date ตรงๆ โดยไม่แปลงเป็นวันที่จริง ทำให้:
+#   - /schedule_list โชว์วันที่ผิดเพี้ยน (ขึ้นคำว่า "วันนี้" แทนวันที่จริง)
+#   - ระบบเคลียร์ตารางที่หมดเวลาอัตโนมัติ (check_expired_schedules) พาร์สไม่ได้
+#     เลยค้างอยู่ในตารางไปตลอด ไม่มีวันถูกลบออกเอง
+# ฟังก์ชันตรงนี้เลยทำหน้าที่แปลงค่าวันที่ให้เป็น YYYY-MM-DD เสมอ ไม่ว่าใครจะพิมพ์มา
+# แบบไหน (วันนี้ / พรุ่งนี้ / มะรืน / เลขวันสั้นๆ / หรือรูปแบบมาตรฐานอยู่แล้ว)
+# ============================================================
+_RELATIVE_DATE_KEYWORDS = {
+    "มะรืนนี้": 2, "มะรืน": 2, "day after tomorrow": 2,
+    "พรุ่งนี้": 1, "tomorrow": 1,
+    "วันนี้": 0, "today": 0,
+}
+
+def _normalize_schedule_date(raw_date: str, now: datetime) -> str:
+    """แปลงค่า 'date' ที่พิมพ์มาแบบไม่เป็นทางการ (เช่น 'วันนี้', 'พรุ่งนี้', หรือแค่ตัวเลขวันที่)
+    ให้กลายเป็นรูปแบบ YYYY-MM-DD เสมอ กันไม่ให้ค้างเป็นข้อความดิบจนพัง /schedule_list,
+    /delete_schedule และระบบเคลียร์ตารางที่หมดเวลาอัตโนมัติ (check_expired_schedules)"""
+    clean_date = (raw_date or "").strip()
+    lowered = clean_date.lower()
+
+    # คำที่หมายถึงวันแบบสัมพัทธ์ (วันนี้ / พรุ่งนี้ / มะรืน) เช็คยาวไปสั้นกันคำว่า "มะรืน" ไปแมตช์ก่อน "วันนี้" ผิดจุด
+    for keyword, offset in _RELATIVE_DATE_KEYWORDS.items():
+        if keyword in lowered:
+            return (now + timedelta(days=offset)).strftime("%Y-%m-%d")
+
+    # ตัวเลขวันที่สั้น ๆ เช่น '11' -> เดือน/ปีปัจจุบัน (หรือเดือนถัดไปถ้าผ่านมาแล้ว)
+    if len(clean_date) <= 2 and clean_date.isdigit():
+        try:
+            day_val = int(clean_date)
+            if day_val < now.day:
+                first_of_next_month = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
+                target_date = first_of_next_month.replace(day=day_val)
+            else:
+                target_date = now.replace(day=day_val)
+            return target_date.strftime("%Y-%m-%d")
+        except Exception as e:
+            print(f"DEBUG: 📅 จัดฟอร์แมตวันที่แบบสั้นพลาด: {e}")
+            return now.strftime("%Y-%m-%d")
+
+    # ถ้าเป็น YYYY-MM-DD ที่ถูกต้องอยู่แล้ว ให้ใช้ตามนั้นเลย
+    try:
+        datetime.strptime(clean_date, "%Y-%m-%d")
+        return clean_date
+    except Exception:
+        pass
+
+    # พาร์สรูปแบบอื่นไม่ได้เลย (เช่น AI Router ส่งคำแปลกๆ มา) กันพังไว้ก่อนด้วยการใช้วันนี้จริงๆ แทน
+    print(f"⚠️ [Schedule] แปลงวันที่ '{raw_date}' ไม่ได้ ใช้วันนี้แทนไปก่อนครับ")
+    return now.strftime("%Y-%m-%d")
+
+
+def _schedule_sort_key(s):
+    """เรียงตารางนัดตามวันที่ + เวลาก่อน-หลัง (นัดที่ใกล้ถึงก่อนจะขึ้นก่อน) ใช้ร่วมกันทั้ง
+    /schedule_list และ /delete_schedule"""
+    try:
+        return datetime.strptime(f"{s.get('date', '')} {s.get('time', '')}", "%Y-%m-%d %H:%M")
+    except Exception:
+        return datetime.max  # ถ้าเวลาไม่ได้เป็นรูปแบบมาตรฐาน (เช่น '3 ทุ่ม') ให้ไปต่อท้ายสุด
+
+
+def _ensure_schedule_ids(schedules: list) -> bool:
+    """เผื่อรายการตารางนัดเก่า (ที่บันทึกไว้ก่อนมีระบบ id) ยังไม่มี 'id' ให้สุ่มใส่ให้ครบทุกอัน
+    จะได้เอาไปใช้อ้างอิงตอนลบผ่าน /delete_schedule ได้แม่นยำ ไม่มีทางชนกัน
+    คืนค่า True ถ้ามีการแก้ไข (ต้อง save_user_data ต่อ)"""
+    changed = False
+    for s in schedules:
+        if not s.get("id"):
+            s["id"] = secrets.token_hex(4)
+            changed = True
+    return changed
+
+
 def make_gradle_bar(percent: int, status_text: str, start_time: float) -> str:
     total_blocks = 15
     filled_blocks = int((percent / 100) * total_blocks)
@@ -745,6 +821,20 @@ async def bagley_hijack_alert(voice_channel, message_text):
         if vc and not old_channel: 
             await vc.disconnect()
 
+async def _deliver_voice_reminder(guild, target_voice_channel, content):
+    """เลือกวิธีแจ้งเตือนด้วยเสียงให้เหมาะกับสถานะปัจจุบันของบอท ใช้ร่วมกันทั้งระบบ
+    เตือนตัวเอง/เพื่อน (reminders) และระบบตารางนัด (schedules):
+    - ถ้าบอทอยู่ในห้องเสียงเดียวกับเป้าหมายอยู่แล้ว -> พูดตรงๆ เลย ไม่ต้องวาร์ป (เงียบกว่า ไม่รบกวนจังหวะ)
+    - ถ้าบอทไม่ได้อยู่ห้องเดียวกัน (อยู่ห้องอื่นของกิลด์นี้ หรือไม่ได้เชื่อมต่อเสียงเลย) -> วาร์ปเข้าไปเตือน
+      ผ่าน bagley_hijack_alert แล้ววาร์ปกลับห้องเดิมให้อัตโนมัติ (หรือออกจากห้องถ้าเดิมไม่ได้อยู่ไหนเลย)"""
+    if not target_voice_channel:
+        return
+    vc = guild.voice_client
+    if vc and vc.is_connected() and vc.channel and vc.channel.id == target_voice_channel.id:
+        await bagley_speak_reminder_direct(guild, content)
+    else:
+        await bagley_hijack_alert(target_voice_channel, content)
+
 # --- ระบบเสียงกลางของ Bagley ---
 async def bagley_speak(guild, text):
     """ฟังก์ชันกลางสำหรับสั่งให้ Bagley พูดในห้องเสียงที่บอทอยู่
@@ -1256,7 +1346,7 @@ async def check_reminders():
                             break
                     
                     if member:
-                        bot.loop.create_task(bagley_speak_reminder_direct(member.voice.channel.guild, content))
+                        bot.loop.create_task(_deliver_voice_reminder(member.voice.channel.guild, member.voice.channel, content))
                     else:
                         try:
                             try:
@@ -1318,8 +1408,8 @@ async def check_friend_reminders():
                             break
                     
                     if member:
-                        # สั่งให้ Bagley วาร์ปบุกห้องเสียงเพื่อน
-                        bot.loop.create_task(bagley_speak_reminder_direct(member.voice.channel.guild, content))
+                        # สั่งให้ Bagley วาร์ปบุกห้องเสียงเพื่อน (หรือพูดตรงๆ ถ้าอยู่ห้องเดียวกันอยู่แล้ว)
+                        bot.loop.create_task(_deliver_voice_reminder(member.voice.channel.guild, member.voice.channel, content))
                     else:
                         # ส่ง DM ปกติถ้าเพื่อนไม่ได้เข้าห้องเสียงไหนเลย
                         try:
@@ -1351,10 +1441,66 @@ async def check_friend_reminders():
     if has_changed:
         save_reminders(updated_reminders)
 
+async def _notify_schedule_due(sch: dict):
+    """แจ้งเตือนเจ้าของตารางนัดที่ถึงเวลาแล้ว: ถ้าเจ้าของอยู่ในห้องเสียงอยู่ ให้บอทวาร์ปเข้าไปเตือน
+    (ผ่าน _deliver_voice_reminder/bagley_hijack_alert) แล้ววาร์ปกลับห้องเดิม/ออกจากห้องให้อัตโนมัติ
+    ถ้าไม่ได้อยู่ห้องเสียงไหนเลย ก็ส่ง DM แจ้งแทน (เหมือนระบบเตือนตัวเอง/เพื่อนเดิม)"""
+    try:
+        owner_id = sch.get("owner_id")
+        if not owner_id:
+            return
+        owner_id = int(owner_id)
+
+        event_text = sch.get("event", "ไม่ระบุกิจกรรม")
+        time_text = sch.get("time", "")
+        content = f"ถึงเวลานัด {event_text}" + (f" ตอน {time_text}" if time_text and time_text != "ไม่ระบุเวลา" else "") + " แล้วครับ"
+
+        member = None
+        for guild in bot.guilds:
+            m = guild.get_member(owner_id)
+            if m and m.voice and m.voice.channel:
+                member = m
+                break
+
+        if member:
+            await _deliver_voice_reminder(member.voice.channel.guild, member.voice.channel, content)
+            return
+
+        # ไม่ได้อยู่ห้องเสียงไหนเลยตอนนี้ -> ส่ง DM แจ้งแทน
+        try:
+            user = await bot.fetch_user(owner_id)
+            if not user:
+                return
+            try:
+                dm_prompt = f"""
+                คุณคือ 'แบ็คลี่' (Bagley) จาก watch dogs legion กำลังส่ง DM มาแจ้งเตือนตารางนัดหมายให้คุณ
+                หน้าที่: เจนข้อความ DM แจ้งเตือนสั้นๆ เป็นกันเอง (1-2 ประโยค) โดยอ้างอิงเนื้อหาแจ้งเตือนด้านล่าง
+
+                [เนื้อหาที่ต้องแจ้งเตือน]: {content}
+
+                กฎ: พูดแบบเป็นกันเอง แทนตัวเองว่า 'แบ็คลี่' ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะข้อความที่จะส่งเท่านั้น
+                """
+                dm_response = await client.aio.models.generate_content(model='gemini-3.1-flash-lite', contents=dm_prompt)
+                dm_text = (dm_response.text or "").strip()
+                if not dm_text:
+                    raise ValueError("AI ตอบข้อความว่างเปล่า")
+                await user.send(dm_text)
+            except Exception as ai_err:
+                print(f"❌ Gemini เจนข้อความ DM แจ้งเตือนตารางนัดพัง ย้อนกลับไปใช้คำที่เซ็ตไว้: {ai_err}")
+                await user.send(f"🔔 สวัสดีครับ! ผม Bagley มาเตือนเรื่อง: **{content}** ครับ!")
+        except Exception as e:
+            print(f"DEBUG: ส่ง DM แจ้งเตือนตารางนัดไม่ได้เพราะ {e}")
+    except Exception as e:
+        print(f"❌ ERROR _notify_schedule_due: {e}")
+        print(traceback.format_exc())
+
+
 @tasks.loop(minutes=1)
 async def check_expired_schedules():
-    """เคลียร์ตารางนัดหมาย (schedules ที่ฝากไว้ผ่าน /remind) ที่ถึงวัน-เวลาที่กำหนดไว้แล้วออกจากคลังความจำอัตโนมัติ
-    เพื่อไม่ให้ค้างอยู่ใน /schedule_list หรือถูกพูดซ้ำอีกหลังจากที่เวลานั้นผ่านไปแล้ว"""
+    """เช็คตารางนัดหมาย (schedules ที่ฝากไว้ผ่าน /remind หรือพิมพ์ธรรมชาติ) ที่ถึงวัน-เวลาที่กำหนดแล้ว
+    แจ้งเตือนด้วยเสียงจริง (วาร์ปเข้าห้องเสียงถ้าจำเป็น ผ่าน bagley_hijack_alert) หรือ DM ถ้าไม่ได้อยู่ห้องเสียงไหนเลย
+    แล้วค่อยลบออกจากคลังความจำ กันไม่ให้ค้างอยู่ใน /schedule_list ตลอดไป
+    🛠️ [แก้บั๊ก]: เดิมฟังก์ชันนี้ลบทิ้งเงียบๆ อย่างเดียว ไม่เคยแจ้งเตือนด้วยเสียงเลยแม้แต่ครั้งเดียว"""
     try:
         now = datetime.now(bangkok_tz)
         data = load_user_data()
@@ -1375,7 +1521,8 @@ async def check_expired_schedules():
 
             if sch_dt <= now:
                 removed_any = True
-                print(f"🗑️ [Schedule Reset] ลบตารางงาน '{sch.get('event')}' ของ {sch.get('owner_id')} ที่ถึงเวลา {sch.get('time')} วันที่ {sch.get('date')} แล้วออกจากระบบเรียบร้อยครับ")
+                bot.loop.create_task(_notify_schedule_due(sch))
+                print(f"🔔 [Schedule Due] แจ้งเตือนตารางงาน '{sch.get('event')}' ของ {sch.get('owner_id')} ที่ถึงเวลา {sch.get('time')} วันที่ {sch.get('date')} แล้ว และลบออกจากระบบเรียบร้อยครับ")
             else:
                 remaining_schedules.append(sch)
 
@@ -3634,13 +3781,18 @@ async def on_message(message):
                 result = json.loads(raw_text)
                 
                 if result.get("date") and result.get("event"):
+                    # 📅 กันเหนียวอีกชั้น: normalize วันที่ที่ AI ส่งกลับมาให้เป็น YYYY-MM-DD จริงๆ เสมอ
+                    # (เผื่อ AI ตอบเป็น 'วันนี้'/'พรุ่งนี้' ดิบๆ แทนที่จะคำนวณวันที่ให้ตามที่สั่งในพรอมต์)
+                    normalized_date = _normalize_schedule_date(result["date"], today_now)
+
                     # โหลดและเซฟเข้าสู่ user_memory ผ่านฟังก์ชันเดิมของคุณ
                     user_data = load_user_data()
                     if "schedules" not in user_data:
                         user_data["schedules"] = []
                         
                     new_job = {
-                        "date": result["date"],
+                        "id": secrets.token_hex(4),
+                        "date": normalized_date,
                         "time": result.get("time", "ไม่ระบุเวลา"),
                         "owner_id": message.author.id,
                         "event": result["event"]
@@ -3651,7 +3803,7 @@ async def on_message(message):
                     await message.reply(
                         f"🛸 ล็อกเป้าลงปฏิทินเรียบร้อยคัป!\n"
                         f"📌 กิจกรรม: **{result['event']}**\n"
-                        f"📅 วันที่: **{result['date']}**\n"
+                        f"📅 วันที่: **{normalized_date}**\n"
                         f"⏰ เวลา: **{result['time']}**\n"
                         f"เดี๋ยวพอถึงวัน แบ็คลี่บินตามเข้าห้องเสียงเมื่อไหร่ จะเปิดไมค์เตือนให้ทันทีเลยคัปพ้ม! 🫡"
                     )
@@ -6812,31 +6964,20 @@ async def invite_voice(ctx: commands.Context, เพื่อนที่จะ�
 async def slash_remind(ctx: commands.Context, date: str, time: str, event: str):
     # ดึงเวลาไทยปัจจุบันขึ้นมาอ้างอิง
     now = datetime.now(bangkok_tz)
-    clean_date = date.strip()
 
-    # 📅 ระบบช่วยจัดฟอร์แมตวันที่แบบสั้นอัตโนมัติ (กันบั๊กข้ามเดือน)
-    if len(clean_date) <= 2 and clean_date.isdigit():
-        try:
-            day_val = int(clean_date)
-            if day_val < now.day:
-                # ปัดเป็นวันที่ของเดือนถัดไปอัตโนมัติถ้าตัวเลขวันที่ผ่านมาแล้วในเดือนนี้
-                first_of_next_month = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
-                target_date = first_of_next_month.replace(day=day_val)
-            else:
-                target_date = now.replace(day=day_val)
-                
-            clean_date = target_date.strftime("%Y-%m-%d")
-        except Exception as e:
-            print(f"DEBUG: 📅 จัดฟอร์แมตวันที่แบบสั้นพลาด: {e}")
-            clean_date = now.strftime("%Y-%m-%d")
+    # 📅 แปลงค่าวันที่ให้เป็น YYYY-MM-DD เสมอ (รองรับ 'วันนี้'/'พรุ่งนี้'/'มะรืน'/เลขวันสั้นๆ ด้วย)
+    # กันบั๊กเดิมที่พิมพ์ "เตือนฉันตอน 17:30 ว่า..." แล้ว AI Command Router เติมวันที่มาเป็นคำว่า
+    # "วันนี้" ดิบๆ ทำให้ /schedule_list โชว์ผิดเพี้ยน และ check_expired_schedules เคลียร์ไม่ได้
+    clean_date = _normalize_schedule_date(date, now)
 
     # โหลดไฟล์ความจำ JSON ปัจจุบันขึ้นมา
     user_data = load_user_data()
     if "schedules" not in user_data:
         user_data["schedules"] = []
         
-    # บันทึกข้อมูลนัดหมายเข้าคลังความจำ
+    # บันทึกข้อมูลนัดหมายเข้าคลังความจำ (ใส่ id ไว้ด้วย เผื่อจะเอาไปลบผ่าน /delete_schedule ทีหลัง)
     new_job = {
+        "id": secrets.token_hex(4),
         "date": clean_date,
         "time": time.strip(),
         "owner_id": ctx.author.id,
@@ -6851,7 +6992,8 @@ async def slash_remind(ctx: commands.Context, date: str, time: str, event: str):
         f"📌 **กิจกรรม:** {event}\n"
         f"📅 **วันที่:** {clean_date}\n"
         f"⏰ **เวลา:** {time}\n"
-        f"ปล่อยเป็นหน้าที่ของแบ็คลี่ได้เลย! พอถึงวันเดี๋ยวผมบินโดรนแวะเข้าห้องเสียงไปเปิดไมค์แจ้งเตือนให้คัปพ้ม! 🫡"
+        f"ปล่อยเป็นหน้าที่ของแบ็คลี่ได้เลย! พอถึงวันเดี๋ยวผมบินโดรนแวะเข้าห้องเสียงไปเปิดไมค์แจ้งเตือนให้คัปพ้ม! 🫡\n"
+        f"-# ลืม/พิมพ์ผิดเดี๋ยวลบทีหลังได้นะครับ พิมพ์ `/delete_schedule` แล้วเลือกรายการที่จะลบได้เลย"
     )
 
 @bot.hybrid_command(name="schedule_list", description="ดูตารางนัดหมาย/งานทั้งหมดที่คุณฝากแบ็คลี่จำไว้ (จาก /remind)")
@@ -6860,18 +7002,17 @@ async def schedule_list(ctx: commands.Context):
         user_data = load_user_data()
         schedules = user_data.get("schedules", [])
 
+        # 🛠️ เผื่อมีรายการเก่าที่ยังไม่มี id (บันทึกไว้ก่อนมีระบบ /delete_schedule) เติมให้ครบ
+        if _ensure_schedule_ids(schedules):
+            user_data["schedules"] = schedules
+            save_user_data(user_data)
+
         my_schedules = [s for s in schedules if str(s.get("owner_id")) == str(ctx.author.id)]
 
         if not my_schedules:
             return await ctx.send("ตอนนี้คุณยังไม่มีตารางนัดหมายที่ฝากผมจำไว้เลยครับ! ลองฝากไว้ด้วย `/remind` ได้เลยครับ")
 
         # 🗂️ เรียงตามวันที่ + เวลาก่อน-หลัง (นัดที่ใกล้ถึงก่อนจะขึ้นก่อน)
-        def _schedule_sort_key(s):
-            try:
-                return datetime.strptime(f"{s.get('date', '')} {s.get('time', '')}", "%Y-%m-%d %H:%M")
-            except Exception:
-                return datetime.max  # ถ้าเวลาไม่ได้เป็นรูปแบบมาตรฐาน (เช่น '3 ทุ่ม') ให้ไปต่อท้ายสุด
-
         my_schedules_sorted = sorted(my_schedules, key=_schedule_sort_key)
 
         formatted_list = [
@@ -6881,11 +7022,132 @@ async def schedule_list(ctx: commands.Context):
         title_text = f"🗂️ ตารางนัดหมายของคุณ {ctx.author.display_name}"
 
         view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=10)
-        view.message = await ctx.send(embed=view.create_embed(), view=view)
+        view.message = await ctx.send(
+            content="-# อยากลบรายการไหน พิมพ์ `/delete_schedule` แล้วเลือกจากเมนูได้เลยครับ",
+            embed=view.create_embed(),
+            view=view
+        )
 
     except Exception as e:
         print(f"🚨 ERROR ระบบดูตารางงาน: {e}")
         await ctx.send("เกิดข้อผิดพลาดในการดึงตารางนัดหมายครับ")
+
+
+class ScheduleDeleteView(discord.ui.View):
+    """เมนู Dropdown ให้เลือกว่าจะลบตารางนัดรายการไหนออกจากคลังความจำ (ใช้กับ /delete_schedule)"""
+    def __init__(self, author, schedules: list):
+        super().__init__(timeout=60)
+        self.author = author
+        self.message = None
+
+        # 🔒 Discord จำกัด Select ได้สูงสุด 25 ตัวเลือก เอาแค่ 25 รายการที่ใกล้ถึงที่สุดก่อน
+        display_schedules = schedules[:25]
+
+        options = []
+        for s in display_schedules:
+            label = f"{s.get('date', 'ไม่ระบุวันที่')} ⏰ {s.get('time', 'ไม่ระบุเวลา')}"[:100]
+            description = (s.get("event") or "ไม่ระบุกิจกรรม")[:100]
+            options.append(
+                discord.SelectOption(label=label, description=description, value=s.get("id"), emoji="📌")
+            )
+
+        self.select_menu = discord.ui.Select(
+            placeholder="เลือกตารางนัดหมายที่ต้องการลบ...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+        self.select_menu.callback = self.on_select
+        self.add_item(self.select_menu)
+
+    async def on_select(self, interaction: discord.Interaction):
+        # 🔒 กันคนอื่นมากดเมนูของคนที่ไม่ใช่เจ้าของคำสั่ง
+        if interaction.user.id != self.author.id:
+            return await interaction.response.send_message(
+                "อันนี้เป็นเมนูของคนที่สั่งคำสั่งนี้เท่านั้นนะครับ ลองพิมพ์ `/delete_schedule` เองดูได้เลยครับ",
+                ephemeral=True
+            )
+
+        target_id = self.select_menu.values[0]
+
+        user_data = load_user_data()
+        schedules = user_data.get("schedules", [])
+
+        removed = None
+        remaining = []
+        for s in schedules:
+            if removed is None and s.get("id") == target_id:
+                removed = s
+                continue
+            remaining.append(s)
+
+        # ปิดเมนูไว้กันกดซ้ำ ไม่ว่าจะลบสำเร็จหรือไม่ก็ตาม
+        for item in self.children:
+            item.disabled = True
+
+        if removed is None:
+            return await interaction.response.edit_message(
+                content="❌ ไม่พบรายการนี้แล้วครับ (อาจถูกลบไปก่อนหน้านี้แล้ว)",
+                view=self
+            )
+
+        user_data["schedules"] = remaining
+        save_user_data(user_data)
+
+        await interaction.response.edit_message(
+            content=(
+                f"🗑️ **ลบตารางนัดหมายเรียบร้อยครับ!**\n"
+                f"📌 กิจกรรม: **{removed.get('event', 'ไม่ระบุกิจกรรม')}**\n"
+                f"📅 วันที่: **{removed.get('date', 'ไม่ระบุวันที่')}** ⏰ เวลา: **{removed.get('time', 'ไม่ระบุเวลา')}**"
+            ),
+            view=self
+        )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
+@bot.hybrid_command(
+    name="delete_schedule",
+    description="ลบตารางนัดหมาย/งานที่ฝากแบ็คลี่จำไว้ โดยเลือกได้ว่าจะลบรายการไหน"
+)
+async def delete_schedule(ctx: commands.Context):
+    try:
+        user_data = load_user_data()
+        schedules = user_data.get("schedules", [])
+
+        # 🛠️ เผื่อมีรายการเก่าที่ยังไม่มี id ให้เติมก่อน จะได้เลือกลบได้แม่นยำทุกรายการ
+        if _ensure_schedule_ids(schedules):
+            user_data["schedules"] = schedules
+            save_user_data(user_data)
+
+        my_schedules = [s for s in schedules if str(s.get("owner_id")) == str(ctx.author.id)]
+
+        if not my_schedules:
+            return await ctx.send("ตอนนี้คุณยังไม่มีตารางนัดหมายให้ลบเลยครับ! ลองฝากไว้ด้วย `/remind` ก่อนได้เลยครับ")
+
+        my_schedules_sorted = sorted(my_schedules, key=_schedule_sort_key)
+
+        view = ScheduleDeleteView(ctx.author, my_schedules_sorted)
+
+        extra_note = ""
+        if len(my_schedules_sorted) > 25:
+            extra_note = f"\n-# (คุณมีทั้งหมด {len(my_schedules_sorted)} รายการ แต่เมนูเลือกได้สูงสุด 25 รายการที่ใกล้ถึงที่สุดก่อนนะครับ ลบไปทีละส่วนแล้วค่อยเรียกคำสั่งใหม่ได้)"
+
+        view.message = await ctx.send(
+            f"🗑️ เลือกตารางนัดหมายที่ต้องการลบจากเมนูด้านล่างได้เลยครับ (เลือกได้ทีละรายการ){extra_note}",
+            view=view
+        )
+
+    except Exception as e:
+        print(f"🚨 ERROR ระบบลบตารางงาน: {e}")
+        await ctx.send("เกิดข้อผิดพลาดในการลบตารางนัดหมายครับ")
 
 # ============================================================
 # 🎲 ระบบสุ่มแบ่งทีมจากคนในห้องเสียง (/split_team)
