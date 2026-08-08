@@ -3848,15 +3848,6 @@ async def on_message(message):
                 return
             
             user_memory = load_user_data()
-            
-            def get_realtime_name(uid, default):
-                mem = user_memory.get(str(uid))
-                if mem and isinstance(mem, dict):
-                    if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
-                        return mem.get("admin_nickname")
-                    if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
-                        return mem.get("nickname")
-                return default
 
             # 📋 ก่อนอื่นไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงวันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
             entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
@@ -6863,15 +6854,6 @@ async def voice_stats(ctx: commands.Context):
             return await ctx.send("วันนี้ยังไม่มีสถิติของเซิร์ฟเวอร์นี้บันทึกไว้เลยครับ!")
         
         user_memory = load_user_data()
-        
-        def get_realtime_name(uid, default):
-            mem = user_memory.get(str(uid))
-            if mem and isinstance(mem, dict):
-                if mem.get("admin_nickname") and mem.get("admin_nickname") != "ยังไม่ระบุ":
-                    return mem.get("admin_nickname")
-                if mem.get("nickname") and mem.get("nickname") != "ยังไม่ระบุ":
-                    return mem.get("nickname")
-            return default
 
         # 📋 ก่อนอื่นไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงวันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
         entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
