@@ -4921,12 +4921,13 @@ async def join(ctx: commands.Context):
             ]
             msg = f"แบ็คลี่ ประจำการ! {time_period}ครับคุณ {caller_name} {random.choice(quotes)}{reminder_fallback_text}"
 
-        # 📤 ส่งข้อความแชทและออกเสียง
-        print(f"DEBUG: 📤 [Join] กำลังจะส่งข้อความและพูด -> msg_length={len(msg)}, msg_preview={msg[:80]}")
+        # 📤 ส่งข้อความแชท (สั้น ๆ ตายตัว) + พูดออกเสียงด้วยประโยคที่ AI เจนมาแบบเดิม
+        chat_text = "รับทราบครับ! เข้ามาแล้วครับ"
+        print(f"DEBUG: 📤 [Join] กำลังจะส่งข้อความ (สั้น) และพูด -> msg_length={len(msg)}, msg_preview={msg[:80]}")
         if ctx.interaction:
-            await ctx.interaction.followup.send(msg)
+            await ctx.interaction.followup.send(chat_text)
         else:
-            await ctx.send(msg)
+            await ctx.send(chat_text)
             
         try:
             # 🌟 การันตีหยุดเสียงเก่าก่อนพูด และเรียกใช้ฟังก์ชันพูด
