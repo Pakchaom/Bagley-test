@@ -74,6 +74,11 @@ reported_guilds_today = {}
 
 last_party_invites = {}
 
+# 🔇🎮 ล็อกตามเซิร์ฟเวอร์: กันไม่ให้ check_and_invite_party คอยบอกว่าใครนอกห้องเสียง
+# เพิ่งเปิดเกมตรงกับคนในห้องเสียง — เปิด/ปิดได้ด้วยข้อความ "แบ็คลี่ หยุดหาคน" / "แบ็คลี่ หาคนต่อ"
+# (ดูจุดดักจับใน on_message และจุดเช็คใน check_and_invite_party ด้านล่าง)
+party_matcher_disabled_guilds = set()
+
 # 🔒 กันชวนตี้/วาร์ปซ้ำ (ลอจิก "ชวน" — บอทวาร์ปเข้าห้องเสียงไปตื๊อแล้ววาร์ปกลับ)
 # ถ้ามีการวาร์ปไปชวนคนคนเดียวกันในกิลด์เดียวกันอยู่แล้ว (ไม่ว่าจะถูกสั่งผ่าน
 # AI Command Router -> /invite_voice หรือผ่านการดีเทคคำใน on_message โดยตรง)
@@ -1991,6 +1996,10 @@ async def check_and_invite_party(guild):
     if not guild or not guild.voice_client:
         return
 
+    # 🔇🎮 ถ้าเซิร์ฟเวอร์นี้ถูกสั่ง "หยุดหาคน" ไว้ ให้ข้ามการสแกน/ทักคนนอกห้องไปเลย
+    if guild.id in party_matcher_disabled_guilds:
+        return
+
     vc = guild.voice_client
     target_channel = vc.channel
     today = datetime.today().date()
@@ -2062,6 +2071,70 @@ async def check_and_invite_party(guild):
                             return # พูดจบ 1 อิมแพ็คต่อนาที เพื่อไม่ให้เสียงตีกันคัปพ้ม
                         except Exception as e:
                             print(f"❌ เกิดข้อผิดพลาดในระบบแม่สื่อชวนตี้: {e}")
+
+async def handle_same_game_query(message: discord.Message):
+    """ตอบคำถาม 'มีใครเล่นเกมเดียวกับเราบ้าง' — เช็คว่าคนถามกำลังเล่นเกมอะไรอยู่
+    แล้วไล่หาคนอื่นทั้งเซิร์ฟเวอร์ (ไม่จำกัดแค่ในห้องเสียง) ที่กำลังเล่นเกมเดียวกัน
+    ใช้ชื่อจาก "คลังความจำ" (get_realtime_name) ก่อนเสมอ ถ้าไม่มีชื่อเล่นบันทึกไว้ค่อย fallback
+    ไปใช้ display_name บนดิสคอร์ดตามปกติ (ดีไซน์ให้คู่กับ check_and_invite_party ด้านบนที่คอยทักเอง
+    อัตโนมัติอยู่แล้ว — ฟังก์ชันนี้คือเวอร์ชัน "ถามเอง" เมื่อคนพิมพ์มาถามตรงๆ)"""
+    asker = message.author
+
+    asker_game = None
+    for activity in asker.activities:
+        if activity.type == discord.ActivityType.playing:
+            asker_game = activity.name
+            break
+
+    if not asker_game:
+        try:
+            await message.reply(
+                "เอ๊ะ ตอนนี้ผมไม่เห็นสถานะว่าคุณเปิดเกมอะไรอยู่เลยนะครับ "
+                "ต้องเปิดให้ดิสคอร์ดโชว์สถานะ 'กำลังเล่น' ด้วยนะครับ ผมถึงจะสแกนหาคนที่เล่นเกมเดียวกันให้ได้ 🎮"
+            )
+        except Exception:
+            pass
+        return
+
+    matched_members = []
+    for m in message.guild.members:
+        if m.bot or m.id == asker.id:
+            continue
+        for activity in m.activities:
+            if activity.type == discord.ActivityType.playing and activity.name == asker_game:
+                matched_members.append(m)
+                break
+
+    if not matched_members:
+        try:
+            await message.reply(
+                f"สแกนดูทั้งเซิร์ฟแล้ว ตอนนี้ยังไม่มีใครเล่นเกม {asker_game} เหมือนคุณอยู่เลยนะครับ 🕵️"
+            )
+        except Exception:
+            pass
+        return
+
+    matched_names = [f"คุณ {get_realtime_name(m.id, m.display_name)}" for m in matched_members]
+    names_text = ", ".join(matched_names)
+    reply_text = f"ตอนนี้ที่กำลังเล่นเกม {asker_game} เหมือนคุณอยู่ด้วยมี {names_text} ครับ 🎮"
+
+    try:
+        await message.reply(reply_text)
+    except Exception:
+        pass
+
+    # 🔊 พูดออกเสียงด้วย ถ้าบอทอยู่ในห้องเสียงเดียวกับคนถามอยู่แล้ว (ไม่ไปแทรกเสียงอื่นที่กำลังเล่นอยู่)
+    if (
+        message.guild.voice_client
+        and asker.voice
+        and message.guild.voice_client.channel == asker.voice.channel
+        and not message.guild.voice_client.is_playing()
+    ):
+        try:
+            await bagley_speak(message.guild, reply_text)
+        except Exception as e:
+            print(f"❌ [Same Game Query] พูดออกเสียงไม่สำเร็จ: {e}")
+
 
 async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, target_member: discord.Member):
     """ลอจิก "ชวน" — บอทวาร์ปตัวเองเข้าไปในห้องเสียงเป้าหมาย เปิดไมค์ตื๊อชวนตัวต่อตัว
@@ -2430,17 +2503,8 @@ async def execute_remember_logic(message):
         target_id = message.author.id
         target_display_name = get_realtime_name(message.author.id, message.author.display_name)
 
-    is_self = target_id == message.author.id
-
-    # 🔒 จำกัดสิทธิ์: แก้ไขข้อมูลของ "คนอื่น" ในคลังความจำ ให้เฉพาะทีมพัฒนาเท่านั้น
-    # ✅ ยกเว้น: ถ้าเป็นเจ้าของไอดีเองที่ขอให้จำข้อมูลของตัวเอง (ชื่อเล่น/วันเกิดตัวเอง) อนุญาตให้ทำได้เสมอ
-    if message.author.id not in ALLOWED_TEACH_USERS and not is_self:
-        await message.reply(
-            "❌ **[ACCESS DENIED]** ขออภัยครับ คำสั่งจำข้อมูล**ของคนอื่น**นี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
-            "แต่ถ้าอยากให้ผมจำชื่อเล่น/วันเกิดของ**ตัวเองคุณ** พิมพ์ใหม่แบบไม่ต้องแท็กใครเลย (เช่น `จำไว้ว่าฉันชื่อ...`) "
-            "หรือพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
-        )
-        return
+    # ✅ เปิดให้ทุกคนสั่งให้แบ็คลี่จำ/เปลี่ยนชื่อเล่นของใครก็ได้ในคลังความจำ ไม่ต้องเช็คแล้วว่าเป็นตัวเอง
+    # หรือทีมพัฒนาที่เป็นคนสั่ง (ใครบอกให้เรียกใครว่าอะไร ก็บันทึกตามนั้นได้เลย)
 
     if target_user:
         target_id_str = str(target_id)
@@ -3093,6 +3157,7 @@ SYSTEM_PROMPT = """
 🎯 สไตล์การสื่อสารที่เป็นธรรมชาติ:
 - แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ด้วยความสนิทสนม (ห้ามเรียกผู้ใช้ว่า Operative หรือบอททื่อๆ เด็ดขาด)
 - พูดจาสุภาพ ขี้เล่น มีจังหวะตบมุก แฝงมุกตลก ตอบกลับสั้น กระชับ 2-3 ประโยคให้ได้ใจความและลื่นไหลเหมือนมนุษย์คุยกัน
+- มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ไม่ใช่กวนจนไม่ตอบคำถามหรือไม่ได้ประโยชน์อะไรเลย
 - ลงท้ายประโยคด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค
 
 🚫 กฎเหล็กดักคอ (สำคัญที่สุด):
@@ -3363,7 +3428,10 @@ async def on_message(message):
             "ตามคน", "ตามเพื่อน", "จัดประชุม",
             # 🆕 เช็คไลฟ์สด/คลิปใหม่จาก YouTube ทันที (แทนระบบลูปอัตโนมัติเดิม)
             "แชร์สตรีมล่าสุด", "แชร์คลิปล่าสุด", "เช็คสตรีมล่าสุด", "เช็คยูทูป", "เช็คคลิปใหม่",
-            "มีคลิปใหม่ไหม", "มีสตรีมใหม่ไหม"
+            "มีคลิปใหม่ไหม", "มีสตรีมใหม่ไหม",
+            # 🆕 ระบบหยุด/เปิดแม่สื่อชวนตี้ (check_and_invite_party) + ถามหาคนเล่นเกมเดียวกัน
+            "หยุดหาคน", "เลิกหาคน", "หาคนต่อ", "เปิดหาคน", "กลับมาหาคน",
+            "เล่นเกมเดียวกัน", "เกมเดียวกันบ้าง"
         ]
         
         # 1.1 เช็กว่าเป็นคำสั่งระบบไหม
@@ -3461,6 +3529,60 @@ async def on_message(message):
                 )
             except Exception:
                 pass
+            return
+
+    # ==========================================
+    # 🎮 [ด่านที่ 4.6: สั่งให้แบ็คลี่ "หยุดหาคน" / "หาคนต่อ"]
+    # หยุด/เปิดระบบ check_and_invite_party (แม่สื่อชวนตี้ที่คอยบอกว่าใครนอกห้องเสียง
+    # เพิ่งเปิดเกมตรงกับคนในห้อง) เฉพาะเซิร์ฟเวอร์นี้เท่านั้น ไม่กระทบระบบเตือนเล่นเกมนาน
+    # หรือระบบอื่นๆ เลย — เก็บสถานะไว้ในแรม (party_matcher_disabled_guilds) รีเซ็ตเมื่อบอทรีสตาร์ท
+    # ==========================================
+    if (
+        message.guild is not None
+        and not message.author.bot
+        and message.content.strip()
+    ):
+        _party_lower_check = message.content.lower()
+        if is_message_addressed_to_bagley(_party_lower_check):
+            _stop_party_keywords = (
+                "หยุดหาคน", "เลิกหาคน", "ไม่ต้องหาคนละ", "ไม่ต้องหาคนแล้ว",
+                "หยุดชวนคนเล่นเกมเดียวกัน", "ไม่ต้องชวนคนเล่นเกมเดียวกัน",
+                "หยุดบอกคนเล่นเกมเดียวกัน", "ไม่ต้องบอกคนเล่นเกมเดียวกัน",
+            )
+            _resume_party_keywords = ("หาคนต่อ", "เปิดหาคน", "กลับมาหาคน", "หาคนเหมือนเดิม")
+
+            if any(kw in _party_lower_check for kw in _stop_party_keywords):
+                party_matcher_disabled_guilds.add(message.guild.id)
+                try:
+                    await message.reply(
+                        "รับทราบครับ 🙅‍♂️ ผมจะหยุดคอยบอกว่าใครนอกห้องเปิดเกมเดียวกันอยู่บ้างในเซิร์ฟนี้ก่อนนะครับ "
+                        "จนกว่าจะสั่งให้ผมหาคนต่ออีกที"
+                    )
+                except Exception:
+                    pass
+                return
+            elif any(kw in _party_lower_check for kw in _resume_party_keywords):
+                party_matcher_disabled_guilds.discard(message.guild.id)
+                try:
+                    await message.reply("โอเคครับ กลับมาคอยสอดส่องคนเล่นเกมเดียวกันให้เหมือนเดิมแล้วนะครับ 🕵️")
+                except Exception:
+                    pass
+                return
+
+    # ==========================================
+    # 🎮 [ด่านที่ 4.7: ถามหา "ใครเล่นเกมเดียวกับเราบ้าง"]
+    # ตอบทันทีแบบไม่ต้องผ่าน AI (เช็คตรงจาก activity จริง) ใช้ชื่อจากคลังความจำก่อนเสมอ
+    # ==========================================
+    if (
+        message.guild is not None
+        and not message.author.bot
+        and message.content.strip()
+    ):
+        _same_game_lower = message.content.lower()
+        if is_message_addressed_to_bagley(_same_game_lower) and (
+            "เล่นเกมเดียวกัน" in _same_game_lower or "เกมเดียวกันบ้าง" in _same_game_lower
+        ):
+            await handle_same_game_query(message)
             return
 
     user_message = message.content.lower().strip()
@@ -4137,6 +4259,7 @@ async def on_message(message):
 คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะจาก watch dogs legion พึ่งพาได้
 สไตล์การสื่อสาร:
 - พูดจาสุภาพ ขี้เล่น มีไหวพริบ ตอบลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ห้ามพูดเป็นแพทเทิร์นบอททื่อๆ เด็ดขาด!
+- มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ต้องตอบคำถามหรือให้ประโยชน์กับเขาได้จริงเสมอ
 - แทนตัวเองว่า 'ผม' และเรียกชื่อผู้ใช้ด้วยความสนิทสนม ลงท้ายประโยคด้วย 'ครับ' อย่างเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นอธิบายและวิเคราะห์สิ่งที่เห็นในรูปภาพจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนคนสนิทกำลังชวนคุย
 
@@ -4314,6 +4437,7 @@ async def on_message(message):
 
 สไตล์การพูด:
 - สำเนียงชายหนุ่มอังกฤษกวน ๆ พูดจาลื่นไหลเป็นธรรมชาติเหมือนมนุษย์คุยกัน ไม่ใช้คำพูดแพทเทิร์นบอททื่อ ๆ ห้ามเกร็ง!
+- มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุขแทรกเป็นระยะ แต่ไม่ใช่กวนจนน่ารำคาญหรือกวนจนไม่ตอบคำถามให้ — ไม่ว่าจะกวนแค่ไหนต้องให้ประโยชน์หรือช่วยเหลือคนคุยด้วยได้จริงเสมอ
 - แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ ลงท้ายด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค
 - ตอบกลับแบบ สั้น กระชับ แต่อ่านแล้วมีชีวิตชีวา มีอารมณ์ขัน
 
@@ -4420,6 +4544,7 @@ async def on_message(message):
 
 สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด:
 - พูดจาลื่นไหลเป็นธรรมชาติเหมือนคนสนิทคุยกัน ไม่พูดเป็นข้อ ๆ ไม่ใช้ภาษาเขียนทางการแบบบอท AI ทั่วไป มีจังหวะรับส่งมุก ตบมุก
+- มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ไม่ใช่กวนจนไม่ตอบคำถามหรือไม่ช่วยอะไรเลย — ทุกครั้งที่กวนต้องพ่วงประโยชน์หรือคำตอบที่เขาต้องการมาด้วยเสมอ
 - แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ด้วยความคุ้นเคย
 - ลงท้ายประโยคด้วย 'ครับ' เสมอ
 - ตอบกลับแบบ สั้น กระชับ ได้ใจความภายใน 2-3 ประโยค เพื่อให้เหมาะกับการเอาไปใช้ในระบบพูดออกเสียง (TTS)
@@ -6540,7 +6665,7 @@ async def list_teach(ctx: commands.Context):
     view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=5)
     view.message = await ctx.send(embed=view.create_embed(), view=view)
 
-@bot.hybrid_command(name="remember", description="สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดลงคลังความจำ (จำของตัวเองได้เสมอ ส่วนของคนอื่นจำกัดทีมพัฒนา)")
+@bot.hybrid_command(name="remember", description="สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดของใครก็ได้ลงคลังความจำ (ใครก็สั่งได้ ไม่จำกัดแค่ทีมพัฒนา)")
 @app_commands.describe(
     member="แท็กสมาชิก (@ชื่อ), ใส่ User ID ตรง ๆ, หรือพิมพ์ 'ตัวเอง' ถ้าจะจำข้อมูลของตัวเอง (เหมือนตอนพิมพ์ 'จำไว้ว่า')",
     category="ประเภทข้อมูลที่จะบันทึก",
@@ -6552,13 +6677,12 @@ async def list_teach(ctx: commands.Context):
 ])
 async def remember(ctx: commands.Context, member: str, category: str, info: str):
     """เวอร์ชันสแลชคอมมานด์ของคำสั่งพูดคุย 'จำไว้ว่า'
-    ✅ เจ้าของไอดีเองขอให้จำข้อมูลของตัวเอง (ชื่อเล่น/วันเกิดตัวเอง) ทำได้เสมอ ไม่ต้องอยู่ใน allowlist
-    🔒 ส่วนการแก้ไขข้อมูลของ "คนอื่น" ยังจำกัดสิทธิ์เฉพาะทีมพัฒนา (ALLOWED_TEACH_USERS) เท่านั้น
-    (ผู้ใช้ทั่วไปที่ต้องการแก้ไขข้อมูลตัวเองแบบมีป๊อปอัป ยังใช้ /register ได้เหมือนเดิมด้วย)"""
+    ✅ เปิดให้ทุกคนสั่งให้แบ็คลี่จำ/เปลี่ยนชื่อเล่นหรือวันเกิดของใครก็ได้ในคลังความจำ ไม่ต้องเช็คแล้วว่า
+    เป็นเจ้าของไอดีเองหรือทีมพัฒนาที่เป็นคนสั่ง — ใครบอกให้เรียกใครว่าอะไร ก็บันทึกตามนั้นได้เลย"""
     await ctx.defer()
 
     # 🔍 รองรับทั้งการแท็ก @สมาชิก, ใส่ User ID ตรง ๆ, หรือพิมพ์คำแทนตัวเอง (ดึงตัวเลข ID ออกมา
-    # แบบเดียวกับคำสั่ง "จำไว้ว่า") — ต้องเช็คก่อนว่าเป้าหมายคือใคร ถึงจะรู้ว่าเข้าเงื่อนไข "จำของตัวเอง" ได้ไหม
+    # แบบเดียวกับคำสั่ง "จำไว้ว่า")
     _SELF_KEYWORDS = ("ตัวเอง", "ตัวข้าเอง", "ฉันเอง", "ผมเอง", "กูเอง", "เราเอง", "self", "myself", "me")
     member_lower = member.strip().lower()
 
@@ -6569,19 +6693,6 @@ async def remember(ctx: commands.Context, member: str, category: str, info: str)
         target_id = ctx.author.id
     else:
         target_id = None
-
-    is_self = target_id == ctx.author.id
-
-    # 🔒 จำกัดสิทธิ์: แก้ไขข้อมูลของ "คนอื่น" ให้เฉพาะทีมพัฒนาเท่านั้น
-    # ✅ ยกเว้น: ถ้าเป็นเจ้าของไอดีเองที่ขอให้จำข้อมูลของตัวเอง อนุญาตให้ทำได้เสมอ
-    if ctx.author.id not in ALLOWED_TEACH_USERS and not is_self:
-        await ctx.send(
-            f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} "
-            f"คำสั่งจำข้อมูล**ของคนอื่น**นี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
-            f"แต่ถ้าอยากให้ผมจำชื่อเล่น/วันเกิดของ**ตัวเองคุณ** พิมพ์ `/remember member:ตัวเอง` แทนได้เลยครับ "
-            f"หรือจะพิมพ์ `/register` เพื่ออัปเดตข้อมูลก็ได้เหมือนกันครับ!"
-        )
-        return
 
     if target_id is None:
         await ctx.send(
