@@ -35,6 +35,7 @@
 
 import json
 import time
+import sqlite3
 import discord
 from discord.ext import tasks
 import bagley_learning
@@ -43,6 +44,7 @@ _bot = None
 _client = None
 _bagley_speak = None  # ฟังก์ชัน bagley_speak(guild, text) จาก bot.py — ส่งเข้ามาตอน configure()
 _get_realtime_name = None  # ฟังก์ชัน get_realtime_name(user_id, default_name) จาก bot.py — ดึงชื่อเล่นจากคลังความจำ
+_conn = None  # sqlite connection จาก bot.py — ใช้เก็บสถานะ "เงียบ/หยุดทักเอง" แบบถาวรแยกตามเซิร์ฟเวอร์
 
 _COOLDOWN_SECONDS = 30 * 60  # แชท: ห้ามพูดเองถี่กว่า 30 นาทีต่อห้อง (นานๆพูด ไม่ให้รบกวน)
 _VOICE_COOLDOWN_SECONDS = 60 * 60  # เสียง: เว้นถี่กว่าแชทมาก เพราะขัดจังหวะคนคุยกันในห้องเสียงได้มากกว่า
@@ -56,12 +58,89 @@ _MAX_TRACKED_AUTONOMOUS_MESSAGES = 200  # กันดิกชันนาร�
 _autonomous_message_ids: dict[int, float] = {}
 
 
-def configure(bot, client, bagley_speak=None, get_realtime_name=None):
-    global _bot, _client, _bagley_speak, _get_realtime_name
+def configure(bot, client, bagley_speak=None, get_realtime_name=None, conn=None):
+    global _bot, _client, _bagley_speak, _get_realtime_name, _conn
     _bot = bot
     _client = client
     _bagley_speak = bagley_speak
     _get_realtime_name = get_realtime_name
+    _conn = conn
+
+
+def init_silence_db(conn: sqlite3.Connection):
+    """สร้างตาราง (ถ้ายังไม่มี) เก็บสถานะ 'สั่งให้เงียบ/หยุดทักเอง' แบบถาวร แยกตามเซิร์ฟเวอร์ —
+    ไม่หายแม้บอทรีสตาร์ท จนกว่าจะมีคนคุยกับแบ็คลี่ตรงๆ อีกครั้งถึงจะเปิดทักเองกลับมาอัตโนมัติ
+    (ดู silence_guild / unsilence_guild ด้านล่าง)"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS autonomy_silence (
+            guild_id INTEGER PRIMARY KEY,
+            silenced_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+
+
+# แคชในแรม กันยิง query ทุกครั้งที่ autonomy_loop วนเช็คแต่ละห้อง (ยิง DB จริงเฉพาะตอนสถานะเปลี่ยน)
+_silenced_guild_ids: set[int] | None = None
+
+
+def _load_silenced_cache():
+    global _silenced_guild_ids
+    if _conn is None:
+        _silenced_guild_ids = set()
+        return
+    rows = _conn.execute("SELECT guild_id FROM autonomy_silence").fetchall()
+    _silenced_guild_ids = {r[0] for r in rows}
+
+
+def is_guild_silenced(guild_id: int) -> bool:
+    """เช็คว่ากิลด์นี้ถูกสั่งให้ 'เงียบ/หยุดทักเอง' อยู่หรือไม่ — ใช้ให้ autonomy_loop ข้ามห้องในกิลด์นี้ไป"""
+    if _silenced_guild_ids is None:
+        _load_silenced_cache()
+    return guild_id in _silenced_guild_ids
+
+
+def silence_guild(guild_id: int):
+    """สั่งเงียบ — หยุด 'ทักเอง' (autonomy_loop ทั้งแชทและเสียง) ในกิลด์นี้ทันที
+    บันทึกถาวรลง DB ด้วย จนกว่าจะมีคนคุยกับแบ็คลี่ตรงๆ อีกครั้งจึงจะเปิดกลับมาเอง (ดู unsilence_guild)"""
+    if _silenced_guild_ids is None:
+        _load_silenced_cache()
+    _silenced_guild_ids.add(guild_id)
+    if _conn is not None:
+        _conn.execute(
+            "INSERT OR REPLACE INTO autonomy_silence (guild_id, silenced_at) VALUES (?, datetime('now'))",
+            (guild_id,),
+        )
+        _conn.commit()
+    print(f"🔇 [Autonomy] guild={guild_id} ถูกสั่งให้เงียบ — หยุดทักเองจนกว่าจะมีคนมาคุยด้วยอีกครั้ง")
+
+
+def unsilence_guild(guild_id: int):
+    """เปิดการทักเองกลับมาอีกครั้ง — เรียกอัตโนมัติทันทีที่มีคนคุยกับแบ็คลี่ตรงๆ ในกิลด์นี้
+    (ไม่มีผลอะไรถ้ากิลด์นี้ไม่ได้ถูกสั่งเงียบอยู่แล้ว กันยิง DB โดยไม่จำเป็น)"""
+    if _silenced_guild_ids is None:
+        _load_silenced_cache()
+    if guild_id not in _silenced_guild_ids:
+        return
+    _silenced_guild_ids.discard(guild_id)
+    if _conn is not None:
+        _conn.execute("DELETE FROM autonomy_silence WHERE guild_id = ?", (guild_id,))
+        _conn.commit()
+    print(f"🌱 [Autonomy] guild={guild_id} มีคนมาคุยด้วย — เปิดการทักเองกลับมาอัตโนมัติแล้ว")
+
+
+# คำที่ถือว่าเป็นการ "สั่งให้เงียบ/หยุดทักเอง" เวลาพูดกับแบ็คลี่ตรงๆ (ต้องใช้คู่กับ is_message_addressed_to_bagley
+# ของ bot.py เสมอ ไม่งั้นจะไปเข้าใจผิดเวลาคนอื่นคุยกันเองว่า "เงียบไปเลย" โดยไม่ได้พูดกับบอท)
+_SILENCE_KEYWORDS = (
+    "เงียบ", "หุบปาก", "หยุดทักเอง", "อย่าทักเอง", "อย่าทักคนเอง",
+    "หยุดพูดเอง", "อย่าพูดเอง", "อย่าแทรก", "หยุดแทรก",
+    "quiet", "shut up", "shutup", "stop talking",
+)
+
+
+def is_silence_request(lower_text: str) -> bool:
+    """เช็คว่าข้อความนี้ (ที่รู้แล้วว่าเอ่ยถึง/เรียกแบ็คลี่ตรงๆ) เป็นการสั่งให้เงียบ/หยุดทักเองหรือไม่"""
+    return any(keyword in lower_text for keyword in _SILENCE_KEYWORDS)
 
 
 def _calling_name(member) -> str:
@@ -196,6 +275,10 @@ async def autonomy_loop():
         if channel is None or getattr(channel, "guild", None) is None:
             continue
         guild = channel.guild
+
+        # 🔇 ถูกสั่งให้เงียบไว้ (มีคนบอกให้เงียบ/หุบปาก) — ข้ามกิลด์นี้ไปจนกว่าจะมีคนมาคุยด้วยอีกครั้ง
+        if is_guild_silenced(guild.id):
+            continue
 
         last = _last_spoke_at.get(channel_id, 0)
         if now - last < _COOLDOWN_SECONDS:

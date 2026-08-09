@@ -3292,7 +3292,8 @@ async def on_ready():
         if not bagley_learning.learning_loop.is_running():
             bagley_learning.learning_loop.start()
 
-        bagley_autonomy.configure(bot, client, bagley_speak, get_realtime_name)
+        bagley_autonomy.configure(bot, client, bagley_speak, get_realtime_name, conn=conn)
+        bagley_autonomy.init_silence_db(conn)
         if not bagley_autonomy.autonomy_loop.is_running():
             bagley_autonomy.autonomy_loop.start()
 
@@ -3425,6 +3426,31 @@ async def on_message(message):
             except Exception as e:
                 print(f"⚠️ [ด่านที่ 4] ระบบตรวจคำหยาบทำงานผิดพลาด: {e}")
 
+    # ==========================================
+    # 🔇 [ด่านที่ 4.5: สั่งให้แบ็คลี่ "เงียบ/หุบปาก" หยุดทักเอง]
+    # หยุดระบบทักเอง (bagley_autonomy.autonomy_loop) เฉพาะเซิร์ฟเวอร์นี้ทันที บันทึกถาวรลง DB
+    # จนกว่าจะมีใครคุยกับแบ็คลี่ตรงๆ อีกครั้ง (ดูจุดที่เรียก unsilence_guild ด้านล่าง) ถึงจะเปิดกลับมาเอง
+    # ==========================================
+    if (
+        message.guild is not None
+        and not message.author.bot
+        and message.content.strip()
+    ):
+        _silence_lower_check = message.content.lower()
+        if (
+            is_message_addressed_to_bagley(_silence_lower_check)
+            and bagley_autonomy.is_silence_request(_silence_lower_check)
+        ):
+            bagley_autonomy.silence_guild(message.guild.id)
+            try:
+                await message.channel.send(
+                    "รับทราบครับ 🤐 ผมจะหยุดทักเองในเซิร์ฟเวอร์นี้ไปก่อนนะครับ "
+                    "จนกว่าจะมีใครมาชวนผมคุยเล่นอีกครั้งถึงจะกลับมาทักเองแบบเดิมครับ"
+                )
+            except Exception:
+                pass
+            return
+
     user_message = message.content.lower().strip()
 
     global conn, is_tts_enabled, is_playing_music
@@ -3473,6 +3499,9 @@ async def on_message(message):
             # 🤝 [ระบบ Trust] นับว่าคนนี้คุยกับแบ็คลี่ตรงๆ อีกครั้ง (ใช้สะสมสิทธิ์ ephemeral tools)
             if message.guild is not None and not message.author.bot:
                 bagley_trust.track_interaction(message.author.id, message.guild.id)
+                # 🌱 [Autonomy] มีคนมาคุยกับแบ็คลี่ตรงๆ แล้ว — ถ้าเซิร์ฟเวอร์นี้เคยถูกสั่งเงียบไว้
+                # (บอกให้เงียบ/หุบปาก) ให้เปิดระบบทักเองกลับมาอัตโนมัติทันที
+                bagley_autonomy.unsilence_guild(message.guild.id)
 
             handled = await ai_route_and_execute(message, bot, client, find_member_by_name)
             if handled:
