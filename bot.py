@@ -1756,7 +1756,7 @@ async def follow_creator_task():
                         report_msg += f" วันนี้มีคุณ {entrant_names[0]} แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ"
                     else:
                         report_msg += f" วันนี้มีทั้งหมด {len(entrant_names)} คนแวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ ได้แก่ คุณ {', คุณ '.join(entrant_names)}"
-                    report_msg += " ก่อนจะไปดูกันว่าใครอยู่นานที่สุด"
+                    report_msg += " และนี่คือสถิติเวลาที่ใช้ในห้องเสียงของแต่ละคนครับ"
 
                     report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
                     for index, (u_id, info) in enumerate(sorted_stats, 1):

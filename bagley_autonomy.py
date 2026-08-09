@@ -137,9 +137,16 @@ _SILENCE_KEYWORDS = (
     "quiet", "shut up", "shutup", "stop talking",
 )
 
+# 🛡️ กันชนกับคำสั่งเพลง/เสียง (เช่น "เปิดเพลงเบาๆ/เงียบๆหน่อย") — "เงียบ"/"quiet" เป็นคำเดี่ยวกว้างๆ
+# ถ้าข้อความมีคำพวกนี้ปนอยู่ด้วย ให้ถือว่าไม่ใช่คำสั่งเงียบ (หยุดทักเอง) ปล่อยให้ไหลไปเข้า AI Router ตามปกติ
+_MUSIC_CONTEXT_HINTS = ("เพลง", "music", "เสียงเพลง", "song")
+
 
 def is_silence_request(lower_text: str) -> bool:
-    """เช็คว่าข้อความนี้ (ที่รู้แล้วว่าเอ่ยถึง/เรียกแบ็คลี่ตรงๆ) เป็นการสั่งให้เงียบ/หยุดทักเองหรือไม่"""
+    """เช็คว่าข้อความนี้ (ที่รู้แล้วว่าเอ่ยถึง/เรียกแบ็คลี่ตรงๆ) เป็นการสั่งให้เงียบ/หยุดทักเองหรือไม่
+    กันชนกับคำสั่งเพลง/เสียงด้วย (ดู _MUSIC_CONTEXT_HINTS)"""
+    if any(hint in lower_text for hint in _MUSIC_CONTEXT_HINTS):
+        return False
     return any(keyword in lower_text for keyword in _SILENCE_KEYWORDS)
 
 
