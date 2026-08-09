@@ -2398,20 +2398,12 @@ async def generate_and_send_image(ctx_or_interaction, prompt: str):
 async def execute_remember_logic(message):
     print("DEBUG: ตรวจพบคำสั่งจำไว้ว่า!")
 
-    # 🔒 จำกัดสิทธิ์: คำสั่ง "จำไว้ว่า" (แก้ข้อมูลคนอื่นในคลังความจำ) ให้เฉพาะทีมพัฒนาเท่านั้น
-    # ผู้ใช้ทั่วไปที่ต้องการแก้ไขชื่อเล่น/วันเกิดของตัวเอง ให้ใช้ระบบ /register แทน
-    if message.author.id not in ALLOWED_TEACH_USERS:
-        await message.reply(
-            "❌ **[ACCESS DENIED]** ขออภัยครับ คำสั่งจำข้อมูลนี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
-            "หากต้องการแก้ไขชื่อเล่นหรือวันเกิดของตัวเอง สามารถพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
-        )
-        return
-
     target_user = None
     target_display_name = "เพื่อน"
-    
+    target_id = None
+
     has_id = regex_lib.search(r'(\d{17,19})', message.content)
-    
+
     if has_id:
         target_id = int(has_id.group(1))
         try:
@@ -2421,13 +2413,37 @@ async def execute_remember_logic(message):
                 target_display_name = get_realtime_name(fetched_user.id, fetched_user.display_name)
         except:
             target_display_name = f"ID: {target_id}"
-            
+
     elif message.mentions:
-        target_user = message.mentions[0]
-        target_display_name = get_realtime_name(target_user.id, target_user.display_name)
+        # 🛡️ กันเคสข้อความแท็ก "@แบ็คลี่" (เช่น "@Bagley กูชื่อ...จำไว้ด้วย") แล้วไปตีความผิดว่า
+        # แบ็คลี่คือเป้าหมายที่จะบันทึกข้อมูลให้ — เอาแต่คนจริงๆ (ไม่ใช่บอท) มาเป็นเป้าหมาย
+        human_mentions = [m for m in message.mentions if not m.bot]
+        if human_mentions:
+            target_user = human_mentions[0]
+            target_id = target_user.id
+            target_display_name = get_realtime_name(target_user.id, target_user.display_name)
+
+    # 🟢 ไม่ได้แท็กใคร/ไม่มี ID เลย -> ถือว่าเป็นการขอให้จำ "ข้อมูลของตัวเอง" โดยปริยาย
+    # (เช่น "กูชื่อนิโคลัส จำไว้ด้วย" ไม่ได้แท็กใครเลย ก็ควรตีความว่าหมายถึงตัวผู้พิมพ์เอง)
+    if target_user is None and target_id is None:
+        target_user = message.author
+        target_id = message.author.id
+        target_display_name = get_realtime_name(message.author.id, message.author.display_name)
+
+    is_self = target_id == message.author.id
+
+    # 🔒 จำกัดสิทธิ์: แก้ไขข้อมูลของ "คนอื่น" ในคลังความจำ ให้เฉพาะทีมพัฒนาเท่านั้น
+    # ✅ ยกเว้น: ถ้าเป็นเจ้าของไอดีเองที่ขอให้จำข้อมูลของตัวเอง (ชื่อเล่น/วันเกิดตัวเอง) อนุญาตให้ทำได้เสมอ
+    if message.author.id not in ALLOWED_TEACH_USERS and not is_self:
+        await message.reply(
+            "❌ **[ACCESS DENIED]** ขออภัยครับ คำสั่งจำข้อมูล**ของคนอื่น**นี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
+            "แต่ถ้าอยากให้ผมจำชื่อเล่น/วันเกิดของ**ตัวเองคุณ** พิมพ์ใหม่แบบไม่ต้องแท็กใครเลย (เช่น `จำไว้ว่าฉันชื่อ...`) "
+            "หรือพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
+        )
+        return
 
     if target_user:
-        target_id_str = str(target_user.id) if hasattr(target_user, 'id') else str(target_id)
+        target_id_str = str(target_id)
 
         ai_prompt = (
             f"ผู้ใช้พิมพ์ข้อความนี้: '{message.content}'\n"
@@ -2471,10 +2487,6 @@ async def execute_remember_logic(message):
 
         save_user_data(user_data)
         print(f"DEBUG: บันทึกข้อมูลสำเร็จสำหรับ ID: {target_id_str} ประเภท: {info_type}")
-        return
-        
-    else:
-        await message.reply("คุณลืมระบุตัวตนหรือเปล่าครับ? รบกวนช่วย @แท็กเพื่อน หรือใส่เลข ID เพื่อให้ผมจำคู่กับข้อมูลด้วยน้าครับ!")
         return
 
 # 1. คลาสสำหรับหน้าต่างเลือกสมาชิก (ใช้ ui.UserSelect ได้เลยเพราะนำเข้าไว้แล้ว)
@@ -6528,9 +6540,9 @@ async def list_teach(ctx: commands.Context):
     view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=5)
     view.message = await ctx.send(embed=view.create_embed(), view=view)
 
-@bot.hybrid_command(name="remember", description="[Developer Only] สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดของสมาชิกลงคลังความจำ")
+@bot.hybrid_command(name="remember", description="สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดลงคลังความจำ (จำของตัวเองได้เสมอ ส่วนของคนอื่นจำกัดทีมพัฒนา)")
 @app_commands.describe(
-    member="แท็กสมาชิก (@ชื่อ) หรือใส่ User ID ตรง ๆ ก็ได้ (เหมือนตอนพิมพ์ 'จำไว้ว่า')",
+    member="แท็กสมาชิก (@ชื่อ), ใส่ User ID ตรง ๆ, หรือพิมพ์ 'ตัวเอง' ถ้าจะจำข้อมูลของตัวเอง (เหมือนตอนพิมพ์ 'จำไว้ว่า')",
     category="ประเภทข้อมูลที่จะบันทึก",
     info="ข้อมูลที่ต้องการบันทึก (เช่น ชื่อเล่น หรือ วันเกิด)"
 )
@@ -6539,25 +6551,44 @@ async def list_teach(ctx: commands.Context):
     app_commands.Choice(name="วันเกิด (Birthday)", value="birthday"),
 ])
 async def remember(ctx: commands.Context, member: str, category: str, info: str):
-    """เวอร์ชันสแลชคอมมานด์ของคำสั่งพูดคุย 'จำไว้ว่า' — จำกัดสิทธิ์เฉพาะทีมพัฒนา (ALLOWED_TEACH_USERS) เท่านั้น
-    ผู้ใช้ทั่วไปที่ต้องการแก้ไขชื่อเล่น/วันเกิดของตัวเอง ให้ใช้ /register แทนครับ"""
+    """เวอร์ชันสแลชคอมมานด์ของคำสั่งพูดคุย 'จำไว้ว่า'
+    ✅ เจ้าของไอดีเองขอให้จำข้อมูลของตัวเอง (ชื่อเล่น/วันเกิดตัวเอง) ทำได้เสมอ ไม่ต้องอยู่ใน allowlist
+    🔒 ส่วนการแก้ไขข้อมูลของ "คนอื่น" ยังจำกัดสิทธิ์เฉพาะทีมพัฒนา (ALLOWED_TEACH_USERS) เท่านั้น
+    (ผู้ใช้ทั่วไปที่ต้องการแก้ไขข้อมูลตัวเองแบบมีป๊อปอัป ยังใช้ /register ได้เหมือนเดิมด้วย)"""
     await ctx.defer()
 
-    # 🔒 จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้น เหมือนกับคำสั่ง teach
-    if ctx.author.id not in ALLOWED_TEACH_USERS:
+    # 🔍 รองรับทั้งการแท็ก @สมาชิก, ใส่ User ID ตรง ๆ, หรือพิมพ์คำแทนตัวเอง (ดึงตัวเลข ID ออกมา
+    # แบบเดียวกับคำสั่ง "จำไว้ว่า") — ต้องเช็คก่อนว่าเป้าหมายคือใคร ถึงจะรู้ว่าเข้าเงื่อนไข "จำของตัวเอง" ได้ไหม
+    _SELF_KEYWORDS = ("ตัวเอง", "ตัวข้าเอง", "ฉันเอง", "ผมเอง", "กูเอง", "เราเอง", "self", "myself", "me")
+    member_lower = member.strip().lower()
+
+    has_id = regex_lib.search(r'(\d{17,19})', member)
+    if has_id:
+        target_id = int(has_id.group(1))
+    elif member_lower in _SELF_KEYWORDS or member_lower == "":
+        target_id = ctx.author.id
+    else:
+        target_id = None
+
+    is_self = target_id == ctx.author.id
+
+    # 🔒 จำกัดสิทธิ์: แก้ไขข้อมูลของ "คนอื่น" ให้เฉพาะทีมพัฒนาเท่านั้น
+    # ✅ ยกเว้น: ถ้าเป็นเจ้าของไอดีเองที่ขอให้จำข้อมูลของตัวเอง อนุญาตให้ทำได้เสมอ
+    if ctx.author.id not in ALLOWED_TEACH_USERS and not is_self:
         await ctx.send(
-            f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
-            f"หากต้องการแก้ไขชื่อเล่นหรือวันเกิดของตัวเอง สามารถพิมพ์ `/register` เพื่ออัปเดตข้อมูลได้เลยครับ!"
+            f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} "
+            f"คำสั่งจำข้อมูล**ของคนอื่น**นี้จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸\n"
+            f"แต่ถ้าอยากให้ผมจำชื่อเล่น/วันเกิดของ**ตัวเองคุณ** พิมพ์ `/remember member:ตัวเอง` แทนได้เลยครับ "
+            f"หรือจะพิมพ์ `/register` เพื่ออัปเดตข้อมูลก็ได้เหมือนกันครับ!"
         )
         return
 
-    # 🔍 รองรับทั้งการแท็ก @สมาชิก และการใส่ User ID ตรง ๆ (ดึงตัวเลข ID ออกมาแบบเดียวกับคำสั่ง "จำไว้ว่า")
-    has_id = regex_lib.search(r'(\d{17,19})', member)
-    if not has_id:
-        await ctx.send("❌ ไม่พบผู้ใช้ที่ระบุครับ กรุณาแท็ก (@) สมาชิก หรือใส่ User ID ให้ถูกต้องนะครับ!")
+    if target_id is None:
+        await ctx.send(
+            "❌ ไม่พบผู้ใช้ที่ระบุครับ กรุณาแท็ก (@) สมาชิก, ใส่ User ID, หรือพิมพ์ 'ตัวเอง' ถ้าจะจำข้อมูลของตัวเองนะครับ!"
+        )
         return
 
-    target_id = int(has_id.group(1))
     target_user = ctx.guild.get_member(target_id) if ctx.guild else None
     if target_user is None:
         try:
