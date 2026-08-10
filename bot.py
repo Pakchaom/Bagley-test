@@ -2133,12 +2133,12 @@ async def handle_same_game_query(message: discord.Message):
     except Exception:
         pass
 
-    # 🔊 พูดออกเสียงด้วย ถ้าบอทอยู่ในห้องเสียงเดียวกับคนถามอยู่แล้ว (ไม่ไปแทรกเสียงอื่นที่กำลังเล่นอยู่)
+    # 🔊 พูดออกเสียงด้วย ถ้าบอทอยู่ในห้องเสียงเดียวกับคนถามอยู่แล้ว
+    # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
     if (
         message.guild.voice_client
         and asker.voice
         and message.guild.voice_client.channel == asker.voice.channel
-        and not message.guild.voice_client.is_playing()
     ):
         try:
             await bagley_speak(message.guild, reply_text)
@@ -4475,13 +4475,13 @@ async def on_message(message):
             await message.reply(bagley_styled_text)
             
             # 🗣️ ระบบส่งเสียงพูดสำหรับข้อความที่ดึงมาจากฐานข้อมูลความจำ
+            # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
             if message.guild and message.guild.voice_client:
-                if not message.guild.voice_client.is_playing():
-                    try:
-                        clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
-                        await bagley_speak(message.guild, clean_voice_text)
-                    except Exception as tts_err:
-                        print(f"🚨 Teach Memory TTS Error: {tts_err}")
+                try:
+                    clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
+                    await bagley_speak(message.guild, clean_voice_text)
+                except Exception as tts_err:
+                    print(f"🚨 Teach Memory TTS Error: {tts_err}")
         return
 
     # ==========================================
@@ -4586,10 +4586,10 @@ async def on_message(message):
 
             await message.reply(bagley_styled_text)
             
+            # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
             if message.guild and message.guild.voice_client:
-                if not message.guild.voice_client.is_playing():
-                    clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
-                    await bagley_speak(message.guild, clean_voice_text)
+                clean_voice_text = regex_lib.sub(r'[^\w\s\u0e00-\u0e7f]+', '', bagley_styled_text)
+                await bagley_speak(message.guild, clean_voice_text)
         return
 
     # ==========================================
@@ -4946,16 +4946,15 @@ async def yt_add(ctx: commands.Context, channel_id: str):
                 c.execute("INSERT INTO youtube_channels VALUES (?, ?, ?, ?)", (channel_id, name, "", guild_id))
                 conn.commit()
                 msg = f"ติดตั้งระบบสอดแนมช่อง {name} ในเซิร์ฟเวอร์นี้เรียบร้อยแล้วครับ!"
-                if not ctx.voice_client or not ctx.voice_client.is_playing():
-                    await bagley_speak(ctx.guild, f"ติดตั้งระบบสอดแนมช่อง {name} เรียบร้อยแล้วครับ")
+                # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
+                await bagley_speak(ctx.guild, f"ติดตั้งระบบสอดแนมช่อง {name} เรียบร้อยแล้วครับ")
             except Exception as e:
                 msg = f"เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ!"
                 print(f"Error: {e}")
         
     else:
         msg = "หาช่องไม่เจอ! ตรวจสอบ Channel ID อีกทีนะครับ"
-        if not ctx.voice_client or not ctx.voice_client.is_playing():
-            await bagley_speak(ctx.guild, "หาช่องไม่เจอครับ ตรวจสอบไอดีอีกทีนะ")
+        await bagley_speak(ctx.guild, "หาช่องไม่เจอครับ ตรวจสอบไอดีอีกทีนะ")
 
     # การตอบกลับ
     if ctx.interaction:
@@ -5266,9 +5265,8 @@ async def skip(ctx: commands.Context):
 @bot.hybrid_command(name="queue", description="ดูรายการเพลงในคิว")
 async def queue(ctx: commands.Context):
     if len(song_queue) == 0:
-        if not ctx.voice_client or not ctx.voice_client.is_playing():
-            await bagley_speak(ctx.guild, "ตอนนี้ไม่มีเพลงในคิวเลยครับ ว่างเปล่าเลย")
-            
+        # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
+        await bagley_speak(ctx.guild, "ตอนนี้ไม่มีเพลงในคิวเลยครับ ว่างเปล่าเลย")
         return await ctx.send("ตอนนี้ยังไม่มีเพลงในคิวครับ ว่างเปล่าเลย!")
     
     msg = "**🎵 รายการเพลงในคิวตอนนี้:**\n"
@@ -5477,7 +5475,8 @@ async def clear_memory(ctx: commands.Context):
     else:
         await ctx.send(msg)
     
-    if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
+    # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
+    if ctx.guild.voice_client:
         await bagley_speak(ctx.guild, "ล้างสมองสะอาดกริ๊บแล้วครับ!")
 
 @bot.hybrid_command(name="reg_config", description="ตั้งค่าระบบรับยศลงทะเบียน (ล็อกคำถามชื่อเล่นและวันเกิดให้อัตโนมัติ)")
@@ -5530,9 +5529,8 @@ async def kick_voice(ctx, member: discord.Member):
         
         msg = f"รับทราบครับ! ผมจัดการเขี่ย {get_realtime_name(member.id, member.display_name)} ออกจากห้องเสียงให้แล้ว"
         
-        # เช็คว่าบอทไม่ได้เล่นเพลงอยู่ ถึงจะพูดออกมาได้
-        if not ctx.voice_client or not ctx.voice_client.is_playing():
-            await bagley_speak(ctx.guild, f"จัดการเขี่ย {get_realtime_name(member.id, member.display_name)} ออกไปให้แล้วครับ")
+        # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
+        await bagley_speak(ctx.guild, f"จัดการเขี่ย {get_realtime_name(member.id, member.display_name)} ออกไปให้แล้วครับ")
             
         await ctx.send(msg)
     else:
@@ -5563,11 +5561,8 @@ class GatherResponseView(ui.View):
 
         vc = self.guild.voice_client
         if vc and vc.is_connected():
-            if not vc.is_playing():
-                # แบ็คลี่พูดออกเสียงโดยใช้ชื่อเล่นในคลังทันที!
-                await bagley_speak(self.guild, f"คุณ {real_responder_name} ตอบตกลงแล้วครับ เดี๋ยวก็คงมาแล้วครับ")
-            else:
-                print(f"Bagley: {interaction.user.name} ตกลง แต่ผมไม่พูดแทรกเพลงนะ")
+            # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองแล้วพูดต่อ
+            await bagley_speak(self.guild, f"คุณ {real_responder_name} ตอบตกลงแล้วครับ เดี๋ยวก็คงมาแล้วครับ")
 
         if self.inviter.voice and self.inviter.voice.channel:
             voice_channel = self.inviter.voice.channel
@@ -5594,11 +5589,8 @@ class GatherResponseView(ui.View):
         
         vc = self.guild.voice_client
         if vc and vc.is_connected():
-            if not vc.is_playing():
-                # แบ็คลี่พูดออกเสียงปฏิเสธด้วยชื่อเล่น
-                await bagley_speak(self.guild, f"คุณ {real_responder_name} ปฏิเสธครับ สงสัยเขาจะติดธุระ")
-            else:
-                print(f"Bagley: {interaction.user.name} ปฏิเสธ แต่ผมไม่พูดขัดจังหวะเพลงครับ")
+            # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองแล้วพูดต่อ
+            await bagley_speak(self.guild, f"คุณ {real_responder_name} ปฏิเสธครับ สงสัยเขาจะติดธุระ")
 
         await interaction.response.send_message("รับทราบครับ ไว้นัดกันใหม่วันหลังนะ", ephemeral=True)
         self.stop()
@@ -5918,9 +5910,8 @@ async def diagnostic(ctx: commands.Context):
         # ถ้าบอทอยู่ในห้องเสียง ให้รายงานเป็นลำดับ
         report_text = f"ตรวจสอบระบบเสร็จสิ้น ระบบฐานข้อมูล {db_status}, ระบบเนือรัลลิงก์ปกติ, ระบบเสียงพร้อมใช้งาน, ทุกระบบทำงานเต็มรูปแบบหนึ่งร้อยเปอร์เซ็นต์ครับ"
         
-        # เช็คก่อนว่าไม่ได้เล่นเพลงอยู่
-        if not vc.is_playing():
-            await bagley_speak(ctx.guild, report_text)
+        # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
+        await bagley_speak(ctx.guild, report_text)
         
         await msg.edit(content=f"🤖 **Bagley Diagnostic Initiated...**\n`Memory Core: {db_status}`\n`Neural Link: {ping}ms`\n`Audio Output: {voice_info}`\n\n✅ **ทุกระบบพร้อมสอดแนมครับ!**")
     else:
@@ -6323,15 +6314,16 @@ Voice: [คำพูดรายงานสรุปให้คุณฟัง
     await ctx.send(embed=embed)
 
     # --- 4. ระบบรายงานด้วยเสียง (TTS) ---
-    if ctx.voice_client and ctx.voice_client.channel and not ctx.voice_client.is_playing():
-        if ctx.author.voice and ctx.author.voice.channel == ctx.voice_client.channel:
-            full_report = f"{voice_report} {analysis_report}"
-            try:
-                import re
-                clean_voice_text = re.sub(r'[^\w\s\u0e00-\u0e7f]+', '', full_report)
-                await bagley_speak(ctx.guild, clean_voice_text)
-            except Exception as tts_err:
-                print(f"🚨 Scan Command TTS Error: {tts_err}")
+    # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" และ "ต้องอยู่ห้องเดียวกับคนสั่ง" ออก
+    # bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว และแบ็คลี่ควรพูดทุกครั้งที่ตอบกลับไม่ว่าใครจะอยู่ห้องไหน
+    if ctx.voice_client and ctx.voice_client.channel:
+        full_report = f"{voice_report} {analysis_report}"
+        try:
+            import re
+            clean_voice_text = re.sub(r'[^\w\s\u0e00-\u0e7f]+', '', full_report)
+            await bagley_speak(ctx.guild, clean_voice_text)
+        except Exception as tts_err:
+            print(f"🚨 Scan Command TTS Error: {tts_err}")
             
 @bot.hybrid_command(name="set_alert", description="ตั้งค่าห้องรายงาน และให้แบ็คลี่รายงานตัว")
 @commands.has_permissions(administrator=True)
@@ -6369,9 +6361,10 @@ async def on_member_join(member):
             embed.set_footer(text="Hacker Vision กำลังเฝ้าดูอยู่ครับ")
             await channel.send(embed=embed)
 
-    # 3. ระบบ "รายงานแบบอัตโนมัติด้วยเสียง" ถ้าแบ็คลี่อยู่ในห้องเสียงเดียวกับคนสั่ง และไม่ได้เล่นเพลงอยู่
+    # 3. ระบบ "รายงานแบบอัตโนมัติด้วยเสียง" ถ้าแบ็คลี่อยู่ในห้องเสียง
+    # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
     voice_client = member.guild.voice_client
-    if voice_client and voice_client.is_connected() and not voice_client.is_playing():
+    if voice_client and voice_client.is_connected():
         
         if is_suspicious:
             voice_report = f"ครับ! ตรวจพบไอดีผีชื่อ {get_realtime_name(member.id, member.display_name)} เพิ่งสมัครมาได้แค่ {account_age_days} วัน แฝงตัวเข้ามาในเซิร์ฟเวอร์ครับ ระวังตัวด้วยนะ!"
@@ -6573,6 +6566,8 @@ async def stop_alarm(ctx: commands.Context):
             ctx.voice_client.stop()
             
         await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับ! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับ!")
+        if ctx.guild and ctx.guild.voice_client:
+            await bagley_speak(ctx.guild, "ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับ")
     else:
         await ctx.send("❌ ตอนนี้ไม่มีนาฬิกาปลุกกำลังทำงานในเซิร์ฟเวอร์นี้ครับ")
 
@@ -6841,16 +6836,15 @@ async def forget(ctx: commands.Context, target: discord.User = None):
                 
     await ctx.send(reply_text)
 
-    if ctx.guild and ctx.guild.voice_client:
-        vc = ctx.guild.voice_client
-        if vc.channel and not vc.is_playing():
-            if ctx.author.voice and ctx.author.voice.channel == vc.channel:
-                try:
-                    import re
-                    clean_voice_text = re.sub(r'[^\w\s\u0e00-\u0e7f]+', '', reply_text)
-                    await bagley_speak(ctx.guild, clean_voice_text)
-                except Exception as tts_err:
-                    print(f"🚨 Forget Command TTS Error: {tts_err}")
+    # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" และ "ต้องอยู่ห้องเดียวกับคนสั่ง" ออก
+    # bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว และแบ็คลี่ควรพูดทุกครั้งที่ตอบกลับ
+    if ctx.guild and ctx.guild.voice_client and ctx.guild.voice_client.channel:
+        try:
+            import re
+            clean_voice_text = re.sub(r'[^\w\s\u0e00-\u0e7f]+', '', reply_text)
+            await bagley_speak(ctx.guild, clean_voice_text)
+        except Exception as tts_err:
+            print(f"🚨 Forget Command TTS Error: {tts_err}")
 
 @bot.hybrid_command(name="imagine", description="สั่งให้แบ็คลี่วาดภาพจากจินตนาการและข้อความ")
 @app_commands.describe(prompt="พิมพ์อธิบายภาพที่อยากให้แบ็คลี่วาดได้เลยครับ")
@@ -6892,8 +6886,8 @@ async def sys_cleanup(ctx: commands.Context):
     else:
         await ctx.send(msg)
         
-    if ctx.guild.voice_client and not ctx.guild.voice_client.is_playing():
-        await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับ")
+    # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" ออก bagley_speak() รอเสียงเดิมจบเองอยู่แล้ว
+    await bagley_speak(ctx.guild, "กวาดขยะล้างแรมในระบบให้ใสแจ๋วแล้วครับ")
 
 @bot.hybrid_command(name="unfollow_me", description="สั่งให้ Bagley เลิกเดินตามตัวเราเอง")
 async def unfollow_me(ctx: commands.Context):
