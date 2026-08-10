@@ -4683,7 +4683,27 @@ async def on_voice_state_update(member, before, after):
             elif member.id == followed_leader_id:
                 is_target_leaving = True
 
-        if is_target_leaving and before.channel == bot_channel and after.channel != bot_channel:
+        # 🚶‍♂️➡️🚪 [แก้บั๊ก] เดิมเช็คแค่ "before.channel == bot_channel and after.channel != bot_channel"
+        # ซึ่งเป็นจริงทั้งกรณีเจ้านาย "ออกจากห้องเสียงไปเลย" (after.channel is None) และกรณี
+        # เจ้านาย "แค่ย้ายห้อง" (after.channel เป็นอีกห้องนึง ไม่ใช่ None) พอเข้าเงื่อนไขเดียวกันหมด
+        # โค้ดเดิมเลยพูดบอกลา+ตัดสายทันทีแม้เจ้านายแค่ย้ายห้อง แล้วค่อยไปอาศัย
+        # follow_creator_task (ลูปทุก 1 นาที) เชื่อมกลับเข้าห้องใหม่ทีหลัง ทำให้บางจังหวะ
+        # ลูปนั้นดันมาบิน (move_to) ตามเข้าห้องใหม่ "ระหว่าง" ที่ยังพูดบอกลาไม่จบพอดี
+        # กลายเป็นบอทพูดบอกลาทบเสียง/ตามไปพูดค้างคาที่ห้องใหม่ก่อนจะออกจริง
+        # ตอนนี้แยกเคสให้ชัดเจน: ถ้าเจ้านายแค่ย้ายห้อง (after.channel ไม่ใช่ None) ให้แบ็คลี่
+        # บินตามไปห้องใหม่ทันทีแบบเงียบๆ (ไม่พูดบอกลา ไม่ตัดสาย) ส่วนกรณีออกจากห้องเสียงไปเลย
+        # (after.channel is None) เท่านั้นถึงจะเข้าลอจิกพูดบอกลา+ตัดสายแบบเดิม
+        if is_target_leaving and before.channel == bot_channel and after.channel is not None and after.channel != bot_channel:
+            if not voice_client.is_playing():
+                try:
+                    await voice_client.move_to(after.channel)
+                    has_followed_out = True
+                    print(f"DEBUG: 🔄 เจ้านาย {member.display_name} ย้ายห้อง แบ็คลี่บินตามไปห้อง {after.channel.name} ทันทีแบบเงียบๆ ครับ (ไม่พูดบอกลาเพราะยังไม่ได้ออกจากห้องเสียงจริงๆ)")
+                except Exception as e:
+                    print(f"❌ เกิดข้อผิดพลาดตอนบินตามเจ้านายย้ายห้อง: {e}")
+            # ถ้าแบ็คลี่ติดเปิดเพลงอยู่ ปล่อยให้ follow_creator_task ตามไปทีหลังตอนเพลงจบตามปกติ
+
+        elif is_target_leaving and before.channel == bot_channel and after.channel is None:
             
             data_memory = load_user_data() 
             special_info = data_memory.get(str(member.id))
