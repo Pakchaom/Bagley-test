@@ -1610,9 +1610,19 @@ async def follow_creator_task():
         target_member, target_channel, guild_to_join = active_targets[0]
     else:
         if active_targets[0][2].id == active_targets[1][2].id and active_targets[0][1].id != active_targets[1][1].id:
+            guild_obj = active_targets[0][2]
+            voice_client = guild_obj.voice_client
+            split_channel_ids = {active_targets[0][1].id, active_targets[1][1].id}
+
+            # 🛡️ [แก้บั๊ก] "ไม่ลำเอียง" ควรแปลว่า "ไม่เลือกเข้าห้องใหม่ให้ใครฝ่ายใดฝ่ายหนึ่ง"
+            # ไม่ใช่ "ต้องออกจากห้องที่อยู่อยู่แล้ว" - ถ้าแบ็คลี่อยู่กับคุณชะอมหรือคุณชาช่าคนใดคนหนึ่งอยู่ก่อน
+            # ตั้งแต่ก่อนที่อีกคนจะแยกไปอีกห้อง แปลว่าแบ็คลี่ไม่ได้เพิ่งเลือกข้างตอนนี้ อยู่ต่อได้เลยครับ
+            if voice_client and voice_client.is_connected() and voice_client.channel.id in split_channel_ids:
+                print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] คุณชะอมและคุณชาช่าแยกห้องกัน แต่แบ็คลี่อยู่กับคนใดคนหนึ่งอยู่ก่อนแล้ว ไม่ใช่การเลือกข้างใหม่ เลยขออยู่ต่อครับ ไม่ออกจากห้องนะครับ")
+                return
+
             print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เลือกข้างใครครับ!")
-            
-            voice_client = active_targets[0][2].guild.voice_client
+
             if voice_client:
                 try:
                     # 🛠️ [แก้บั๊ก] เดิมใช้ disconnect() แบบไม่ force ซึ่งบางครั้งดิสคอร์ดค้าง
@@ -1620,8 +1630,8 @@ async def follow_creator_task():
                     # ผลคือรอบถัดไปที่ควรจะบินเข้าไปหาอีกคน กลับเชื่อมต่อไม่ติดเงียบๆ
                     # เปลี่ยนเป็น force=True ให้เหมือนกับจุดอื่นๆ ที่รีคอนเน็กต์ปกติ
                     await voice_client.disconnect(force=True)
-                    voice_report_status.pop(active_targets[0][2].id, None)
-                    bot_follow_targets[active_targets[0][2].id] = None 
+                    voice_report_status.pop(guild_obj.id, None)
+                    bot_follow_targets[guild_obj.id] = None
                     print(f"DEBUG: ⚖️ ถอนกำลังออกจากห้องเดิมเรียบร้อย เพื่อความเท่าเทียมคัปพ้ม!")
                 except Exception as e:
                     print(f"❌ เกิดข้อผิดพลาดตอนสั่งบอทถอนกำลังโหมดไม่ลำเอียง: {e}")
