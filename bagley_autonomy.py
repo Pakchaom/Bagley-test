@@ -46,10 +46,29 @@ _bagley_speak = None  # ฟังก์ชัน bagley_speak(guild, text) จ�
 _get_realtime_name = None  # ฟังก์ชัน get_realtime_name(user_id, default_name) จาก bot.py — ดึงชื่อเล่นจากคลังความจำ
 _conn = None  # sqlite connection จาก bot.py — ใช้เก็บสถานะ "เงียบ/หยุดทักเอง" แบบถาวรแยกตามเซิร์ฟเวอร์
 
-_COOLDOWN_SECONDS = 30 * 60  # แชท: ห้ามพูดเองถี่กว่า 30 นาทีต่อห้อง (นานๆพูด ไม่ให้รบกวน)
-_VOICE_COOLDOWN_SECONDS = 60 * 60  # เสียง: เว้นถี่กว่าแชทมาก เพราะขัดจังหวะคนคุยกันในห้องเสียงได้มากกว่า
+_COOLDOWN_SECONDS = 90 * 60  # แชท: ห้ามพูดเองถี่กว่า 90 นาทีต่อห้อง (เดิม 30 นาที — รู้สึกถี่ไปเมื่อมีหลายห้อง active พร้อมกัน)
+_VOICE_COOLDOWN_SECONDS = 120 * 60  # เสียง: เว้นถี่กว่าแชทมาก เพราะขัดจังหวะคนคุยกันในห้องเสียงได้มากกว่า
 _last_spoke_at: dict[int, float] = {}
 _last_voice_spoke_at: dict[int, float] = {}
+
+# 🚦 เพดานรวมต่อวันต่อกิลด์ (นับรวมทุกห้องแชทในกิลด์เดียวกัน) — cooldown ด้านบนเป็น "ต่อห้อง" เท่านั้น
+# ถ้ากิลด์มีหลายห้อง active พร้อมกัน แต่ละห้องจะนับ cooldown แยกกัน ทำให้รวมๆแล้วบอทพูดเองถี่กว่าที่ตั้งใจไว้มาก
+# เพดานนี้ช่วยล็อกไม่ให้เกินจำนวนครั้ง/วัน ไม่ว่าจะมีกี่ห้อง active ก็ตาม
+_MAX_AUTONOMOUS_MESSAGES_PER_DAY = 6
+_DAY_SECONDS = 24 * 60 * 60
+_guild_daily_speak_log: dict[int, list[float]] = {}
+
+
+def _under_daily_cap(guild_id: int, now: float) -> bool:
+    """เช็คว่ากิลด์นี้พูดเองเกินเพดานต่อวันไปแล้วหรือยัง (นับย้อนหลัง 24 ชม. แบบ rolling window)"""
+    timestamps = _guild_daily_speak_log.get(guild_id, [])
+    timestamps = [t for t in timestamps if now - t < _DAY_SECONDS]
+    _guild_daily_speak_log[guild_id] = timestamps
+    return len(timestamps) < _MAX_AUTONOMOUS_MESSAGES_PER_DAY
+
+
+def _record_daily_speak(guild_id: int, now: float):
+    _guild_daily_speak_log.setdefault(guild_id, []).append(now)
 
 # 💬 จดจำ message.id ที่แบ็คลี่พูดขึ้นเองไว้ชั่วคราว (message_id -> timestamp ที่ส่ง)
 # ใช้เช็คว่า "การตอบกลับ (reply)" ที่เข้ามา เป็นการตอบกลับข้อความที่แบ็คลี่พูดขึ้นเองหรือไม่
@@ -256,7 +275,9 @@ async def _decide(guild, lines: list[str], bot_in_voice: bool) -> dict | None:
         "(เช่น มีอะไรน่าสนใจในแชท, ห้องเสียงมีคนมานั่งกันเยอะแต่เงียบไม่มีใครคุย, มีคนพูดถึงเรื่องที่คุณรู้, "
         "หรือเห็นว่ามีคนกำลังเล่นเกมที่น่าแซว/น่าชวนคุยด้วย)\n"
         "ค่าเริ่มต้นควรเป็น false เสมอ ถ้าไม่มีอะไรที่น่าพูดแบบชัดเจนจริงๆ ห้ามฝืนพูดเด็ดขาด "
-        "ส่วนใหญ่ในรอบนี้ (แต่ละครั้งที่ประเมิน) ไม่ควรพูดเลย ให้พูดเฉพาะตอนที่รู้สึกว่ามันคุ้มค่าจริงๆ\n"
+        "ส่วนใหญ่ในรอบนี้ (แต่ละครั้งที่ประเมิน) ไม่ควรพูดเลย ให้พูดเฉพาะตอนที่รู้สึกว่ามันคุ้มค่าจริงๆ "
+        "เป้าหมายคร่าวๆคือทั้งวันควรพูดเองไม่กี่ครั้งเท่านั้น (นับรวมทุกห้องในเซิร์ฟเวอร์นี้) ไม่ใช่พูดทุกรอบที่มีการประเมิน "
+        "ถ้าเพิ่งพูดเองไปเมื่อไม่นานนี้ หรือเรื่องที่จะพูดดูธรรมดา ไม่ได้ตลก/มีประโยชน์/น่าสนใจเป็นพิเศษ ให้ตอบ false ไปเลย\n"
         f"{voice_hint}\n"
         'ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น รูปแบบ:\n'
         '{"want_to_speak": true/false, "message": "...", "confident_enough_for_voice": true/false}'
@@ -296,6 +317,10 @@ async def autonomy_loop():
         if now - last < _COOLDOWN_SECONDS:
             continue
 
+        # 🚦 เช็คเพดานรวมต่อวันของกิลด์นี้ก่อน (กันรวมๆแล้วถี่เกินไปตอนมีหลายห้อง active พร้อมกัน)
+        if not _under_daily_cap(guild.id, now):
+            continue
+
         bot_in_voice = bool(guild.voice_client and guild.voice_client.is_connected())
         result = await _decide(guild, lines[-15:], bot_in_voice)
         if not result:
@@ -305,6 +330,7 @@ async def autonomy_loop():
         try:
             sent_msg = await channel.send(message)
             _last_spoke_at[channel_id] = now
+            _record_daily_speak(guild.id, now)
             # 💬 จดจำ message.id ไว้ เผื่อมีคน "ตอบกลับ (reply)" ข้อความนี้ทีหลัง
             # จะได้รู้ว่าคือการตอบกลับแบ็คลี่ ไม่ต้องให้คนพิมพ์เอ่ยชื่อ/แท็กบอทซ้ำอีกรอบ
             _remember_autonomous_message(sent_msg.id)
