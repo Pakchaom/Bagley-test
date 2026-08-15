@@ -38,7 +38,14 @@ import asyncio
 import collections
 import aiohttp
 
-YT_API_KEY = os.getenv("YT_API_KEY")
+# 🛠️ [แก้บั๊ก] เดิมโค้ดอ่าน YT_API_KEY แค่ครั้งเดียวตอน import module นี้ (ตัวแปร module-level)
+# แต่ bot.py สั่ง `import youtube_live_chat` ไว้ตอนต้นไฟล์ ซึ่งเกิดขึ้น "ก่อน" ที่ bot.py จะเรียก
+# load_dotenv() เสียอีก (load_dotenv อยู่ถัดลงไปหลายร้อยบรรทัด) ผลคือตอน module นี้ถูก import ค่า
+# YT_API_KEY ใน os.environ ยังไม่ถูกโหลดจาก .env เลย เลยได้ None ติดค้างไปตลอดการรันโปรแกรม
+# (ต่อให้ .env มีคีย์ถูกต้องแล้วก็ตาม) แก้โดยเปลี่ยนเป็นอ่านค่าจาก os.getenv() "ทุกครั้งที่ใช้งานจริง"
+# แทน จะได้ไม่ขึ้นกับลำดับ import/load_dotenv() อีกต่อไป
+def _get_yt_api_key() -> str:
+    return os.getenv("YT_API_KEY", "")
 
 # คำที่ต้องการดักฟัง (แก้ผ่าน .env: LIVE_CHAT_KEYWORDS=สู้ๆ,สู้สู้)
 # เว้นว่างไว้ (ค่า default) = ไม่กรอง อ่านทุกข้อความที่เข้ามา
@@ -71,7 +78,7 @@ async def _resolve_video_id_from_channel(session: aiohttp.ClientSession, channel
     """ถ้าพี่ให้ channel id/handle มาแทน video id ให้หา video ที่ไลฟ์อยู่ตอนนี้ของช่องนั้น"""
     url = (
         "https://www.googleapis.com/youtube/v3/search"
-        f"?key={YT_API_KEY}&channelId={channel_id}&eventType=live&type=video&part=id"
+        f"?key={_get_yt_api_key()}&channelId={channel_id}&eventType=live&type=video&part=id"
     )
     async with session.get(url) as resp:
         data = await resp.json()
@@ -83,12 +90,13 @@ async def _resolve_video_id_from_channel(session: aiohttp.ClientSession, channel
 
 async def resolve_live_chat_id(session: aiohttp.ClientSession, video_id_or_url: str):
     """คืนค่า (video_id, live_chat_id) จาก video id/ลิงก์ หรือ channel id ที่กำลังไลฟ์อยู่"""
-    if not YT_API_KEY:
+    api_key = _get_yt_api_key()
+    if not api_key:
         raise RuntimeError("ยังไม่ได้ตั้งค่า YT_API_KEY ใน .env ครับ ต้องใส่ก่อนถึงจะอ่านแชทสดได้")
 
     candidate = _extract_video_id(video_id_or_url)
 
-    url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={candidate}&part=liveStreamingDetails,snippet"
+    url = f"https://www.googleapis.com/youtube/v3/videos?key={api_key}&id={candidate}&part=liveStreamingDetails,snippet"
     async with session.get(url) as resp:
         data = await resp.json()
 
@@ -96,7 +104,7 @@ async def resolve_live_chat_id(session: aiohttp.ClientSession, video_id_or_url: 
     if not items:
         # อาจเป็น channel id/handle ไม่ใช่ video id -> ลองหาไลฟ์ปัจจุบันของช่องนั้นแทน
         candidate = await _resolve_video_id_from_channel(session, candidate)
-        url = f"https://www.googleapis.com/youtube/v3/videos?key={YT_API_KEY}&id={candidate}&part=liveStreamingDetails,snippet"
+        url = f"https://www.googleapis.com/youtube/v3/videos?key={api_key}&id={candidate}&part=liveStreamingDetails,snippet"
         async with session.get(url) as resp:
             data = await resp.json()
         items = data.get("items", [])
@@ -152,7 +160,7 @@ async def _watch_loop(guild, video_id_or_url, speak_func, paused_event, announce
 
         try:
             while True:
-                params = f"?key={YT_API_KEY}&liveChatId={live_chat_id}&part=snippet,authorDetails"
+                params = f"?key={_get_yt_api_key()}&liveChatId={live_chat_id}&part=snippet,authorDetails"
                 if page_token:
                     params += f"&pageToken={page_token}"
                 url = f"https://www.googleapis.com/youtube/v3/liveChat/messages{params}"
