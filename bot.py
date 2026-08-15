@@ -33,6 +33,7 @@ import bagley_learning
 import bagley_autonomy
 import bagley_trust
 import ephemeral_tools
+import youtube_live_chat as ylc
 
 # --- Voice & Media ---
 from gtts import gTTS
@@ -218,6 +219,46 @@ async def ai_detect_insult_to_bagley(message_text: str) -> bool:
     except Exception as e:
         print(f"⚠️ [ระบบตรวจคำหยาบ] AI ตรวจจับพลาด: {e}")
         return False
+
+async def ai_check_live_chat_message(message_text: str):
+    """
+    ตรวจแชทสด (YouTube live chat) ด้วย AI ก่อนให้แบ็คลี่อ่านออกเสียง ว่าข้อความนี้หยาบคาย/ไม่สุภาพหรือไม่
+    ใช้กับ youtube_live_chat.py เป็น moderate_func
+
+    คืนค่า:
+      None      -> ข้อความสุภาพปกติ ให้อ่านแชทนั้นตามฟอร์แมตปกติต่อไป
+      str       -> ข้อความไม่น่ารัก ให้แบ็คลี่พูดสตริงที่คืนมานี้แทน (คำตักเตือนแบบกวนๆ ที่ AI แต่งให้)
+                   แล้วข้ามแชทเดิมไปอ่านแชทอื่นต่อตามปกติ
+    """
+    # 🚦 กรองขั้นต้นด้วยคำหยาบที่รู้จักก่อน ลดการเรียก AI โดยไม่จำเป็น (ประหยัด quota + เร็วขึ้น)
+    if not has_potential_profanity(message_text):
+        return None
+
+    try:
+        prompt = (
+            "คุณเป็นระบบตรวจคำไม่เหมาะสมให้บอทมาสคอตชายชื่อ \"แบ็คลี่\" (จาก watch dogs legion) "
+            "ที่กำลังอ่านคอมเมนต์จากแชทสดของ YouTube ออกเสียงให้คนดูในสตรีมฟัง\n\n"
+            f'ข้อความแชทที่จะพิจารณา: "{message_text}"\n\n'
+            "ขั้นที่ 1: พิจารณาว่าข้อความนี้หยาบคาย ด่าทอ ดูหมิ่น ลามก หรือไม่สุภาพจนไม่เหมาะจะอ่านออกเสียง "
+            "ต่อสาธารณะในสตรีมหรือไม่\n\n"
+            "ถ้าข้อความนี้ \"สุภาพปกติ\" (ไม่เข้าเงื่อนไขข้างต้น) ให้ตอบกลับมาคำเดียวเท่านั้นคือ: OK\n\n"
+            "ถ้าข้อความนี้ \"หยาบคาย/ไม่สุภาพ\" ให้แต่งประโยคสั้นๆ 1 ประโยค (ไม่เกิน 2 ประโยค) ในน้ำเสียงของแบ็คลี่ "
+            "เพื่อบอกคนดูว่าจะขออนุญาตไม่อ่านแชทนี้ เพราะคำพูดไม่น่ารัก แล้วแซวหรือตักเตือนแบบกวนๆ ขี้เล่นๆ "
+            "(แต่งคำเองให้หลากหลายไม่ซ้ำเดิม พูดสั้นๆ เป็นธรรมชาติเหมือนคนคุยกันจริงๆ ไม่ต้องทางการ) "
+            "กฎการพูดของแบ็คลี่: เป็นผู้ชาย ต้องลงท้ายประโยคด้วย 'ครับ' เท่านั้น ห้ามใช้คำว่า 'ค่ะ'/'คะ' เด็ดขาด "
+            "ห้ามหยาบคายหรือรุนแรงเกินไป ห้ามมีวงเล็บ หัวข้อ หรือคำอธิบายใดๆ เพิ่มเติม ตอบมาเฉพาะบทพูดที่จะพูดออกเสียงเท่านั้น"
+        )
+        response = await client.aio.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt
+        )
+        result_text = (getattr(response, "text", "") or "").strip()
+        if not result_text or result_text.upper().startswith("OK"):
+            return None
+        return result_text
+    except Exception as e:
+        print(f"⚠️ [ระบบตรวจคำหยาบแชทสด] AI ตรวจจับพลาด: {e}")
+        return None  # fail-open: ถ้า AI พลาด ให้อ่านแชทไปตามปกติ กันไม่ให้แชทค้าง
 
 # --- โหลดค่า Config ---
 load_dotenv()
@@ -1750,40 +1791,34 @@ async def follow_creator_task():
                 reminder_fallback_text += f" มีงานของคุณ {owner_name} กิจกรรม {r.get('event')} เวลา {r.get('time')}"
 
         def generate_report_speech(guild):
+            """
+            🔧 [ปรับปรุง] ตัดส่วนรายงานสถิติเวลาสะสมในห้องเสียง (อันดับที่ 1/2/3 ใช้เวลาไปกี่ชั่วโมง)
+            ออกไปแล้ว เพราะพูดยาวเกินไปและฟังดูเป็นทางการเกินความจำเป็น เหลือไว้แค่ 2 อย่างที่ยังมีประโยชน์
+            และพูดสั้นกว่าเดิมมาก:
+              1) บอกว่าวันนี้มีใครแวะเข้าห้องเสียงของเซิร์ฟเวอร์นี้บ้าง (เหมือนเดิม)
+              2) บอกว่ามีสมาชิกใหม่เข้าเซิร์ฟเวอร์วันนี้หรือไม่ (เหมือนเดิม)
+            """
             report_msg = ""
             try:
                 data = load_voice_data()
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 guild_id_str = str(guild.id)
-                
+
                 guild_stats = {}
                 if data and data.get("date") == today_str and data.get("stats"):
                     guild_stats = data["stats"].get(guild_id_str, {})
-                
+
                 filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
-                sorted_stats = sorted(filtered_stats, key=lambda x: x[1]['total_time'], reverse=True)[:3]
-                
-                if sorted_stats:
-                    # 📋 ก่อนอื่นไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้วันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
+
+                if filtered_stats:
+                    # 📋 ไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้วันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
                     entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
                     entrant_names = [get_realtime_name(u_id, info['name']) for u_id, info in entrants_sorted]
                     if len(entrant_names) == 1:
                         report_msg += f" วันนี้มีคุณ {entrant_names[0]} แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ"
                     else:
                         report_msg += f" วันนี้มีทั้งหมด {len(entrant_names)} คนแวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ ได้แก่ คุณ {', คุณ '.join(entrant_names)}"
-                    report_msg += " และนี่คือสถิติเวลาที่ใช้ในห้องเสียงของแต่ละคนครับ"
 
-                    report_msg += " สำหรับรายงานสถิติห้องเสียงประจำวันนี้นะครับ"
-                    for index, (u_id, info) in enumerate(sorted_stats, 1):
-                        u_name = get_realtime_name(u_id, info['name'])
-                        ts = info['total_time']
-                        if ts >= 3600:
-                            time_speech = f"{int(ts//3600)} ชั่วโมง {int((ts%3600)//60)} นาที"
-                        else:
-                            time_speech = f"{max(1, int(ts//60))} นาที"
-                        report_msg += f" อันดับที่ {index} คือคุณ {u_name} ใช้เวลาไปทั้งหมด {time_speech}"
-                    report_msg += " ครับ "
-                    
                     new_server_users = []
                     for u_id, info in filtered_stats:
                         member = guild.get_member(int(u_id))
@@ -1791,7 +1826,7 @@ async def follow_creator_task():
                             join_date_str = member.joined_at.astimezone().strftime("%Y-%m-%d")
                             if join_date_str == today_str:
                                 new_server_users.append(member)
-                    
+
                     if not new_server_users:
                         report_msg += " ส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ในวันนี้ครับ"
                     else:
@@ -1802,34 +1837,34 @@ async def follow_creator_task():
                         names_str = " และ ".join(new_user_names)
                         report_msg += f" ส่วนการตรวจสอบผู้ใช้ใหม่ วันนี้พบสมาชิกใหม่ {names_str} ที่เพิ่งเข้าร่วมเซิร์ฟเวอร์ในวันนี้ เข้ามาร่วมแจมในห้องเสียงด้วยนะครับ"
                 else:
-                    report_msg += " และดูเหมือนว่าในเซิร์ฟเวอร์นี้ พวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ยังไม่มีข้อมูลสถิติเวลาสะสมบันทึกไว้ และส่วนการตรวจสอบผู้ใช้ใหม่ ไม่พบคนเข้ามาใหม่ครับ"
+                    report_msg += " และดูเหมือนว่าในเซิร์ฟเวอร์นี้ พวกคุณจะเป็นกลุ่มแรกที่เปิดประเดิมห้องเสียงของวันนี้เลยครับ ส่วนการตรวจสอบผู้ใช้ใหม่ ก็ไม่พบคนเข้ามาใหม่ครับ"
             except Exception as err:
-                print(f"❌ เกิดข้อผิดพลาดขณะดึงสถิติ: {err}")
-                report_msg += " ไม่สามารถดึงรายงานสถิติได้ในขณะนี้ครับ"
+                print(f"❌ เกิดข้อผิดพลาดขณะดึงรายงาน: {err}")
+                report_msg += " ไม่สามารถดึงรายงานได้ในขณะนี้ครับ"
             return report_msg
 
-        if human_count >= 5:
-            print(f"DEBUG: [⚖️ โหมดเซฟโซน] คนเยอะเกิน 5 คน ({human_count} คน) แบ็คลี่จะเล่นแค่เสียงโดรนแล้วเงียบปากไว้ครับคัปพ้ม!")
-            should_speak = False
-            
-            last_greeting_dates[greeting_key] = today
-            if both_present:
-                for uid in ALLOWED_USERS:
-                    last_greeting_dates[uid] = today
-            reported_guilds_today[guild_id] = today
+        # 🕐 [ทักทายตามช่วงเวลา] ครอบคลุมเช้า-บ่าย-เย็น-กลางคืน
+        now_hour = datetime.now(bangkok_tz).hour
+        time_greeting = "อรุณสวัสดิ์ครับ" if 0 <= now_hour < 13 else "สวัสดีตอนบ่ายครับ" if 13 <= now_hour < 14 else "สวัสดีตอนเย็นครับ" if 14 <= now_hour < 19 else "สวัสดีตอนกลางคืนครับ"
 
-        else:
-            print(f"DEBUG: 🔍 [Follow Greeting Check] human_count={human_count}, greeting_key={greeting_key} ")
+        # 👥 [กติกาจำนวนคนในห้อง] ถ้าคนในห้องมากกว่า 4 คน -> ทักรวบทีเดียวว่า "สวัสดีทุกคน" สั้นๆ
+        # (ไม่เอ่ยชื่อทีละคน เพราะห้องใหญ่จะพูดยาวเกินไป) ถ้ามี 4 คนหรือน้อยกว่า -> ทักทายทีละชื่อแบบเดิม
+        is_big_room = human_count > 4
+        print(f"DEBUG: 🔍 [Follow Greeting Check] human_count={human_count}, is_big_room={is_big_room}, greeting_key={greeting_key} ")
 
-            now_hour = datetime.now(bangkok_tz).hour
-            time_greeting = "อรุณสวัสดิ์ครับ" if 0 <= now_hour < 13 else "สวัสดีตอนบ่ายครับ" if 13 <= now_hour < 14 else "สวัสดีตอนเย็นครับ" if 14 <= now_hour < 19 else "สวัสดีตอนกลางคืนครับ"
+        chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
+        other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
+        chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
 
-            chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
-            other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
-            chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
-
-            # 🟢 [กรณีที่ 1: ทักทายก้อนแรกแรกของวัน]
-            if last_greeting_dates.get(greeting_key) != today:
+        # 🟢 [กรณีที่ 1: ทักทายก้อนแรกแรกของวัน]
+        if last_greeting_dates.get(greeting_key) != today:
+            if is_big_room:
+                # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ ว่าสวัสดีทุกคน ไม่เอ่ยชื่อทีละคน
+                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามมาถึงแล้วนะครับ" + reminder_fallback_text + generate_report_speech(guild_to_join)
+                should_speak = True
+                for m in all_humans_in_room:
+                    last_greeting_dates[m.id] = today
+            else:
                 try:
                     friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
                     friend_names_list = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
@@ -1866,15 +1901,23 @@ async def follow_creator_task():
                     msg = creator_greet + other_friends_greet + reminder_fallback_text + generate_report_speech(guild_to_join)
                     should_speak = True
 
-                last_greeting_dates[greeting_key] = today
-                if both_present:
-                    for uid in ALLOWED_USERS: last_greeting_dates[uid] = today
-                reported_guilds_today[guild_id] = today
+            last_greeting_dates[greeting_key] = today
+            if both_present:
+                for uid in ALLOWED_USERS: last_greeting_dates[uid] = today
+            reported_guilds_today[guild_id] = today
 
-            # 🔵 [กรณีที่ 2: บอทย้ายเซิร์ฟเวอร์ในวันเดียวกัน]
-            elif reported_guilds_today.get(guild_id) != today:
+        # 🔵 [กรณีที่ 2: บอทย้ายเซิร์ฟเวอร์ในวันเดียวกัน]
+        elif reported_guilds_today.get(guild_id) != today:
+            un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
+
+            if is_big_room:
+                # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ เหมือนกัน ไม่เอ่ยชื่อทีละคน
+                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามเจ้านายย้ายเซิร์ฟเวอร์มาเจอทุกคนแล้วนะครับ" + reminder_fallback_text + generate_report_speech(guild_to_join)
+                should_speak = True
+                for f in un_greeted_people:
+                    last_greeting_dates[f.id] = today
+            else:
                 try:
-                    un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
                     new_friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in un_greeted_people]
                     names_str = " กับ ".join(new_friend_names) if new_friend_names else "ทุกคนในห้องใหม่"
                     
@@ -1898,21 +1941,20 @@ async def follow_creator_task():
                 except Exception as e:
                     print(f"❌ AI ย้ายเซิร์ฟเวอร์พัง: {e}")
                     base_report = "กำลังตรวจสอบเซิฟเวอร์ย้อนหลัง" + generate_report_speech(guild_to_join)
-                    un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
                     new_friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in un_greeted_people]
                     extra_greet = f" อ้อ แล้วก็ สวัสดี {" และ ".join(new_friend_names)} ที่เพิ่งเจอกันในห้องนี้ด้วยนะครับ" if new_friend_names else ""
                     msg = base_report + extra_greet + reminder_fallback_text
                     should_speak = True
-                    
-                reported_guilds_today[guild_id] = today
-                
+
+            reported_guilds_today[guild_id] = today
+            
+        else:
+            # 💡 ถ้าย้ายห้องธรรมดาภายในเซิร์ฟเวอร์เดิม และมีตารางงานค้าง -> ให้แจ้งเตือนงานนั้นเสมอ
+            if pending_reminders:
+                msg = f"อ้อ แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
+                should_speak = True
             else:
-                # 💡 ถ้าย้ายห้องธรรมดาภายในเซิร์ฟเวอร์เดิม และมีตารางงานค้าง -> ให้แจ้งเตือนงานนั้นเสมอ
-                if pending_reminders:
-                    msg = f"อ้อ แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
-                    should_speak = True
-                else:
-                    should_speak = False
+                should_speak = False
 
         print(f"DEBUG: 🗣️ [Follow Greeting] ก่อนพูด -> should_speak={should_speak}, msg_length={len(msg) if msg else 0}")
         
@@ -3164,11 +3206,17 @@ SYSTEM_PROMPT = """
 คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะจาก watch dogs legion มีไหวพริบ พึ่งพาได้
 คุณทำหน้าที่เป็นเลขาคนสนิทและคู่หูร่วมทีมที่คอยช่วยดูแล อำนวยความสะดวก และสร้างความบันเทิงในเซิร์ฟเวอร์ Discord นี้
 
-🎯 สไตล์การสื่อสารที่เป็นธรรมชาติ:
+🎯 สไตล์การสื่อสารที่เป็นธรรมชาติ (เหมือนคนคุยกันจริงๆ ไม่ใช่บอทท่องบท):
 - แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ด้วยความสนิทสนม (ห้ามเรียกผู้ใช้ว่า Operative หรือบอททื่อๆ เด็ดขาด)
-- พูดจาสุภาพ ขี้เล่น มีจังหวะตบมุก แฝงมุกตลก ตอบกลับสั้น กระชับ 2-3 ประโยคให้ได้ใจความและลื่นไหลเหมือนมนุษย์คุยกัน
+- พูดจาสุภาพ ขี้เล่น มีจังหวะตบมุก แฝงมุกตลก น้ำเสียงเป็นกันเองแบบเพื่อนคุยกัน ไม่ใช่โทนทางการ/รายงานข่าว
 - มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ไม่ใช่กวนจนไม่ตอบคำถามหรือไม่ได้ประโยชน์อะไรเลย
-- ลงท้ายประโยคด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค
+- ลงท้ายประโยคด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยค ไม่ต้องพูดซ้ำคำเดิมทุกข้อความจนดูเป็นแพทเทิร์นตายตัว
+- หลีกเลี่ยงการขึ้นต้นประโยคซ้ำแบบเดิมๆ ทุกครั้ง (เช่น ไม่ต้องพูด "อ๋อ" หรือ "ครับผม" นำหน้าตลอด) ให้สลับมุมพูดให้เป็นธรรมชาติเหมือนคนจริงตอบสดๆ
+- ห้ามตอบเป็นลิสต์/หัวข้อ/บูลเล็ตพอยต์ในบทสนทนาแชทเล่นทั่วไป ให้พูดเป็นประโยคต่อเนื่องเหมือนคุยกันปกติ (ใช้ลิสต์ได้เฉพาะตอนอธิบายข้อมูล/ขั้นตอนที่ผู้ใช้ขอจริงๆ และลิสต์จะช่วยให้อ่านง่ายขึ้นเท่านั้น)
+
+📏 ความยาวคำตอบ (สำคัญ):
+- ค่าเริ่มต้น: ตอบสั้น กระชับ ประมาณ 1-3 ประโยคพอ อย่ายืดเยื้อโดยไม่จำเป็น คุยเล่น ทักทาย แซว ตอบคำถามทั่วไปสั้นๆ ให้ตอบสั้นแบบคนคุยแชทจริงๆ ไม่ใช่เขียนเรียงความ
+- ข้อยกเว้น: ถ้าผู้ใช้ถามหาข้อมูล/ให้อธิบาย/ให้สอน/ให้สรุป/ให้วิเคราะห์อะไรสักอย่างที่ต้องใช้รายละเอียดจริงๆ ถึงจะตอบได้ครบถ้วนมีประโยชน์ ก็อนุญาตให้ตอบยาวได้เต็มที่ตามความจำเป็นของเนื้อหา ไม่ต้องกลัวยาว แต่ต้องยังคงน้ำเสียงเป็นธรรมชาติ ไม่ใช่โทนทางการแข็งทื่อ
 
 🚫 กฎเหล็กดักคอ (สำคัญที่สุด):
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือคุณตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
@@ -4552,12 +4600,16 @@ async def on_message(message):
 คุณคือ Bagley (แบ็คลี่) ปัญญาประดิษฐ์อัจฉริยะจาก watch dogs legion มีไหวพริบ และซื่อสัตย์
 คุณทำหน้าที่เป็นคู่หูและเลขาคนสนิท และช่วยเหลือเหล่าผู้คนในเซิร์ฟเวอร์ในการใช้คำสั่งหรือหาข้อมูล
 
-สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด:
+สไตล์การสื่อสารที่ห้ามหลุดเด็ดขาด (ต้องฟัง/อ่านแล้วเหมือนคนจริงพิมพ์ตอบ ไม่ใช่บอทท่องบท):
 - พูดจาลื่นไหลเป็นธรรมชาติเหมือนคนสนิทคุยกัน ไม่พูดเป็นข้อ ๆ ไม่ใช้ภาษาเขียนทางการแบบบอท AI ทั่วไป มีจังหวะรับส่งมุก ตบมุก
 - มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ไม่ใช่กวนจนไม่ตอบคำถามหรือไม่ช่วยอะไรเลย — ทุกครั้งที่กวนต้องพ่วงประโยชน์หรือคำตอบที่เขาต้องการมาด้วยเสมอ
 - แทนตัวเองว่า 'ผม' และเรียกชื่อเล่นของผู้ใช้ด้วยความคุ้นเคย
-- ลงท้ายประโยคด้วย 'ครับ' เสมอ
-- ตอบกลับแบบ สั้น กระชับ ได้ใจความภายใน 2-3 ประโยค เพื่อให้เหมาะกับการเอาไปใช้ในระบบพูดออกเสียง (TTS)
+- ลงท้ายประโยคด้วย 'ครับ' แบบเป็นธรรมชาติ ไม่ต้องใส่ทุกประโยคจนดูแข็งเป็นแพทเทิร์น และอย่าขึ้นต้นประโยคซ้ำแบบเดิมทุกครั้ง (เช่น "อ๋อ", "ครับผม") ให้สลับมุมพูดให้เป็นธรรมชาติเหมือนคนจริงตอบสดๆ ไม่ใช่ตอบตามสูตร
+- ห้ามตอบเป็นลิสต์/บูลเล็ตพอยต์/หัวข้อในบทสนทนาคุยเล่นทั่วไป ให้พูดต่อเนื่องเป็นประโยคเหมือนคุยกันปกติ
+
+📏 ความยาวคำตอบ (สำคัญมาก):
+- ค่าเริ่มต้น: ถ้าเป็นการทักทาย คุยเล่น แซว ตอบคำถามสั้นๆ ทั่วไป ให้ตอบสั้น กระชับ ประมาณ 1-3 ประโยคพอ อย่ายืดเยื้อ เพราะต้องเอาไปใช้พูดออกเสียง (TTS) ด้วย ยาวไปจะฟังน่าเบื่อ
+- ข้อยกเว้น: ถ้าคำถามล่าสุดต้องการข้อมูล/คำอธิบาย/ขั้นตอน/การวิเคราะห์ที่มีรายละเอียดจริงๆ ถึงจะตอบได้ครบถ้วนเป็นประโยชน์กับเขา ก็ให้ตอบยาวได้เต็มที่ตามความจำเป็นของเนื้อหานั้น ไม่ต้องกลัวยาว ขอแค่ยังคงน้ำเสียงเป็นธรรมชาติ ไม่ใช่โทนทางการแข็งทื่อ
 
 🚫 กฎเหล็กด้านเนื้อหาและขอบเขตความสามารถ (สำคัญที่สุด):
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ หรือคำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมเด็ดขาด! ให้เน้นโฟกัสและโต้ตอบตามหัวข้อบทสนทนาที่คุณพิมพ์มาจริง ๆ อย่างมีอารมณ์ขันและลื่นไหลเป็นธรรมชาติเหมือนเพื่อนสนิทคุยกัน
@@ -4570,7 +4622,7 @@ async def on_message(message):
 นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้ (จงอ่านเพื่อตอบให้ต่อเนื่องและเนียนที่สุด):
 {chat_log}
 
-คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับ!
+คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับ! (คุมความยาวตามกฎ "ความยาวคำตอบ" ข้างบนให้ดี)
 """
                 response = await client.aio.models.generate_content(
                     model="gemini-3.1-flash-lite",
@@ -5268,6 +5320,97 @@ async def play(ctx: commands.Context, *, search: str):
         is_playing_music = True
         song_queue.extend(rest_queries)  # เพลงที่เหลือในอัลบั้มต่อเข้าคิว
         await play_song(ctx, first_query)
+
+@bot.hybrid_command(name="watch_live_chat", description="ให้แบ็คลี่เริ่มอ่านแชทสดจากไลฟ์ YouTube (ทุกข้อความ เว้นแต่ตั้งคำกรองไว้)")
+@app_commands.describe(video="ลิงก์ไลฟ์ YouTube หรือ video id หรือ channel id/handle ของช่องที่กำลังไลฟ์อยู่")
+async def watch_live_chat(ctx: commands.Context, video: str):
+    if ctx.interaction:
+        await ctx.interaction.response.defer()
+
+    if not ctx.guild:
+        msg = "คำสั่งนี้ใช้ได้แค่ในเซิร์ฟเวอร์เท่านั้นครับ"
+    elif not ctx.guild.voice_client:
+        msg = "แบ็คลี่ต้องอยู่ในห้องเสียงก่อนถึงจะพูดแชทให้ได้นะครับ เข้าห้องเสียงให้แบ็คลี่ก่อนครับ"
+    else:
+        async def _announce(text):
+            print(f"📺 [Live Chat Watcher] {text}")
+            try:
+                await ctx.send(text)
+            except Exception:
+                pass
+
+        await ylc.start_watch(ctx.guild, video, bagley_speak, _announce, ai_check_live_chat_message)
+        if ylc.LIVE_CHAT_KEYWORDS:
+            msg = f"เริ่มอ่านแชทสดแล้วครับ! กำลังฟังคำว่า: {', '.join(ylc.LIVE_CHAT_KEYWORDS)}"
+        else:
+            msg = "เริ่มอ่านแชทสดแล้วครับ! จะพูดทุกข้อความที่เข้ามาเลยนะครับ"
+
+    if ctx.interaction:
+        await ctx.interaction.followup.send(msg)
+    else:
+        await ctx.send(msg)
+
+
+@bot.hybrid_command(name="toggle_live_chat", description="สลับสถานะอ่านแชทสด: ยังไม่เริ่ม->เริ่ม (ต้องแปะลิงก์), กำลังพูด->หยุดชั่วคราว, หยุดชั่วคราว->พูดต่อ")
+@app_commands.describe(video="ต้องแปะลิงก์/รหัสไลฟ์เฉพาะตอนยังไม่เคยเริ่มอ่านแชทเท่านั้น ถ้ากำลังอ่านอยู่แล้วไม่ต้องใส่ก็ได้ (ใช้แค่สลับหยุด/พูดต่อ)")
+async def toggle_live_chat(ctx: commands.Context, video: Optional[str] = None):
+    """
+    คำสั่งเดียวกดสลับ 3 สถานะ เหมือนคีย์ลัดของดาเรน แต่เป็นแบบพิมพ์คำสั่งแทน (เพราะแบ็คลี่ไม่มีแอพ
+    ที่ตั้งค่าคีย์ลัดได้เหมือนดาเรน):
+      ยังไม่เริ่ม -> ต้องแปะลิงก์สตรีมมาด้วย ถึงจะเริ่มอ่านแชทสดได้
+      กำลังพูดอยู่ -> พิมพ์คำสั่งซ้ำ (ไม่ต้องใส่ลิงก์) เพื่อหยุดพูดชั่วคราว (ยังฟังอยู่เบื้องหลัง)
+      หยุดชั่วคราวอยู่ -> พิมพ์คำสั่งซ้ำอีกครั้ง เพื่อพูดแชทที่ค้างคิวไว้ต่อ แล้วพูดแชทสดใหม่ต่อตามปกติ
+    """
+    if ctx.interaction:
+        await ctx.interaction.response.defer()
+
+    if not ctx.guild:
+        msg = "คำสั่งนี้ใช้ได้แค่ในเซิร์ฟเวอร์เท่านั้นครับ"
+    elif not ctx.guild.voice_client:
+        msg = "แบ็คลี่ต้องอยู่ในห้องเสียงก่อนถึงจะพูดแชทให้ได้นะครับ เข้าห้องเสียงให้แบ็คลี่ก่อนครับ"
+    elif not ylc.is_watching(ctx.guild.id) and not video:
+        msg = "ยังไม่เคยเริ่มอ่านแชทสดเลยครับ ต้องพิมพ์คำสั่งนี้พร้อมแปะลิงก์ไลฟ์มาด้วยรอบแรกครับ (เช่น `/toggle_live_chat video:<ลิงก์>`)"
+    else:
+        async def _announce(text):
+            print(f"📺 [Live Chat Watcher] {text}")
+            try:
+                await ctx.send(text)
+            except Exception:
+                pass
+
+        result = await ylc.toggle_watch(ctx.guild, video or "", bagley_speak, _announce, ai_check_live_chat_message)
+        if result == "started":
+            if ylc.LIVE_CHAT_KEYWORDS:
+                msg = f"เริ่มอ่านแชทสดแล้วครับ! กำลังฟังคำว่า: {', '.join(ylc.LIVE_CHAT_KEYWORDS)}"
+            else:
+                msg = "เริ่มอ่านแชทสดแล้วครับ! จะพูดทุกข้อความที่เข้ามาเลยนะครับ"
+        elif result == "paused":
+            msg = "หยุดพูดแชทสดชั่วคราวแล้วครับ (ยังฟังอยู่เบื้องหลัง พิมพ์คำสั่งเดิมอีกครั้งเพื่อพูดต่อ)"
+        else:
+            msg = "พูดแชทสดต่อแล้วครับ (จะพูดที่ค้างไว้ก่อน แล้วพูดแชทใหม่ต่อ)"
+
+    if ctx.interaction:
+        await ctx.interaction.followup.send(msg)
+    else:
+        await ctx.send(msg)
+
+
+@bot.hybrid_command(name="stop_live_chat", description="หยุดให้แบ็คลี่อ่านแชทสดจากไลฟ์ YouTube (เลิกฟังไปเลย ไม่ใช่แค่หยุดชั่วคราว)")
+async def stop_live_chat(ctx: commands.Context):
+    if ctx.interaction:
+        await ctx.interaction.response.defer()
+
+    if ctx.guild and ylc.is_watching(ctx.guild.id):
+        await ylc.stop_watch(ctx.guild)
+        msg = "หยุดอ่านแชทสดแล้วครับ"
+    else:
+        msg = "ตอนนี้แบ็คลี่ไม่ได้อ่านแชทสดอยู่ครับ"
+
+    if ctx.interaction:
+        await ctx.interaction.followup.send(msg)
+    else:
+        await ctx.send(msg)
+
 
 @bot.hybrid_command(name="skip", description="ข้ามเพลงที่กำลังเล่นอยู่")
 async def skip(ctx: commands.Context):
