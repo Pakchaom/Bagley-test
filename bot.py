@@ -1860,7 +1860,7 @@ async def follow_creator_task():
         if last_greeting_dates.get(greeting_key) != today:
             if is_big_room:
                 # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ ว่าสวัสดีทุกคน ไม่เอ่ยชื่อทีละคน
-                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามมาถึงแล้วนะครับ" + reminder_fallback_text + generate_report_speech(guild_to_join)
+                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามมาถึงแล้วนะครับ" + reminder_fallback_text
                 should_speak = True
                 for m in all_humans_in_room:
                     last_greeting_dates[m.id] = today
@@ -1912,7 +1912,7 @@ async def follow_creator_task():
 
             if is_big_room:
                 # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ เหมือนกัน ไม่เอ่ยชื่อทีละคน
-                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามเจ้านายย้ายเซิร์ฟเวอร์มาเจอทุกคนแล้วนะครับ" + reminder_fallback_text + generate_report_speech(guild_to_join)
+                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามเจ้านายย้ายเซิร์ฟเวอร์มาเจอทุกคนแล้วนะครับ" + reminder_fallback_text
                 should_speak = True
                 for f in un_greeted_people:
                     last_greeting_dates[f.id] = today
