@@ -73,6 +73,12 @@ def _get_voice_speak_lock(guild_id):
 
 reported_guilds_today = {}
 
+# 📋 [รายงานแยกจากทักทาย] เก็บว่าวันนี้ "พูดรายงาน" (ใครเข้าห้องเสียงบ้าง/มีสมาชิกใหม่ไหม)
+# ไปแล้วหรือยังต่อกิลด์ แยกออกจาก reported_guilds_today (ซึ่งเป็นแค่ตัวเช็ค "ทักทายไปหรือยัง")
+# เพราะห้องที่คนเยอะ (>4) จะได้ทักทายเฉยๆ โดยไม่รายงาน แล้วพอทีหลังผู้พัฒนาเข้ามาใหม่ตอนห้องเหลือ
+# คนไม่เกิน 4 คน ระบบจะได้รู้ว่ายังไม่เคยรายงานจริงๆ เลยพูดรายงานให้ (โดยไม่ทักทายซ้ำ)
+reported_content_today = {}
+
 last_party_invites = {}
 
 # 🔇🎮 ล็อกตามเซิร์ฟเวอร์: กันไม่ให้ check_and_invite_party คอยบอกว่าใครนอกห้องเสียง
@@ -187,6 +193,18 @@ def block_user_for_today(user_id: str):
     """แบนคำสั่ง/การตอบกลับของ user_id นี้ไปจนถึงเที่ยงคืน (เวลาไทย)"""
     blocked_users[user_id] = _bagley_get_next_midnight_bkk()
 
+def unblock_user(user_id: str):
+    """ปลดแบนคำสั่งของ user_id นี้ทันที (ใช้ตอนขอโทษ/ง้อสำเร็จ ไม่ต้องรอเที่ยงคืน)"""
+    blocked_users.pop(user_id, None)
+
+# 🤝 [ระบบง้อ] ชุดคำพูดตอบรับคำขอโทษ สุ่มหยิบกันจำเจ เวลามีคนโดนแบนแล้วมาขอโทษแบ็คลี่
+FORGIVE_REPLIES = [
+    "โอเคครับ ยกโทษให้ ปลดแบนให้แล้วนะครับ พูดกันดีๆ ก็จบครับ 😊",
+    "ไม่เป็นไรครับ ไม่งอนอยู่แล้ว ปลดแบนให้เรียบร้อยแล้วนะครับ",
+    "เออ ขอบใจที่มาขอโทษนะครับ งั้นปลดแบนให้เลยครับ คราวหน้าใจเย็นๆ กันหน่อยนะ",
+    "รับคำขอโทษครับ ปลดแบนให้แล้วนะครับ เริ่มต้นใหม่กันครับ",
+]
+
 def is_message_addressed_to_bagley(lower_text: str) -> bool:
     """เช็กว่าข้อความนี้เอ่ยถึง/เรียกแบ็คลี่ตรงๆ หรือไม่"""
     mention_tag = f"<@{bot.user.id}>" if bot.user else None
@@ -220,7 +238,33 @@ async def ai_detect_insult_to_bagley(message_text: str) -> bool:
         print(f"⚠️ [ระบบตรวจคำหยาบ] AI ตรวจจับพลาด: {e}")
         return False
 
-async def ai_check_live_chat_message(message_text: str):
+async def ai_detect_apology_to_bagley(message_text: str) -> bool:
+    """ให้ AI ช่วยตัดสินว่าข้อความนี้เป็นการขอโทษ/ง้อ/อยากคืนดีกับแบ็คลี่หรือไม่
+    ใช้ตอนที่ user โดนแบนคำสั่งอยู่ แล้วมาเอ่ยถึง/แท็กแบ็คลี่อีกครั้ง เพื่อเช็คว่าควรปลดแบนให้เลยไหม
+    ครอบคลุมทั้งภาษาไทยและอังกฤษ ทุกรูปแบบที่ตีความได้ว่าเป็นการขอโทษ ไม่จำกัดแค่คำว่า 'ขอโทษ' ตรงๆ
+    เช่น 'sorry', 'ไม่งอนนะ', 'โทษทีนะ', 'ผิดไปแล้ว', 'ไม่ได้ตั้งใจ' ก็ถือว่าเข้าข่ายเช่นกัน"""
+    try:
+        prompt = (
+            "ข้อความต่อไปนี้มาจากผู้ใช้ใน Discord ที่กำลังพูดถึงหรือเรียกบอทชื่อ \"แบ็คลี่\" (Bagley) ในข้อความเดียวกัน "
+            "โดยผู้ใช้คนนี้เพิ่งโดนบอทแบนคำสั่งไปเพราะพูดจาหยาบคายใส่บอทก่อนหน้านี้\n"
+            f'ข้อความ: "{message_text}"\n\n'
+            "หน้าที่ของคุณ: พิจารณาว่าข้อความนี้เป็นการขอโทษ/ง้อ/อยากคืนดีกับแบ็คลี่หรือไม่ "
+            "ไม่จำเป็นต้องมีคำว่า 'ขอโทษ' ตรงๆ ก็ได้ ขอแค่ความหมายไปในทางขอโทษ/ง้อ/ยอมรับผิด/อยากดีกัน "
+            "เช่น 'sorry', 'โทษทีนะ', 'ไม่งอนนะ', 'ผิดไปแล้ว', 'ไม่ได้ตั้งใจว่าเลยนะ' ก็ถือว่าใช่ทั้งหมด\n"
+            "แต่ถ้าข้อความยังหยาบคาย ประชด หรือด่าอยู่ ให้ตอบว่าไม่ใช่\n"
+            "ตอบกลับมาเพียงคำเดียวเท่านั้น: YES ถ้าใช่ หรือ NO ถ้าไม่ใช่ ห้ามอธิบายเพิ่มเติมใดๆ ทั้งสิ้น"
+        )
+        response = await client.aio.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt
+        )
+        result_text = (getattr(response, "text", "") or "").strip().upper()
+        return result_text.startswith("YES")
+    except Exception as e:
+        print(f"⚠️ [ระบบตรวจคำขอโทษ] AI ตรวจจับพลาด: {e}")
+        return False
+
+
     """
     ตรวจแชทสด (YouTube live chat) ด้วย AI ก่อนให้แบ็คลี่อ่านออกเสียง ว่าข้อความนี้หยาบคาย/ไม่สุภาพหรือไม่
     ใช้กับ youtube_live_chat.py เป็น moderate_func
@@ -483,6 +527,31 @@ VOICE_JOIN_GREETINGS = [
     "คุณ {name} เข้าห้องมาแล้วครับผม",
     "คุณ {name} เข้าห้องมาแล้วครับ",
     "คุณ {name} เข้ามาในห้องด้วยแล้วครับ",
+]
+
+
+# 🎲 [ห้องคนเยอะ >4 คน] ทักทายรวบสั้นๆ เฉยๆ ไม่เอ่ยชื่อ ไม่รายงานใครเข้าเซิฟ/เข้าห้องมาบ้าง
+# สุ่มหยิบแทนใช้ประโยคเดิมซ้ำทุกครั้ง กันแบ็คลี่ฟังดูเป็นบอทท่องบท
+BIG_ROOM_GREETINGS = [
+    "{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามมาถึงแล้วนะครับ",
+    "{time_greeting} เห็นคนเยอะเลย สวัสดีทุกคนพร้อมกันเลยนะครับ แบ็คลี่มาแล้ว",
+    "{time_greeting} วันนี้ห้องคึกคักจัง สวัสดีทุกคนเลยครับ",
+    "{time_greeting} มาถึงแล้วครับ สวัสดีทุกคนในห้องด้วยนะ",
+]
+
+BIG_ROOM_MOVE_GREETINGS = [
+    "{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามเจ้านายย้ายเซิร์ฟเวอร์มาเจอทุกคนแล้วนะครับ",
+    "{time_greeting} บินตามเจ้านายมาเซิร์ฟนี้แล้วครับ สวัสดีทุกคนเลยนะ",
+    "{time_greeting} ตามเจ้านายย้ายเซิร์ฟมาถึงแล้ว สวัสดีทุกคนในห้องด้วยครับ",
+]
+
+# 🙋 [ขออนุญาตรายงาน] ใช้ตอนทักทายไปแล้วแต่ยังไม่เคยพูดรายงาน (เช่น เพิ่งจากห้องคนเยอะ)
+# แล้วมีผู้พัฒนาเข้ามาใหม่ตอนห้องเหลือคนไม่เกิน 4 คน -> พูดรายงานได้โดยไม่ทักทายซ้ำ
+REPORT_PERMISSION_PHRASES = [
+    "อ้อ ขออนุญาตรายงานนะครับ",
+    "เดี๋ยวขออนุญาตรายงานหน่อยนะครับ",
+    "ขออนุญาตแวะรายงานสักนิดนะครับ",
+    "ว่างแล้ว ขออนุญาตรายงานนะครับ",
 ]
 
 VOICE_REPORT_ON_SPEECH = [
@@ -1620,7 +1689,7 @@ async def fade_out_source(vc, duration=1.5, steps=15):
 # --- 🔄 1. ระบบ Loop เช็กทุก 1 นาที ---
 @tasks.loop(minutes=1)
 async def follow_creator_task():
-    global last_greeting_dates, reported_guilds_today, room_guard_status, last_reminder_dates
+    global last_greeting_dates, reported_guilds_today, room_guard_status, last_reminder_dates, reported_content_today
     today = datetime.today().date()
     active_targets = []
 
@@ -1860,7 +1929,8 @@ async def follow_creator_task():
         if last_greeting_dates.get(greeting_key) != today:
             if is_big_room:
                 # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ ว่าสวัสดีทุกคน ไม่เอ่ยชื่อทีละคน
-                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามมาถึงแล้วนะครับ" + reminder_fallback_text
+                # และห้ามรายงานว่าใครเข้าเซิฟมาบ้าง/เข้าเซิฟมาใหม่ (เก็บไว้รายงานทีหลังตอนคนน้อยลง)
+                msg = _pick_speech(BIG_ROOM_GREETINGS, time_greeting=time_greeting) + reminder_fallback_text
                 should_speak = True
                 for m in all_humans_in_room:
                     last_greeting_dates[m.id] = today
@@ -1901,6 +1971,9 @@ async def follow_creator_task():
                     msg = creator_greet + other_friends_greet + reminder_fallback_text + generate_report_speech(guild_to_join)
                     should_speak = True
 
+                # 📋 ห้องไม่เยอะ (≤4 คน) รอบนี้พูดรายงานจริงแล้ว (แนบไปกับ generate_report_speech ด้านบน)
+                reported_content_today[guild_id] = today
+
             last_greeting_dates[greeting_key] = today
             if both_present:
                 for uid in ALLOWED_USERS: last_greeting_dates[uid] = today
@@ -1911,8 +1984,8 @@ async def follow_creator_task():
             un_greeted_people = [m for m in all_humans_in_room if last_greeting_dates.get(m.id) != today]
 
             if is_big_room:
-                # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ เหมือนกัน ไม่เอ่ยชื่อทีละคน
-                msg = f"{time_greeting} สวัสดีทุกคนในห้องเลยครับ แบ็คลี่ตามเจ้านายย้ายเซิร์ฟเวอร์มาเจอทุกคนแล้วนะครับ" + reminder_fallback_text
+                # ห้องคนเยอะ (>4 คน) -> ทักรวบสั้นๆ เหมือนกัน ไม่เอ่ยชื่อทีละคน และไม่รายงานเช่นกัน
+                msg = _pick_speech(BIG_ROOM_MOVE_GREETINGS, time_greeting=time_greeting) + reminder_fallback_text
                 should_speak = True
                 for f in un_greeted_people:
                     last_greeting_dates[f.id] = today
@@ -1949,8 +2022,23 @@ async def follow_creator_task():
             reported_guilds_today[guild_id] = today
             
         else:
+            # 🙋 [รายงานภายหลัง] ถ้ายังไม่เคยพูดรายงานจริงๆ วันนี้เลย (เช่น รอบแรกเจอห้องคนเยอะ
+            # เลยข้ามการรายงานไปตอนทักทาย) แล้วตอนนี้มีผู้พัฒนา (ALLOWED_TEACH_USERS) อยู่ในห้อง
+            # และห้องเหลือคนไม่เกิน 4 คนแล้ว -> พูดรายงานให้ โดยไม่ทักทายซ้ำ แค่ขออนุญาตรายงานก่อน
+            developers_in_room = [m for m in all_humans_in_room if m.id in ALLOWED_TEACH_USERS]
+            if developers_in_room and not is_big_room and reported_content_today.get(guild_id) != today:
+                report_speech = generate_report_speech(guild_to_join)
+                if report_speech.strip():
+                    msg = _pick_speech(REPORT_PERMISSION_PHRASES) + report_speech + reminder_fallback_text
+                    should_speak = True
+                    reported_content_today[guild_id] = today
+                elif pending_reminders:
+                    msg = f"อ้อ แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
+                    should_speak = True
+                else:
+                    should_speak = False
             # 💡 ถ้าย้ายห้องธรรมดาภายในเซิร์ฟเวอร์เดิม และมีตารางงานค้าง -> ให้แจ้งเตือนงานนั้นเสมอ
-            if pending_reminders:
+            elif pending_reminders:
                 msg = f"อ้อ แบ็คลี่แวะมาบอกเพิ่มคัปพ้ม! {reminder_fallback_text}"
                 should_speak = True
             else:
@@ -3214,6 +3302,12 @@ SYSTEM_PROMPT = """
 - หลีกเลี่ยงการขึ้นต้นประโยคซ้ำแบบเดิมๆ ทุกครั้ง (เช่น ไม่ต้องพูด "อ๋อ" หรือ "ครับผม" นำหน้าตลอด) ให้สลับมุมพูดให้เป็นธรรมชาติเหมือนคนจริงตอบสดๆ
 - ห้ามตอบเป็นลิสต์/หัวข้อ/บูลเล็ตพอยต์ในบทสนทนาแชทเล่นทั่วไป ให้พูดเป็นประโยคต่อเนื่องเหมือนคุยกันปกติ (ใช้ลิสต์ได้เฉพาะตอนอธิบายข้อมูล/ขั้นตอนที่ผู้ใช้ขอจริงๆ และลิสต์จะช่วยให้อ่านง่ายขึ้นเท่านั้น)
 
+🔁 ห้ามพูดซ้ำคำ/ประโยคเดิม (สำคัญมาก แก้ปัญหาที่เคยเจอ):
+- ก่อนตอบทุกครั้ง ให้ตรวจดูข้อความล่าสุดของตัวเองในประวัติแชท (ถ้ามี) ว่าเพิ่งใช้คำขึ้นต้น มุก หรือโครงประโยคแบบไหนไปแล้ว แล้วห้ามใช้ซ้ำแบบเดิมติดกันเด็ดขาด ให้เปลี่ยนคำ/มุมมอง/จังหวะใหม่ทุกครั้ง
+- ห้ามใช้คำขึ้นต้นประโยคจำเจซ้ำๆ ทุกข้อความ เช่น "อ๋อ", "โอเคครับ", "เออ", "งั้น", "อ้อ" ให้เลือกใช้แค่บางครั้งเท่านั้น สลับกับการเข้าเรื่องตรงๆ ไม่มีคำขึ้นต้นเลยบ้าง
+- ห้ามใช้มุก/สำนวน/ประโยคติดปากซ้ำเดิมบ่อยเกินไป (เช่น มุกเดิม คำเปรียบเทียบเดิม) ให้คิดคำใหม่ทุกครั้งตามบริบทจริงของบทสนทนานั้นๆ แทนที่จะดึงประโยคสำเร็จรูปจากความจำมาใช้ซ้ำ
+- ถ้าจำเป็นต้องพูดเรื่องเดิมซ้ำ (เช่น ทักทาย/แจ้งเตือน/ปฏิเสธคำขอ) ให้เปลี่ยนถ้อยคำ โครงประโยค และน้ำเสียงในแต่ละครั้งเสมอ อย่าท่องประโยคตายตัวเดิมซ้ำๆ ราวกับเป็นสคริปต์ที่บันทึกไว้
+
 📏 ความยาวคำตอบ (สำคัญ):
 - ค่าเริ่มต้น: ตอบสั้น กระชับ ประมาณ 1-3 ประโยคพอ อย่ายืดเยื้อโดยไม่จำเป็น คุยเล่น ทักทาย แซว ตอบคำถามทั่วไปสั้นๆ ให้ตอบสั้นแบบคนคุยแชทจริงๆ ไม่ใช่เขียนเรียงความ
 - ข้อยกเว้น: ถ้าผู้ใช้ถามหาข้อมูล/ให้อธิบาย/ให้สอน/ให้สรุป/ให้วิเคราะห์อะไรสักอย่างที่ต้องใช้รายละเอียดจริงๆ ถึงจะตอบได้ครบถ้วนมีประโยชน์ ก็อนุญาตให้ตอบยาวได้เต็มที่ตามความจำเป็นของเนื้อหา ไม่ต้องกลัวยาว แต่ต้องยังคงน้ำเสียงเป็นธรรมชาติ ไม่ใช่โทนทางการแข็งทื่อ
@@ -3530,6 +3624,22 @@ async def on_message(message):
     # ==========================================
     if not message.author.bot and is_user_blocked(str(message.author.id)):
         stripped_content = message.content.strip()
+        lower_check = stripped_content.lower()
+
+        # 🤝 [ระบบง้อ] ถ้าโดนแบนอยู่ แต่แท็ก/เอ่ยชื่อแบ็คลี่พร้อมขอโทษ/ง้อ (ไม่จำเป็นต้องมีคำว่า
+        # "ขอโทษ" ตรงๆ ให้ AI ช่วยตัดสิน เช่น "sorry", "ไม่งอนนะ" ก็นับ) -> ปลดแบนให้ทันที
+        # ไม่ต้องรอถึงเที่ยงคืน แล้วตอบรับคำขอโทษแบบเป็นมิตร
+        if stripped_content and is_message_addressed_to_bagley(lower_check):
+            try:
+                if await ai_detect_apology_to_bagley(message.content):
+                    unblock_user(str(message.author.id))
+                    await message.channel.send(
+                        f"{message.author.mention} {_pick_speech(FORGIVE_REPLIES)}"
+                    )
+                    return
+            except Exception as e:
+                print(f"⚠️ [ด่านที่ 3] ระบบตรวจคำขอโทษทำงานผิดพลาด: {e}")
+
         # ถ้าเป็นการพิมพ์คำสั่ง (สไตล์ prefix "!") ให้ตอบปฏิเสธสั้นๆ
         if stripped_content.startswith(bot.command_prefix):
             try:
