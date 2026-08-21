@@ -1234,6 +1234,16 @@ async def play_song(ctx, search):
             url = info['url']
             title = info['title']
 
+            # 🩹 FIX: googlevideo ต้องได้ header (โดยเฉพาะ User-Agent) ตรงกับตอนที่ yt-dlp
+            # ใช้ดึงข้อมูลมา ไม่งั้น YouTube จะตัดสตรีมทิ้งทันที (403 / 0 byte) ทำให้ ffmpeg
+            # จบโปรเซสเกือบจะทันทีที่เริ่ม เป็นเหตุให้ discord.py เรียก after_playing()
+            # เหมือนเพลงเล่นจบ ทั้งที่จริงๆ เสียงไม่เคยออกมาเลย แล้วก็ไปเจอคิวว่างพอดี
+            # จึงพูดว่า "คิวหมดแล้ว" ทันทีหลังจากเพิ่งประกาศว่ากำลังเล่นเพลง
+            req_headers = info.get('http_headers') or {}
+            if req_headers:
+                headers_str = ''.join(f'{k}: {v}\r\n' for k, v in req_headers.items())
+                FFMPEG_OPTIONS['before_options'] += f' -headers "{headers_str}"'
+
             def after_playing(error):
                 global is_playing_music
                 is_playing_music = False
@@ -1251,9 +1261,16 @@ async def play_song(ctx, search):
             volume_controlled_source = discord.PCMVolumeTransformer(raw_source)
             volume_controlled_source.volume = 0.15
 
+            def _after(e):
+                # เดิม error ตรงนี้ถูกทิ้งเงียบๆ ทำให้เวลา ffmpeg ล้มเหลว (เช่นโดน 403
+                # จากยูทูป) บอทจะตัดไปเช็คคิวทันทีโดยไม่มีร่องรอยให้ debug เลย
+                if e:
+                    print(f"❌ [FFmpeg after-callback error] เพลง '{title}' หยุดเล่นแบบผิดปกติ: {e}")
+                bot.loop.create_task(check_queue(ctx))
+
             ctx.voice_client.play(
                 volume_controlled_source, 
-                after=lambda e: bot.loop.create_task(check_queue(ctx))
+                after=_after
             )
 
             msg_text = f"🎵 กำลังเริ่มบรรเลง: **{title}**"
