@@ -82,6 +82,18 @@ def _looks_like_teach_hint(lower_text: str) -> bool:
     return any(kw in lower_text for kw in _TEACH_HINT_KEYWORDS)
 
 
+# 🛡️ [แก้บั๊ก] ข้อความรูปแบบ "จำไว้ว่า ... คือ ..." (เช่น "จำไว้ว่า 123456789012345678 คือ ตัส")
+# เป็นคำสั่งบันทึกชื่อเล่น/วันเกิด/ข้อมูลส่วนตัวของสมาชิกรายคน ซึ่ง bot.py มีระบบเฉพาะรองรับอยู่แล้ว
+# (ดู execute_remember_logic ที่ [ส่วนที่ 11]) — บันทึกผูกกับ user_id ตรงๆ ลง user_data ให้
+# get_realtime_name() เรียกไปใช้เป็นชื่อเรียกแทนได้ทันทีทุกที่ในบอท
+# คำว่า "จำไว้" ก็อยู่ใน _TEACH_HINT_KEYWORDS ด้วย (ตั้งใจให้กว้างไว้สำหรับกฎทั่วไป เช่น
+# "จำไว้ว่าห้ามพูดคำหยาบ") ทำให้ข้อความ "จำไว้ว่า...คือ..." โดนระบบกฎทั่วไปนี้ตีความ + บันทึกเป็น
+# "กฎ" ดิบๆ ไปก่อน (ตัด/return early ใน on_message) ระบบชื่อเล่นเดิมที่ [ส่วนที่ 11] เลยไม่มีโอกาส
+# ทำงานเลยตั้งแต่เพิ่มระบบกฎนี้เข้ามา ต้องกันไว้ตรงนี้ให้ปล่อยผ่านไปให้ระบบเดิมจัดการแทน
+def _looks_like_personal_info_command(lower_text: str) -> bool:
+    return "จำไว้ว่า" in lower_text
+
+
 def _is_teaching_allowed(message: discord.Message) -> bool:
     """เกณฑ์สิทธิ์เดียวกับ ephemeral_tools._is_dynamic_allowed — เพราะผลกระทบพอกัน
     (กฎที่จำไปมีผลข้ามเซิร์ฟเวอร์ ไม่ใช่แค่คนคุยกันเล่นในห้องเดียว)"""
@@ -147,6 +159,10 @@ async def maybe_learn_from_message(message: discord.Message, get_realtime_name=N
         return None
 
     lower_content = content.lower()
+
+    if _looks_like_personal_info_command(lower_content):
+        return None  # ปล่อยให้ [ส่วนที่ 11] ใน bot.py (execute_remember_logic) จัดการแทน ไม่ใช่กฎทั่วไป
+
     if not _looks_like_teach_hint(lower_content):
         return None  # ชั้น 1: ไม่มีคำใบ้เลย ไม่ต้องเสียเวลายิง AI
 

@@ -26,7 +26,7 @@ from google.genai import types as genai_types
 from PIL import Image
 
 # --- AI Command Router (ให้ AI ตัดสินใจว่าข้อความควรเรียกคำสั่งไหน) ---
-from ai_command_router import ai_route_and_execute
+from ai_command_router import ai_route_and_execute, looks_like_personal_reminder
 
 # --- ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราวที่ AI เขียนสด ---
 import bagley_learning
@@ -3870,9 +3870,15 @@ async def on_message(message):
             # ⚡ [Ephemeral Tools] ไม่ตรงคำสั่งไหนที่มีอยู่แล้วเลย -> ลองให้ AI เขียนความสามารถชั่วคราวดู
             # (เฉพาะคนที่มีสิทธิ์ตาม ephemeral_tools._is_dynamic_allowed เท่านั้น คนอื่นจะคืน False เฉยๆ
             #  แล้วไหลลงไปทำ teach memory / free chat ตามปกติ ไม่กระทบผู้ใช้ทั่วไป)
-            handled = await ephemeral_tools.try_create_and_run(message, message.content)
-            if handled:
-                return
+            # 🛡️ [แก้บั๊ก] กันไม่ให้ Ephemeral Tools แย่งข้อความ "เตือนฉันตอน.../เตือน @เพื่อน ตอน..." ไปเขียน
+            # โค้ดชั่วคราวเอง — SafeAPI ไม่มีความสามารถตั้งเวลา/แจ้งเตือนเลย พอเจอข้อความแบบนี้มันเลยได้แต่
+            # เขียนโค้ดที่ await api.send(...) อธิบายว่า "เข้าถึงเวลา/ระบบตั้งเวลาไม่ได้" แล้วคืน handled=True
+            # ทำให้ on_message return ทันที ไม่มีทางไหลไปถึงระบบเตือนตัวเอง/เพื่อนจริงที่ [ส่วนที่ 2] ด้านล่างเลย
+            # ใช้เงื่อนไขเดียวกับที่ ai_route_and_execute กันไว้แล้วข้างบน (looks_like_personal_reminder)
+            if not looks_like_personal_reminder(message.content):
+                handled = await ephemeral_tools.try_create_and_run(message, message.content)
+                if handled:
+                    return
 
     # ==========================================
     # 🚨 [ส่วนที่ 1: ระบบตรวจจับสแปม]
