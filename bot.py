@@ -1213,7 +1213,16 @@ async def play_song(ctx, search):
         'noplaylist': True,
         'quiet': True,
         'default_search': 'auto',
-        'nocheckcertificate': True
+        'nocheckcertificate': True,
+        # 🩹 FIX: YouTube เข้มงวดเรื่องกันบอทมากขึ้นเรื่อยๆ (ระลอกล่าสุด ส.ค. 2026)
+        # การดึงข้อมูลผ่าน client เริ่มต้น (web) มักโดน 403 ทันทีตอนเปิดสตรีมจริง
+        # (แม้จะดึงชื่อเพลง/ข้อมูลได้ปกติ) จึงสั่งให้ yt-dlp ลองหลาย client ตามลำดับ
+        # ถ้า client แรกโดนบล็อก จะไปลอง client ถัดไปโดยอัตโนมัติ
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web'],
+            }
+        },
     }
 
     FFMPEG_OPTIONS = {
