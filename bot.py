@@ -265,6 +265,7 @@ async def ai_detect_apology_to_bagley(message_text: str) -> bool:
         return False
 
 
+async def ai_check_live_chat_message(message_text: str) -> Optional[str]:
     """
     ตรวจแชทสด (YouTube live chat) ด้วย AI ก่อนให้แบ็คลี่อ่านออกเสียง ว่าข้อความนี้หยาบคาย/ไม่สุภาพหรือไม่
     ใช้กับ youtube_live_chat.py เป็น moderate_func
