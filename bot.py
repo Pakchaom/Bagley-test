@@ -32,6 +32,7 @@ from ai_command_router import ai_route_and_execute
 import bagley_learning
 import bagley_autonomy
 import bagley_trust
+import bagley_rules
 import ephemeral_tools
 import youtube_live_chat as ylc
 
@@ -3561,6 +3562,12 @@ async def on_ready():
         ephemeral_tools.configure(client, is_user_blocked_fn=is_user_blocked)
         ephemeral_tools.ALLOWED_DYNAMIC_USERS = set(ALLOWED_TEACH_USERS)
 
+        # 📜 [Rules] สอนแบ็คลี่ด้วยการพิมพ์คุยเฉยๆ (เช่น "จำไว้ว่าห้ามพูดคำหยาบ") ไม่ต้องพิมพ์ /teach
+        # ใช้เกณฑ์สิทธิ์เดียวกับ ephemeral_tools เพราะกฎที่จำไปมีผลข้ามทุกเซิร์ฟเวอร์
+        bagley_rules.configure(client, conn, is_user_blocked_fn=is_user_blocked)
+        bagley_rules.init_rules_db(conn)
+        bagley_rules.ALLOWED_RULE_TEACHERS = set(ALLOWED_TEACH_USERS)
+
         print("🧠 ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราว: Started.")
     except Exception as e:
         print(f"⚠️ ระบบเรียนรู้/อยากพูดเอง/คำสั่งชั่วคราว เริ่มไม่สำเร็จ: {e}")
@@ -3811,8 +3818,32 @@ async def on_message(message):
     # ถ้าไม่ใช่คำสั่ง (คุยเล่นทั่วไป) -> ไหลลงไปทำ teach memory / free chat ตามปกติ
     # ==========================================
     # 🧠 [ระบบเรียนรู้] สะสมข้อความในห้องไว้ให้ AI สรุปเป็น insight เป็นระยะ (ไม่ใช่ทุกข้อความที่คุยกับแบ็คลี่)
+    # 🏠 [ระบบเรียนรู้] ทำเครื่องหมายว่าห้องนี้บอท "เคยถูกเรียก/เกี่ยวข้องด้วยจริง" ก่อนสะสมข้อความ —
+    # กันไม่ให้ bagley_learning/bagley_autonomy ไปอ่านหรือพูดเองในห้องอื่นที่บอทไม่เคยเกี่ยวข้องด้วยเลย
+    # (เช่นห้องที่แค่มีคนคุยกันเอง ไม่เคยเรียกบอท) — ดู bagley_learning.mark_channel_active
+    _addressed_to_bagley_now = (
+        not message.author.bot
+        and (
+            message.guild is None
+            or is_from_my_webhook
+            or is_message_addressed_to_bagley(lower_content)
+            or bagley_autonomy.is_reply_to_autonomous_message(message)
+        )
+    )
+
+    if message.guild is not None and _addressed_to_bagley_now:
+        bagley_learning.mark_channel_active(message.channel.id, message.guild.id)
+
     if not message.author.bot and message.content.strip():
         bagley_learning.track_message(message.channel.id, get_realtime_name(message.author.id, message.author.display_name), message.content)
+
+    # 📜 [Rules] เช็คก่อนว่าข้อความนี้เป็นการ "สั่งสอน/กำหนดกฎ" ให้แบ็คลี่จำมั้ย (ดู bagley_rules.py)
+    # ทำก่อนไหลลงไป teach_memory/free chat/AI command router ตามปกติ ถ้าจดกฎสำเร็จให้ตอบ ack แล้วจบเลย
+    if _addressed_to_bagley_now:
+        rule_ack = await bagley_rules.maybe_learn_from_message(message, get_realtime_name)
+        if rule_ack:
+            await message.reply(rule_ack)
+            return
 
     stripped_for_ai = message.content.strip()
     if stripped_for_ai and not stripped_for_ai.startswith(bot.command_prefix):
@@ -4755,7 +4786,7 @@ async def on_message(message):
 ข้อมูลคู่สนทนาของคุณในข้อความปัจจุบัน:
 - ชื่อแชท: คุณ {get_realtime_name(message.author.id, message.author.display_name)}
 - ระดับสถานะพิเศษ: {special_role if special_role else "สมาชิกทั่วไปในเซิร์ฟเวอร์"}
-
+{bagley_rules.format_rules_for_prompt()}
 นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้ (จงอ่านเพื่อตอบให้ต่อเนื่องและเนียนที่สุด):
 {chat_log}
 
@@ -6969,6 +7000,35 @@ async def list_teach(ctx: commands.Context):
     title_text = "🧠 BAGLEY MEMORY BANK: รายการคีย์เวิร์ดที่ทีมพัฒนาเคยสอนไว้"
     view = IdentityListPaginator(title_text=title_text, data_list=formatted_list, per_page=5)
     view.message = await ctx.send(embed=view.create_embed(), view=view)
+
+@bot.hybrid_command(name="list_rules", description="เรียกดูรายการ 'กฎ' ที่แบ็คลี่เคยถูกสอนไว้ (จากการพิมพ์คุยเฉยๆ) — มีผลทุกเซิร์ฟเวอร์")
+async def list_rules(ctx: commands.Context):
+    await ctx.defer()
+
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
+        return
+
+    rules_text = bagley_rules.list_rules_text()
+    embed = discord.Embed(
+        title="📜 BAGLEY RULE BANK: กฎที่เคยถูกสอนไว้ (ใช้ทุกเซิร์ฟเวอร์)",
+        description=rules_text[:4000],
+        color=discord.Color.blurple(),
+    )
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="forget_rule", description="สั่งให้แบ็คลี่ลืมกฎที่เคยถูกสอนไว้ (ดูเลข id ได้จาก /list_rules)")
+@app_commands.describe(rule_id="เลข id ของกฎที่จะลบ (ดูได้จาก /list_rules)")
+async def forget_rule(ctx: commands.Context, rule_id: int):
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send(f"❌ **[ACCESS DENIED]** ขออภัยครับคุณ {get_realtime_name(ctx.author.id, ctx.author.display_name)} จำกัดสิทธิ์เฉพาะทีมพัฒนาเท่านั้นครับ! 🛸")
+        return
+
+    await ctx.defer()
+    if bagley_rules.forget_rule(rule_id):
+        await ctx.send(f"รับทราบครับ! ลบกฎ `#{rule_id}` ออกจากคลังสมองเรียบร้อยแล้วครับ! 🧼❌")
+    else:
+        await ctx.send(f"🤖 แบ็คลี่ลองค้นดูแล้ว... ไม่พบกฎ `#{rule_id}` ในระบบเลยครับ!")
 
 @bot.hybrid_command(name="remember", description="สั่งให้แบ็คลี่จดจำชื่อเล่น/วันเกิดของใครก็ได้ลงคลังความจำ (ใครก็สั่งได้ ไม่จำกัดแค่ทีมพัฒนา)")
 @app_commands.describe(

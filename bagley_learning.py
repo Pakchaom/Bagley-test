@@ -23,6 +23,12 @@ _MAX_MESSAGES_PER_SCAN = 30
 # เก็บข้อความล่าสุดแบบ rolling ต่อห้อง — อยู่บน RAM เท่านั้น ไม่ persist ตั้งใจ
 _recent_channel_messages: dict[int, list[str]] = {}
 
+# 🏠 "ห้องที่บอทเคยเกี่ยวข้องด้วยจริงๆ" (เคยถูกเรียก/เคยคุยด้วยตรงๆ อย่างน้อย 1 ครั้ง) —
+# ใช้กรองว่าห้องไหนบ้างที่ควรสะสมข้อความไว้ให้ระบบเรียนรู้/ทักเอง (bagley_autonomy) พิจารณา
+# กันไม่ให้ไปอ่าน/พูดในห้องอื่นที่บอทไม่เคยเกี่ยวข้องด้วยเลย (เช่นห้องที่แค่มีคนคุยกันเอง บอทไม่เคยถูกเรียก)
+# persist ลง DB ด้วย เพื่อไม่ให้รีเซ็ตทุกครั้งที่บอทรีสตาร์ท
+_active_channel_ids: set[int] | None = None
+
 
 def configure(bot, client, conn):
     global _bot, _client, _conn
@@ -40,12 +46,57 @@ def init_learning_db(conn: sqlite3.Connection):
             learned_at TEXT DEFAULT (datetime('now'))
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS learning_active_channels (
+            channel_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            marked_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
 
 
+def _load_active_channels_cache():
+    global _active_channel_ids
+    if _conn is None:
+        _active_channel_ids = set()
+        return
+    rows = _conn.execute("SELECT channel_id FROM learning_active_channels").fetchall()
+    _active_channel_ids = {r[0] for r in rows}
+
+
+def mark_channel_active(channel_id: int, guild_id: int):
+    """เรียกตอนบอทถูกเรียก/คุยด้วยตรงๆ ในห้องนี้ (ดู bot.py on_message) — ทำเครื่องหมายว่าห้องนี้
+    เป็นห้องที่บอท 'อยู่' จริงๆ จากนี้ไปห้องนี้จะถูกสะสมข้อความให้ระบบเรียนรู้/ทักเองพิจารณาได้
+    (ไม่มีผลอะไรถ้าห้องนี้ถูกทำเครื่องหมายไว้แล้ว กันยิง DB โดยไม่จำเป็น)"""
+    global _active_channel_ids
+    if _active_channel_ids is None:
+        _load_active_channels_cache()
+    if channel_id in _active_channel_ids:
+        return
+    _active_channel_ids.add(channel_id)
+    if _conn is not None:
+        _conn.execute(
+            "INSERT OR REPLACE INTO learning_active_channels (channel_id, guild_id, marked_at) VALUES (?, ?, datetime('now'))",
+            (channel_id, guild_id),
+        )
+        _conn.commit()
+        print(f"🏠 [Learning] channel={channel_id} ถูกทำเครื่องหมายว่าบอทเกี่ยวข้องด้วยแล้ว — เริ่มสะสมข้อความห้องนี้")
+
+
+def is_channel_active(channel_id: int) -> bool:
+    if _active_channel_ids is None:
+        _load_active_channels_cache()
+    return channel_id in _active_channel_ids
+
+
 def track_message(channel_id: int, author_name: str, content: str):
-    """เรียกจาก on_message ทุกครั้ง เพื่อสะสมบทสนทนาไว้ให้ AI สรุปเป็นระยะ"""
+    """เรียกจาก on_message ทุกครั้ง เพื่อสะสมบทสนทนาไว้ให้ AI สรุปเป็นระยะ —
+    สะสมเฉพาะห้องที่บอทเคยถูกเรียก/เกี่ยวข้องด้วยจริงๆ เท่านั้น (ดู mark_channel_active) กันไม่ให้
+    ระบบเรียนรู้/ทักเองไปยุ่งกับห้องที่บอทไม่เคยเกี่ยวข้องด้วยเลย"""
     if not content or not content.strip():
+        return
+    if not is_channel_active(channel_id):
         return
     buf = _recent_channel_messages.setdefault(channel_id, [])
     buf.append(f"{author_name}: {content}")

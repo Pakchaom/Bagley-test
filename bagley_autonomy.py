@@ -39,6 +39,7 @@ import sqlite3
 import discord
 from discord.ext import tasks
 import bagley_learning
+import bagley_rules
 
 _bot = None
 _client = None
@@ -267,6 +268,7 @@ async def _decide(guild, lines: list[str], bot_in_voice: bool) -> dict | None:
         "มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ทุกครั้งที่พูดขึ้นเองต้องมีประโยชน์หรือมีเหตุผลที่คุ้มค่าจริงๆ ไม่ใช่กวนเฉยๆ ไร้สาระ\n"
         "ต้องเรียกคำนำหน้าทุกคนว่า คุณ ทุกครั้ง"
         f"สิ่งที่คุณรู้เกี่ยวกับกลุ่มนี้จากก่อนหน้า: {insights}\n"
+        f"{bagley_rules.format_rules_for_prompt()}"
         f"สถานะห้องเสียงตอนนี้: {voice_state}\n"
         "หมายเหตุ: ชื่อคนที่ปรากฏด้านบนถูกดึงมาจากคลังความจำ/ชื่อเล่นที่บันทึกไว้แล้ว "
         "ถ้าจะเอ่ยถึงใครในข้อความที่จะพูด ให้ใช้ชื่อตามที่ให้มานี้เป๊ะๆ ห้ามเปลี่ยนหรือแต่งชื่อขึ้นมาเอง\n"
