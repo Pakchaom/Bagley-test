@@ -315,6 +315,19 @@ async def autonomy_loop():
         if is_guild_silenced(guild.id):
             continue
 
+        # 🎯 [แก้บั๊ก] เดิมบล็อกนี้พิจารณา "ทักเอง" กับทุกห้องแชทที่มีข้อความสะสมไว้ (ห้องไหนก็ได้ที่เคย
+        # ถูกเรียก 1 ครั้ง) โดยไม่สนว่าตอนนี้บอทอยู่ในห้องเสียงไหนอยู่หรือเปล่า ทำให้บอทอาจทักขึ้นมาเอง
+        # ในห้องแชทที่ไม่เกี่ยวข้องกับที่กำลังนั่งอยู่ห้องเสียงด้วย (เช่น นั่งห้องเสียง A อยู่กับเพื่อน
+        # แต่ดันไปทักในห้องแชท #general ที่ไม่มีใครในห้องเสียง A คุยด้วยเลย) ตอนนี้จำกัดให้ "ทักเอง"
+        # ได้เฉพาะห้องที่ตรงกับห้องเสียงที่บอทอยู่ตอนนี้เท่านั้น (แชทในตัวห้องเสียงเอง — ห้องเสียงบน
+        # ดิสคอร์ดมีแชทของตัวเองในตัวอยู่แล้ว ถือเป็นห้องเดียวกัน) ถ้าบอทไม่ได้อยู่ห้องเสียงไหนในกิลด์นี้
+        # เลย ก็จะไม่ทักเองในห้องแชทไหนของกิลด์นี้เลยเช่นกัน
+        bot_in_voice = bool(guild.voice_client and guild.voice_client.is_connected())
+        if not bot_in_voice:
+            continue
+        if channel.id != guild.voice_client.channel.id:
+            continue
+
         last = _last_spoke_at.get(channel_id, 0)
         if now - last < _COOLDOWN_SECONDS:
             continue
@@ -323,7 +336,6 @@ async def autonomy_loop():
         if not _under_daily_cap(guild.id, now):
             continue
 
-        bot_in_voice = bool(guild.voice_client and guild.voice_client.is_connected())
         result = await _decide(guild, lines[-15:], bot_in_voice)
         if not result:
             continue

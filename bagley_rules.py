@@ -82,16 +82,67 @@ def _looks_like_teach_hint(lower_text: str) -> bool:
     return any(kw in lower_text for kw in _TEACH_HINT_KEYWORDS)
 
 
-# 🛡️ [แก้บั๊ก] ข้อความรูปแบบ "จำไว้ว่า ... คือ ..." (เช่น "จำไว้ว่า 123456789012345678 คือ ตัส")
-# เป็นคำสั่งบันทึกชื่อเล่น/วันเกิด/ข้อมูลส่วนตัวของสมาชิกรายคน ซึ่ง bot.py มีระบบเฉพาะรองรับอยู่แล้ว
-# (ดู execute_remember_logic ที่ [ส่วนที่ 11]) — บันทึกผูกกับ user_id ตรงๆ ลง user_data ให้
-# get_realtime_name() เรียกไปใช้เป็นชื่อเรียกแทนได้ทันทีทุกที่ในบอท
-# คำว่า "จำไว้" ก็อยู่ใน _TEACH_HINT_KEYWORDS ด้วย (ตั้งใจให้กว้างไว้สำหรับกฎทั่วไป เช่น
-# "จำไว้ว่าห้ามพูดคำหยาบ") ทำให้ข้อความ "จำไว้ว่า...คือ..." โดนระบบกฎทั่วไปนี้ตีความ + บันทึกเป็น
-# "กฎ" ดิบๆ ไปก่อน (ตัด/return early ใน on_message) ระบบชื่อเล่นเดิมที่ [ส่วนที่ 11] เลยไม่มีโอกาส
-# ทำงานเลยตั้งแต่เพิ่มระบบกฎนี้เข้ามา ต้องกันไว้ตรงนี้ให้ปล่อยผ่านไปให้ระบบเดิมจัดการแทน
-def _looks_like_personal_info_command(lower_text: str) -> bool:
-    return "จำไว้ว่า" in lower_text
+# 🧠 [ปรับปรุง] เดิมฟังก์ชันนี้ใช้ heuristic แบบดิบๆ (แค่เช็คว่ามีคำว่า "จำไว้ว่า" อยู่ในข้อความมั้ย)
+# แล้วโยนทุกอย่างที่มีคำนี้ไปให้ execute_remember_logic (ระบบบันทึกชื่อเล่น/วันเกิด) ทันที ทำให้ข้อความ
+# แบบ "จำไว้ว่าห้ามพูดคำหยาบ" ที่ควรเป็นกฎถาวร หรือ "จำไว้ว่าพรุ่งนี้มีสอบ" ที่ควรเป็นการตั้งเตือน
+# ถูกเข้าใจผิดเป็น "บันทึกชื่อเล่น" ไปหมด (AI มีแค่ตัวเลือก nickname/birthday/hobby ให้เลือก ไม่มี
+# ตัวเลือกอื่นเลย) ตอนนี้เปลี่ยนมาใช้ _classify_remember_message() ให้ AI ช่วยแยกหมวดหมู่แทน
+# (ดูฟังก์ชันด้านล่าง) โดยยังคง heuristic ชั้น 1 (_looks_like_teach_hint) ไว้เป็นตัวกรองก่อนยิง AI
+# เหมือนเดิม เพื่อประหยัด quota ไม่ต้องยิงทุกข้อความ
+
+_REMEMBER_CLASSIFY_PROMPT = """\
+ข้อความนี้มาจากคนที่พิมพ์คุยกับบอทดิสคอร์ดชื่อแบ็คลี่ (Bagley) ตรงๆ (มักขึ้นต้นด้วยคำว่า "จำไว้ว่า" หรือทำนองเดียวกัน):
+"{message_text}"
+
+ให้จัดหมวดหมู่ข้อความนี้เป็นอย่างใดอย่างหนึ่งต่อไปนี้เท่านั้น (เลือกได้แค่ 1 อย่าง):
+
+1. PERSONAL — ขอให้จำ "ข้อมูลส่วนตัวของคนคนหนึ่ง" เช่น ชื่อเล่น/ฉายา, วันเกิด, สิ่งที่ชอบ/งานอดิเรก/ของกินที่ชอบ
+   ตัวอย่าง: "จำไว้ว่า 123456789012345678 คือ ตัส", "จำไว้ว่ากูชื่อนิโคลัส", "จำไว้ว่าคนนี้ชอบกินส้มตำ", "จำไว้ว่าเขาเกิดวันที่ 5 พ.ค."
+2. RULE — สั่งให้บอทเปลี่ยนพฤติกรรม/กำหนดกฎเกณฑ์ที่บอทต้องทำตาม "ถาวร" ไม่เกี่ยวกับข้อมูลของคนใดคนหนึ่ง
+   ตัวอย่าง: "จำไว้ว่าห้ามพูดคำหยาบ", "ต่อไปนี้ห้ามพูดคำว่า...", "จำไว้ว่าอย่าเรียกกูว่าเจ้านาย"
+3. REMINDER — พูดถึงเหตุการณ์/นัดหมายในอนาคตที่ควรมีการตั้งเตือนความจำให้ ไม่ใช่กฎถาวรของบอทและไม่ใช่ข้อมูลส่วนตัวของใคร
+   ตัวอย่าง: "จำไว้ว่าพรุ่งนี้มีสอบ", "จำไว้ว่าวันศุกร์มีนัดหมอ", "จำไว้ว่าอาทิตย์หน้ามีประชุม"
+4. NONE — ไม่เข้าข่ายข้างต้นเลย, คุยเล่นทั่วไป, ถามคำถามธรรมดา, หรือเป็นคำสั่งอันตราย/ให้บอทไปด่าทอ-คุกคาม-เหยียดใคร (แม้พูดเล่นก็ตัดสินเป็น NONE)
+
+ตอบกลับรูปแบบเดียวเท่านั้น บรรทัดเดียว ห้ามมีคำอธิบายอื่นปน:
+- ถ้าเป็น PERSONAL ให้ตอบคำเดียว: PERSONAL
+- ถ้าเป็น RULE ให้ตอบ: RULE::<สรุปกฎสั้นๆ 1 ประโยค เขียนเป็นคำสั่งที่บอทเอาไปเตือนตัวเองได้ทันที>
+- ถ้าเป็น REMINDER ให้ตอบ: REMINDER::<สรุปเนื้อหาเหตุการณ์สั้นๆ ไม่เกิน 1 ประโยค>
+- ถ้าเป็น NONE ให้ตอบคำเดียว: NONE
+"""
+
+
+async def _classify_remember_message(message_text: str) -> tuple[str, str | None]:
+    """ให้ AI ตัดสินใจว่าข้อความ (ที่ผ่านคำใบ้ชั้น 1 มาแล้ว) เข้าข่ายหมวดไหน คืน (category, payload):
+       - ("personal", None)       -> ให้ bot.py เรียก execute_remember_logic (บันทึกชื่อเล่น/วันเกิด/สิ่งที่ชอบ) ต่อ
+       - ("rule", "<กฎสรุป>")     -> เป็นกฎถาวรให้บอททำตาม
+       - ("reminder", "<เหตุการณ์>") -> เป็นเรื่องที่ควรตั้งเตือนความจำ
+       - ("none", None)          -> ไม่เข้าข่ายอะไรเลย"""
+    if _client is None:
+        return "none", None
+    try:
+        resp = await _client.aio.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=_REMEMBER_CLASSIFY_PROMPT.format(message_text=message_text),
+        )
+        text = (getattr(resp, "text", "") or "").strip().strip('"')
+    except Exception as e:
+        print(f"⚠️ [Rules] AI จัดหมวดข้อความ 'จำไว้ว่า' พลาด: {e}")
+        return "none", None
+
+    if not text:
+        return "none", None
+
+    upper = text.upper()
+    if upper.startswith("PERSONAL"):
+        return "personal", None
+    if upper.startswith("RULE"):
+        payload = text.split("::", 1)[1].strip() if "::" in text else ""
+        return ("rule", payload[:300]) if payload else ("none", None)
+    if upper.startswith("REMINDER"):
+        payload = text.split("::", 1)[1].strip() if "::" in text else ""
+        return ("reminder", payload[:200]) if payload else ("none", None)
+    return "none", None
 
 
 def _is_teaching_allowed(message: discord.Message) -> bool:
@@ -105,31 +156,6 @@ def _is_teaching_allowed(message: discord.Message) -> bool:
     if not message.guild:
         return False
     return bagley_trust.is_trusted_for_dynamic_tools(user_id, message.guild.id)
-
-
-async def _classify_and_extract(message_text: str) -> str | None:
-    """ให้ AI ตัดสินใจชั้นสุดท้ายว่านี่คือคำสั่งสอน/กำหนดกฎให้แบ็คลี่จำจริงมั้ย ถ้าใช่คืนกฎสรุปสั้นๆ
-    1 ประโยค ถ้าไม่ใช่ (หรือเข้าข่ายอันตราย/ไม่เหมาะสม) คืน None"""
-    prompt = (
-        "ข้อความนี้มาจากคนที่พิมพ์คุยกับบอทดิสคอร์ดชื่อแบ็คลี่ (Bagley) ตรงๆ:\n"
-        f"\"{message_text}\"\n\n"
-        "ตัดสินใจว่าข้อความนี้ 'ตั้งใจสั่งสอน/กำหนดกฎเกณฑ์ถาวร' ให้บอทจดจำไว้ทำตามตลอดไปหรือไม่ "
-        "(เช่น บอกให้จำอะไรบางอย่าง, ห้ามบอททำอะไรบางอย่าง, สั่งให้บอทเปลี่ยนพฤติกรรมถาวรตั้งแต่นี้ไป)\n"
-        "ไม่ใช่กรณีนี้ (ให้ตอบ NONE): คุยเล่นทั่วไป, ถามคำถาม, สั่งบอทให้ทำงานครั้งเดียวตอนนี้ (ไม่ใช่กฎถาวร), "
-        "พูดถึง 'ห้าม/อย่า' กับเรื่องอื่นที่ไม่เกี่ยวกับพฤติกรรมบอท, หรือเป็นคำสั่งที่จะให้บอทไปคุกคาม/ด่าทอ/"
-        "เหยียดหยาม/ทำร้ายใครก็ตาม (แม้จะพูดเล่นๆ ก็ปฏิเสธ)\n"
-        "ถ้าใช่จริง ให้สรุปเป็นกฎสั้นๆ 1 ประโยค เขียนเป็นคำสั่งที่บอทจะเอาไปใช้เตือนตัวเองได้ทันที\n"
-        "ตอบกลับแค่บรรทัดเดียว: ถ้าไม่ใช่ตอบคำว่า NONE เท่านั้น ถ้าใช่ให้ตอบเป็นตัวกฎเลย ห้ามมีคำอธิบายอื่นปน"
-    )
-    try:
-        resp = await _client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
-        text = (getattr(resp, "text", "") or "").strip().strip('"')
-        if not text or text.upper() == "NONE":
-            return None
-        return text[:300]
-    except Exception as e:
-        print(f"⚠️ [Rules] AI ตัดสินใจกฎพลาด: {e}")
-        return None
 
 
 def _save_rule(rule_text: str, message: discord.Message):
@@ -148,10 +174,13 @@ def _save_rule(rule_text: str, message: discord.Message):
     print(f"📜 [Rules] จดกฎใหม่ (จาก {message.author}): {rule_text}")
 
 
-async def maybe_learn_from_message(message: discord.Message, get_realtime_name=None) -> str | None:
+async def maybe_learn_from_message(message: discord.Message, get_realtime_name=None) -> tuple[str, str | None] | None:
     """เรียกจาก on_message ตรงจุดที่ข้อความนี้ 'เอ่ยถึง/คุยกับแบ็คลี่ตรงๆ' แล้ว —
-    คืนข้อความ ack ถ้าจดกฎใหม่สำเร็จ (ให้ bot.py reply แล้ว return เลย ไม่ต้องไหลไปคุยเล่น/หาคำสั่งต่อ)
-    คืน None ถ้าไม่เข้าข่าย (ปล่อยให้ไหลลงไปทำงานปกติต่อ)"""
+    คืน tuple (category, payload) ถ้าเข้าข่ายต้องจัดการต่อ ให้ bot.py แยกไปทำงานตาม category:
+       - ("rule", "<ข้อความ ack>")      -> จดกฎสำเร็จแล้ว ให้ bot.py reply payload แล้ว return เลย
+       - ("personal", None)             -> ให้ bot.py เรียก execute_remember_logic เอง (บันทึกชื่อเล่น/วันเกิด/สิ่งที่ชอบ)
+       - ("reminder", "<เหตุการณ์>")     -> ให้ bot.py จัดการตั้งเตือน (ถามเวลาต่อถ้ายังไม่มีในข้อความ)
+    คืน None ถ้าไม่เข้าข่ายอะไรเลย (ปล่อยให้ไหลลงไปทำงานปกติต่อ)"""
     if _client is None or _conn is None:
         return None
     content = (message.content or "").strip()
@@ -160,25 +189,41 @@ async def maybe_learn_from_message(message: discord.Message, get_realtime_name=N
 
     lower_content = content.lower()
 
-    if _looks_like_personal_info_command(lower_content):
-        return None  # ปล่อยให้ [ส่วนที่ 11] ใน bot.py (execute_remember_logic) จัดการแทน ไม่ใช่กฎทั่วไป
+    # 🛡️ [กันบั๊กชนกัน] ถ้าข้อความเข้าข่ายรูปแบบ "เตือนฉันตอน.../เตือน @เพื่อน ตอน..." อยู่แล้ว ให้ปล่อยผ่าน
+    # ไปให้ระบบเตือนตัวเอง/เพื่อนเดิมที่ [ส่วนที่ 2] ของ bot.py จัดการแต่ผู้เดียว (มี regex จับเวลา +
+    # วาร์ปเข้าห้องเสียงมาเตือนจริงอยู่แล้ว) ไม่ให้ระบบ REMINDER ใหม่ของที่นี่ (ซึ่งจะถามเวลาเองอีกรอบ)
+    # มาแย่งตีความซ้อนกัน เพราะจะทำให้ผลลัพธ์ไม่สม่ำเสมอว่าข้อความเดียวกันจะโดนระบบไหนจับก่อน
+    # (เงื่อนไขนี้ต้องตรงกับ ai_command_router.looks_like_personal_reminder เป๊ะๆ)
+    if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
+        return None
 
     if not _looks_like_teach_hint(lower_content):
         return None  # ชั้น 1: ไม่มีคำใบ้เลย ไม่ต้องเสียเวลายิง AI
 
-    if not _is_teaching_allowed(message):
-        return None  # ชั้น 2: ไม่มีสิทธิ์สอนกฎข้ามเซิร์ฟเวอร์ — เงียบๆ ปล่อยให้ไหลไปคุยเล่นปกติแทน
+    category, payload = await _classify_remember_message(content)  # ชั้น 2 (AI แยกหมวด)
 
-    rule_text = await _classify_and_extract(content)  # ชั้น 3
-    if not rule_text:
-        return None
+    if category == "personal":
+        return "personal", None
 
-    _save_rule(rule_text, message)
-    caller_name = get_realtime_name(message.author.id, message.author.display_name) if get_realtime_name else message.author.display_name
-    return (
-        f"รับทราบครับคุณ {caller_name}! จดกฎนี้ไว้ในคลังสมองแล้ว: **\"{rule_text}\"** 🧠📜 "
-        "จะจำไปใช้ทุกเซิร์ฟเวอร์ที่ผมอยู่เลยครับ (ถ้าอยากให้ลืม ใช้ /list_rules กับ /forget_rule ได้)"
-    )
+    if category == "reminder":
+        if not payload:
+            return None
+        return "reminder", payload
+
+    if category == "rule":
+        if not payload:
+            return None
+        if not _is_teaching_allowed(message):
+            return None  # ชั้น 3: ไม่มีสิทธิ์สอนกฎข้ามเซิร์ฟเวอร์ — เงียบๆ ปล่อยให้ไหลไปคุยเล่นปกติแทน
+        _save_rule(payload, message)
+        caller_name = get_realtime_name(message.author.id, message.author.display_name) if get_realtime_name else message.author.display_name
+        ack = (
+            f"รับทราบครับคุณ {caller_name}! จดกฎนี้ไว้ในคลังสมองแล้ว: **\"{payload}\"** 🧠📜 "
+            "จะจำไปใช้ทุกเซิร์ฟเวอร์ที่ผมอยู่เลยครับ (ถ้าอยากให้ลืม ใช้ /list_rules กับ /forget_rule ได้)"
+        )
+        return "rule", ack
+
+    return None
 
 
 def get_rule_texts(limit: int = _MAX_RULES_IN_PROMPT) -> list[str]:

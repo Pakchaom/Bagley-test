@@ -589,6 +589,14 @@ def get_reminders_for_user(user_id):
         return ", ".join(user_notes)
     return None
 
+# 🧠⏰ [ระบบตั้งเตือนจาก "จำไว้ว่า..."] เก็บสถานะ "รอถามเวลา" ไว้ชั่วคราว (in-memory พอ ไม่ต้องลง DB)
+# key: (channel_id, user_id) -> {"content": เนื้อหาที่จะเตือน, "asked_at": เวลาที่ถามคำถามกลับไป}
+# ใช้ตอนมีคนพิมพ์ "จำไว้ว่าพรุ่งนี้มีสอบ" (ไม่มีเวลาระบุ) แล้วแบ็คลี่ถามกลับว่ากี่โมง เพื่อรอรับคำตอบ
+# ข้อความถัดไปของคนเดิมในห้องเดิม แล้วค่อยบันทึกเป็นเตือนจริง กันไม่ให้รอเก็บค้างไว้นานเกินไปจนไป
+# จับข้อความอื่นที่ไม่เกี่ยวข้องมั่ว จึงมี timeout กำกับไว้ด้วย
+pending_remember_reminders = {}
+PENDING_REMINDER_TIMEOUT_SECONDS = 300  # 5 นาที
+
 def add_reminder(user_id, time_str, content):
     data = load_user_data()
     if "reminders" not in data:
@@ -602,6 +610,114 @@ def add_reminder(user_id, time_str, content):
     }
     data["reminders"].append(new_memo)
     save_user_data(data)
+
+
+# 🛡️ [กันบั๊กชนกัน] คำ/รูปแบบที่บ่งบอกว่าข้อความนี้คือ "คำสั่งใหม่แยกต่างหาก" ไม่ใช่แค่คำตอบเวลาเฉยๆ
+# ต่อคำถาม "กี่โมงดีครับ" ที่เพิ่งถามไป (กันไม่ให้ pending_remember_reminders ไปแย่งข้อความที่ควรให้
+# ระบบอื่นจัดการแทน เช่น [ส่วนที่ 2] ระบบเตือนตัวเอง/เพื่อนแบบพิมพ์ตรงๆ, [ส่วนที่ 3] ฝากข้อความ,
+# หรือ bagley_rules ที่จะจดจำเป็นกฎ/ข้อมูลใหม่อีกที)
+_PENDING_REMINDER_SKIP_KEYWORDS = ("ฝากบอก", "บอกเพื่อนว่า", "จำไว้ว่า", "จำไว้", "จดไว้")
+
+def _looks_like_new_command_not_time_answer(text: str) -> bool:
+    lowered = text.lower()
+    if "เตือน" in lowered and ("ตอน" in lowered or "เวลา" in lowered):
+        return True  # เข้าเงื่อนไขเดียวกับ [ส่วนที่ 2]/ai_command_router.looks_like_personal_reminder
+    return any(kw in lowered for kw in _PENDING_REMINDER_SKIP_KEYWORDS)
+
+
+def _extract_explicit_time(text: str) -> str | None:
+    """หาเวลารูปแบบตัวเลขชัดๆ เช่น '21:00' หรือ '21.00' จากข้อความ คืน None ถ้าไม่เจอ"""
+    match = regex_lib.search(r'(\d{1,2}[:.]\d{2})', text)
+    if not match:
+        return None
+    return match.group(1).replace('.', ':').zfill(5)
+
+
+async def _ai_parse_time_of_day(text: str) -> str | None:
+    """เผื่อคนตอบเวลาแบบภาษาพูด (เช่น 'บ่ายสองโมง', 'ทุ่มนึง', 'เที่ยงคืน') ที่ regex จับไม่ได้
+    ให้ AI ช่วยตีความเป็นเวลารูปแบบ HH:MM (24 ชม.) แทน คืน None ถ้าข้อความนี้ไม่ได้พูดถึงเวลาเลย
+    (กันไม่ให้ไปจับข้อความอื่นที่ไม่เกี่ยวข้องมั่วมาตีความเป็นเวลา)"""
+    prompt = (
+        "ข้อความต่อไปนี้เป็นคำตอบของคนที่แบ็คลี่ (บอทดิสคอร์ด) เพิ่งถามว่า 'อยากให้เตือนตอนกี่โมง':\n"
+        f"\"{text}\"\n\n"
+        "ถ้าข้อความนี้ระบุเวลาของวัน (ไม่ว่าจะพิมพ์เป็นตัวเลขหรือภาษาพูดแบบไทยก็ตาม เช่น 'บ่ายสองโมง', "
+        "'ทุ่มนึง', 'เที่ยงคืน', '9 โมงเช้า') ให้แปลงเป็นรูปแบบเวลา 24 ชั่วโมง HH:MM แล้วตอบกลับแค่ค่านั้นค่าเดียว "
+        "(เช่น 14:00) ห้ามมีคำอธิบายอื่นปน\n"
+        "ถ้าข้อความนี้ไม่ได้พูดถึงเวลาอะไรเลย (เช่นเป็นข้อความอื่นที่ไม่เกี่ยวข้อง) ให้ตอบคำว่า NONE เท่านั้น"
+    )
+    try:
+        resp = await client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+        text_out = (getattr(resp, "text", "") or "").strip().strip('"')
+    except Exception as e:
+        print(f"⚠️ [Remember Reminder] AI แปลเวลาพลาด: {e}")
+        return None
+    if not text_out or text_out.upper() == "NONE":
+        return None
+    match = regex_lib.search(r'(\d{1,2}[:.]\d{2})', text_out)
+    if not match:
+        return None
+    return match.group(1).replace('.', ':').zfill(5)
+
+
+def _save_self_reminder(user_id, time_str: str, content: str, channel_id):
+    user_data = load_user_data()
+    if "reminders" not in user_data:
+        user_data["reminders"] = []
+    user_data["reminders"].append({
+        "user_id": str(user_id),
+        "time": time_str,
+        "content": content,
+        "channel_id": str(channel_id),
+        "is_notified": False
+    })
+    save_user_data(user_data)
+
+
+async def handle_remembered_reminder(message, event_text: str, get_realtime_name=None):
+    """เรียกตอน bagley_rules จัดหมวดข้อความ 'จำไว้ว่า...' ว่าเป็น REMINDER (เช่น 'จำไว้ว่าพรุ่งนี้มีสอบ')
+    ถ้าในข้อความมีเวลาระบุชัดอยู่แล้ว ให้บันทึกเตือนทันที ถ้าไม่มี ให้ถามกลับว่ากี่โมงแล้วรอคำตอบถัดไป"""
+    caller_name = get_realtime_name(message.author.id, message.author.display_name) if get_realtime_name else message.author.display_name
+
+    explicit_time = _extract_explicit_time(message.content)
+    if explicit_time:
+        _save_self_reminder(message.author.id, explicit_time, event_text, message.channel.id)
+        await message.reply(
+            f"รับทราบครับคุณ {caller_name}! จำไว้แล้วว่า **\"{event_text}\"** เดี๋ยวผมจะเตือนตอน {explicit_time} ให้เองนะครับ ⏰"
+        )
+        return
+
+    pending_remember_reminders[(message.channel.id, message.author.id)] = {
+        "content": event_text,
+        "asked_at": datetime.now(),
+    }
+    await message.reply(
+        f"จำไว้แล้วครับว่า **\"{event_text}\"** แล้วอยากให้แบ็คลี่เตือนตอนกี่โมงดีครับ? "
+        "พิมพ์เวลาบอกมาได้เลยครับ (เช่น '21:00')"
+    )
+
+
+async def try_finish_pending_reminder(message, pending: dict, get_realtime_name=None) -> str | None:
+    """ตรวจว่าข้อความล่าสุด (คำตอบต่อคำถาม 'กี่โมงดีครับ') มีเวลาบอกมาให้หรือยัง ถ้ามีให้บันทึกเตือนจริง
+    แล้วคืนข้อความ ack ให้ reply ถ้ายังจับเวลาจากข้อความนี้ไม่ได้ คืน None (ปล่อยข้อความไหลไปทำงานปกติต่อ
+    เผื่อเป็นข้อความอื่นที่ไม่เกี่ยวข้องกับคำถามที่ถามไป)"""
+    # 🛡️ [กันบั๊กชนกัน] ถ้าข้อความนี้ดูเหมือนเป็น "คำสั่งใหม่ที่ตั้งใจแยกต่างหาก" อยู่แล้ว (เช่น พิมพ์
+    # "เตือนฉันตอน 15:00 ว่ามีประชุม" หรือ "ฝากบอกว่าไปกินข้าว 15:00" ใหม่ทั้งดุ้น) อย่าไปหยิบเวลาในนั้น
+    # มาปิดคำถามค้างเก่าให้เองแบบเงียบๆ เพราะจะไปแย่งข้อความที่ควรให้ระบบอื่น ([ส่วนที่ 2]/[ส่วนที่ 3]/
+    # bagley_rules) จัดการแทน ปล่อยให้ไหลไปทำงานปกติต่อดีกว่า (คำถามเก่าจะยังค้างรอจนกว่าจะหมดเวลา
+    # หรือมีคำตอบที่เป็นแค่เวลาสั้นๆ จริงๆ มาให้)
+    if _looks_like_new_command_not_time_answer(message.content):
+        return None
+
+    time_str = _extract_explicit_time(message.content) or await _ai_parse_time_of_day(message.content)
+    if not time_str:
+        return None
+
+    caller_name = get_realtime_name(message.author.id, message.author.display_name) if get_realtime_name else message.author.display_name
+    _save_self_reminder(message.author.id, time_str, pending["content"], message.channel.id)
+    return (
+        f"รับทราบครับคุณ {caller_name}! ตั้งเตือนเรื่อง **\"{pending['content']}\"** ไว้ตอน {time_str} ให้เรียบร้อยแล้วครับ ⏰"
+    )
+
 
 def clean_emoji(text):
     # ลบอิโมจิ Discord และสัญลักษณ์พิเศษ
@@ -1908,13 +2024,13 @@ async def follow_creator_task():
                 filtered_stats = [item for item in guild_stats.items() if int(item[0]) != bot.user.id]
 
                 if filtered_stats:
-                    # 📋 ไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้วันนี้ เรียงตามเวลาที่เข้าห้องครั้งแรก
-                    entrants_sorted = sorted(filtered_stats, key=lambda x: x[1].get("first_join", "99:99"))
-                    entrant_names = [get_realtime_name(u_id, info['name']) for u_id, info in entrants_sorted]
-                    if len(entrant_names) == 1:
-                        report_msg += f" วันนี้มีคุณ {entrant_names[0]} แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ"
+                    # 🔧 [ปรับตามคำขอผู้พัฒนา] เดิมไล่รายชื่อทุกคนที่แวะเข้าห้องเสียงมาพูดทั้งหมด
+                    # ตอนนี้ตัดชื่อออก เหลือรายงานแค่ "จำนวนคน" ที่แวะเข้าห้องเสียงเซิร์ฟเวอร์นี้พอ
+                    entrant_count = len(filtered_stats)
+                    if entrant_count == 1:
+                        report_msg += " วันนี้มีคนแวะเข้าห้องเสียงเซิร์ฟเวอร์นี้แล้ว 1 คนครับ"
                     else:
-                        report_msg += f" วันนี้มีทั้งหมด {len(entrant_names)} คนแวะเข้าห้องเสียงเซิร์ฟเวอร์นี้ครับ ได้แก่ คุณ {', คุณ '.join(entrant_names)}"
+                        report_msg += f" วันนี้มีคนแวะเข้าห้องเสียงเซิร์ฟเวอร์นี้แล้วทั้งหมด {entrant_count} คนครับ"
 
                     new_server_users = []
                     for u_id, info in filtered_stats:
@@ -2708,11 +2824,18 @@ async def execute_remember_logic(message):
         user_data = load_user_data()
         
         if target_id_str not in user_data or isinstance(user_data[target_id_str], str):
-            user_data[target_id_str] = {"nickname": "ยังไม่มีชื่อเล่น", "birthday": "ยังไม่ได้ระบุ"}
+            user_data[target_id_str] = {"nickname": "ยังไม่มีชื่อเล่น", "birthday": "ยังไม่ได้ระบุ", "hobby": "ยังไม่ได้ระบุ"}
+        elif "hobby" not in user_data[target_id_str]:
+            # 🔧 [แก้บั๊ก] ข้อมูลเก่าที่บันทึกไว้ก่อนมีฟิลด์ hobby จะไม่มีคีย์นี้ ต้องเติมให้ก่อนใช้งาน
+            user_data[target_id_str]["hobby"] = "ยังไม่ได้ระบุ"
 
         if "birthday" in info_type:
             user_data[target_id_str]["birthday"] = info
             await message.reply(f"รับทราบครับ! ผมบันทึกวันเกิดของ คุณ {target_display_name} ว่าเกิดวันที่ **{info}** ลงสมองกลเรียบร้อยแล้วครับ! 🎂✨")
+        elif "hobby" in info_type:
+            # 🔧 [แก้บั๊ก] เดิม hobby ถูกโยนไปรวมกับ nickname เพราะไม่มี branch แยกให้เลย
+            user_data[target_id_str]["hobby"] = info
+            await message.reply(f"รับทราบครับ! ผมจำไว้แล้วว่า คุณ {target_display_name} ชอบ **{info}** เรียบร้อยครับ! 🥰")
         else:
             user_data[target_id_str]["nickname"] = info
             await message.reply(f"รับทราบครับ! ผมบันทึกฉายาของ คุณ {target_display_name} ว่าคือ **{info}** เรียบร้อยครับ! 🤠")
@@ -3687,6 +3810,29 @@ async def on_message(message):
         return
 
     # ==========================================
+    # ⏳ [ด่านที่ 3.5: รอคำตอบเวลาแจ้งเตือน ที่เพิ่งถามไปจาก "จำไว้ว่า...พรุ่งนี้มีสอบ" ฯลฯ]
+    # ==========================================
+    if not message.author.bot and message.content.strip():
+        _pending_key = (message.channel.id, message.author.id)
+        _pending = pending_remember_reminders.get(_pending_key)
+        if _pending:
+            if (datetime.now() - _pending["asked_at"]).total_seconds() > PENDING_REMINDER_TIMEOUT_SECONDS:
+                # เงียบไปนานเกินไป ถือว่ายกเลิกคำถามนี้ไปแล้ว ไม่เอาข้อความใหม่มาจับมั่ว
+                pending_remember_reminders.pop(_pending_key, None)
+            else:
+                try:
+                    _finish_reply = await try_finish_pending_reminder(message, _pending, get_realtime_name)
+                except Exception as e:
+                    print(f"⚠️ [Remember Reminder] ปิดคำถามรอเวลาพลาด: {e}")
+                    _finish_reply = None
+                if _finish_reply is not None:
+                    pending_remember_reminders.pop(_pending_key, None)
+                    await message.reply(_finish_reply)
+                    return
+                # ยังจับเวลาจากคำตอบไม่ได้ -> ปล่อยข้อความไหลต่อไปตามปกติ (เผื่อเป็นข้อความอื่นที่ไม่เกี่ยวกัน
+                # เดี๋ยวคำถามก็ยังค้างรออยู่จนกว่าจะตอบเวลามาจริงๆ หรือหมดเวลา)
+
+    # ==========================================
     # 🚨 [ด่านที่ 4: ตรวจจับคำหยาบที่พิมเจาะจงใส่แบ็คลี่ตรงๆ]
     # ==========================================
     if (
@@ -3837,13 +3983,22 @@ async def on_message(message):
     if not message.author.bot and message.content.strip():
         bagley_learning.track_message(message.channel.id, get_realtime_name(message.author.id, message.author.display_name), message.content)
 
-    # 📜 [Rules] เช็คก่อนว่าข้อความนี้เป็นการ "สั่งสอน/กำหนดกฎ" ให้แบ็คลี่จำมั้ย (ดู bagley_rules.py)
-    # ทำก่อนไหลลงไป teach_memory/free chat/AI command router ตามปกติ ถ้าจดกฎสำเร็จให้ตอบ ack แล้วจบเลย
+    # 📜 [Rules] เช็คก่อนว่าข้อความนี้เป็นการ "จำไว้ว่า.../สั่งสอน/กำหนดกฎ" ให้แบ็คลี่จำมั้ย (ดู bagley_rules.py)
+    # AI จะแยกหมวดให้ก่อนว่าเป็น ข้อมูลส่วนตัว (personal) / กฎถาวร (rule) / เรื่องที่ต้องตั้งเตือน (reminder)
+    # ทำก่อนไหลลงไป teach_memory/free chat/AI command router ตามปกติ
     if _addressed_to_bagley_now:
-        rule_ack = await bagley_rules.maybe_learn_from_message(message, get_realtime_name)
-        if rule_ack:
-            await message.reply(rule_ack)
-            return
+        remember_result = await bagley_rules.maybe_learn_from_message(message, get_realtime_name)
+        if remember_result:
+            remember_category, remember_payload = remember_result
+            if remember_category == "rule":
+                await message.reply(remember_payload)
+                return
+            elif remember_category == "personal":
+                await execute_remember_logic(message)
+                return
+            elif remember_category == "reminder":
+                await handle_remembered_reminder(message, remember_payload, get_realtime_name)
+                return
 
     stripped_for_ai = message.content.strip()
     if stripped_for_ai and not stripped_for_ai.startswith(bot.command_prefix):
@@ -4565,17 +4720,12 @@ async def on_message(message):
 
     # ==========================================
     # ส่วนที่ 11: ระบบจดจำข้อมูลส่วนตัว/วันเกิด
+    # 🔧 [ปรับปรุง] เดิมบล็อกนี้ดักคำว่า "จำไว้ว่า" ตรงๆ แล้วยิงเข้า execute_remember_logic ทันที
+    # ทำให้ข้อความอย่าง "จำไว้ว่าห้ามพูดคำหยาบ" หรือ "จำไว้ว่าพรุ่งนี้มีสอบ" ถูกเข้าใจผิดเป็นการบันทึก
+    # ชื่อเล่นไปหมด ตอนนี้ข้อความที่เอ่ยถึงแบ็คลี่ตรงๆ ("จำไว้ว่า...") จะถูกดักจับ + แยกหมวดหมู่ (AI)
+    # ตั้งแต่ต้นทางที่ bagley_rules.maybe_learn_from_message() แล้ว (ดูใกล้ต้น on_message) — ถ้าเป็น
+    # เคสข้อมูลส่วนตัวจริงๆ จะเรียก execute_remember_logic ให้ตรงนั้นเลย จึงไม่ต้องมีบล็อกซ้ำตรงนี้อีก
     # ==========================================
-    if "จำไว้ว่า" in lower_content:
-        if message.guild is not None:
-            if not any(keyword in lower_content for keyword in bot_keywords):
-                pass
-            else:
-                await execute_remember_logic(message)
-                return
-        else:
-            await execute_remember_logic(message)
-            return
 
     # ==========================================
     # 🌐 [ส่วนที่ 12: ระบบแปลภาษาคู่ขนาน และ ระบบแชทอัจฉริยะ]
