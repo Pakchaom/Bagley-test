@@ -2484,14 +2484,16 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
 
         game_speech = f"เกม {game_name}" if game_name else "เล่นเกมด้วยกัน"
 
-        # แจ้งสถานะก่อนบอทบินวาร์ป
+        # แจ้งสถานะก่อนบอทบินวาร์ป (ข้อความนี้ยังคงแจ้งที่ห้องเดิมที่คนสั่ง เพื่อบอกว่ากำลังไปทำภารกิจ)
         start_msg = f"🛸 รับทราบคัปพ้ม! แบ็คลี่กำลังวาร์ปไปชวนคุณ {target_name} ที่ห้อง **{target_channel.name}** ให้คัป!"
         if isinstance(ctx_or_interaction, discord.Interaction):
             await ctx_or_interaction.response.send_message(start_msg)
-            text_channel = ctx_or_interaction.channel
         else:
             await ctx_or_interaction.send(start_msg)
-            text_channel = ctx_or_interaction.channel
+
+        # 🛠️ [แก้บั๊ก] ข้อความปุ่มตอบรับ/ปฏิเสธ ต้องไปโผล่ที่ห้องแชทของห้องเสียงเป้าหมายที่บอทวาร์ปไปชวน
+        # (ห้องเสียงบนดิสคอร์ดมีแชทข้อความในตัวเองอยู่แล้ว) ไม่ใช่ห้องแชทเดิมที่คนสั่งคำสั่งอยู่ก่อนหน้า
+        target_text_channel = target_channel
 
         # 4. ลอจิกวาร์ปข้ามมิติ
         try:
@@ -2504,11 +2506,12 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
             # สร้างประโยคตื๊อ 3 รอบ
             invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับ!"
 
-            # ส่งข้อความปุ่มกดทิ้งไว้ในแชทห้องเสียงนั้น
             view = PartyInviteView(target_member, host_channel, timeout=60)
-            invite_msg = await text_channel.send(f"📢 **คำเชิญชวนเข้าตี้ด่วน!** คุณ {host_name} ชวนคุณ {target_name} ไปจอย {game_speech} คัปพ้ม!", view=view)
+            invite_msg = None  # จะส่งข้อความปุ่มกดหลังพูดตื๊อรอบแรกจบ ไม่ใช่ก่อนพูด
 
             # วนลูปพูดตื๊อ 3 รอบ (เว้นระยะรอบละประมาณ 18 วินาที รวมเป็น 1 นาที)
+            # 🛠️ [แก้บั๊ก] บอทจะยังคงพูดตื๊อซ้ำไปเรื่อยๆ ทุกรอบจนกว่าจะครบเวลา หรือคนที่โดนชวนกดปุ่ม
+            # ตอบรับ/ปฏิเสธ เท่านั้น บอทจะยังไม่วาร์ปกลับห้องเดิมก่อนหน้านั้นเด็ดขาด
             for i in range(3):
                 if view.accepted or view.is_finished():
                     break  # ถ้าเขากดปุ่มแล้วให้หยุดตื๊อทันทีคัปพ้ม
@@ -2516,11 +2519,23 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
                 print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
                 await bagley_speak_wait(guild, invite_quote)
 
+                # 🛠️ [แก้บั๊ก] พูดตื๊อรอบแรกจบแล้ว ค่อยส่งข้อความปุ่มกดทิ้งไว้ที่ห้องแชทของห้องเสียง
+                # เป้าหมายที่บอทไปชวนตอนนี้ (ไม่ใช่ห้องเดิมที่คนสั่งคำสั่งอยู่ก่อนหน้า)
+                if invite_msg is None:
+                    invite_msg = await target_text_channel.send(
+                        f"📢 **คำเชิญชวนเข้าตี้ด่วน!** คุณ {host_name} ชวนคุณ {target_name} ไปจอย {game_speech} คัปพ้ม!",
+                        view=view,
+                    )
+
+                if view.accepted or view.is_finished():
+                    break
+
                 # นอนรอสักแป๊บเผื่อเขากดปุ่ม
                 await asyncio.sleep(18)
 
-            # 5. เมื่อเสร็จสิ้นภารกิจ (หมดเวลา 1 นาที หรือกดปฏิเสธ) วาร์ปกลับห้องเดิม
-            await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัป", view=None)
+            # 5. เมื่อเสร็จสิ้นภารกิจ (หมดเวลา 1 นาที หรือกดปุ่มใดปุ่มหนึ่ง) วาร์ปกลับห้องเดิม
+            if invite_msg is not None:
+                await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัป", view=None)
 
             # ถ้าวาร์ปกลับไปหาคนสั่งได้ก็กลับคัป
             if guild.voice_client:
