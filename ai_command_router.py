@@ -28,6 +28,7 @@
 
 import re as regex_lib
 import json
+import time
 import discord
 from discord.ext import commands
 from google.genai import types as genai_types
@@ -294,6 +295,152 @@ async def _confirm_command_intent(client, message_text: str, cmd_name: str, args
 
 
 # --------------------------------------------------------------
+# 🧩 [ใหม่] ระบบถามข้อมูลที่ขาดหาย (Slot Filling) แบบทั่วไป
+# --------------------------------------------------------------
+# ปัญหาที่แก้: ถ้าผู้ใช้พูดว่า "ช่วยตั้งเวลาเตะหน่อย" โดยไม่บอกเวลา รอบ function-calling
+# ปกติด้านบนจะไม่เรียกฟังก์ชันเลย (เพราะพรอมต์บังคับห้ามเดาพารามิเตอร์) แล้วข้อความก็หลุดไปเป็น
+# แชทธรรมดาเฉยๆ ผู้ใช้ไม่ได้รับคำถามกลับ ระบบนี้แก้ตรงนั้น: ถ้าตรวจพบว่า "ตั้งใจสั่งคำสั่งจริงๆ
+# แค่ลืมบอกค่าที่จำเป็น" ให้ถามกลับทันที แล้วจำสถานะไว้ (ผูกกับ (channel, user)) พอผู้ใช้ตอบข้อความ
+# ถัดไป จะเอาคำตอบนั้นไปเติมพารามิเตอร์ที่ขาด แล้วยิงคำสั่งเดิมทันที โดยไม่ต้องตีความเจตนาใหม่อีกรอบ
+#
+# เพิ่มคำสั่งอื่นที่อยากให้ทำงานแบบนี้ได้ (เช่น "ตั้งเตือน", "ตั้งเวลาเปิดเพลง" ในอนาคต) โดยเติม
+# entry ใหม่ใน _SLOT_FILL_QUESTIONS ด้านล่างเท่านั้น ไม่ต้องแก้ลอจิกส่วนอื่นเลย
+# --------------------------------------------------------------
+
+_PENDING_SLOT_FILL = {}  # key: (channel_id, user_id) -> {cmd_name, missing_param, known_args, expires_at, is_dm}
+_SLOT_FILL_TTL_SECONDS = 120
+
+# (ชื่อคำสั่ง, ชื่อพารามิเตอร์ที่ขาดได้) -> คำถามที่จะถามกลับ
+_SLOT_FILL_QUESTIONS = {
+    ("kicktimer", "target_time"): (
+        "ได้ครับ! จะให้ตั้งเวลาดีดออกกี่โมงดีครับ? (พิมพ์แบบ `03:00`, `3.00` หรือแค่ `3` ก็ได้ครับ)"
+    ),
+}
+
+
+def _slot_fill_key(message):
+    return (message.channel.id, message.author.id)
+
+
+def _cleanup_expired_slot_fill():
+    now = time.time()
+    expired = [k for k, v in _PENDING_SLOT_FILL.items() if v["expires_at"] < now]
+    for k in expired:
+        _PENDING_SLOT_FILL.pop(k, None)
+
+
+async def _detect_incomplete_intent(client, message_text: str, model: str):
+    """เช็คว่าข้อความนี้ 'ตั้งใจสั่งคำสั่งที่รองรับ slot-fill ตัวใดตัวหนึ่งจริงๆ แต่ลืมบอกค่าที่ขาด'
+    หรือแค่พูดถึง/คุยเล่นเฉยๆ ไม่ได้ต้องการสั่งจริง ถ้าไม่มั่นใจ ให้ถือว่าไม่ใช่ (กันถามกวนใจ)"""
+    candidate_cmds = sorted({c for (c, _p) in _SLOT_FILL_QUESTIONS.keys()})
+    if not candidate_cmds:
+        return None
+
+    prompt = (
+        "คุณคือระบบแยกแยะเจตนาให้บอทดิสคอร์ดชื่อ 'แบ็คลี่'\n"
+        f"คำสั่งที่รองรับ ได้แก่: {', '.join(candidate_cmds)}\n\n"
+        "ข้อความของผู้ใช้ด้านล่างนี้ *ไม่มี* พารามิเตอร์ที่จำเป็นครบถ้วนสำหรับคำสั่งเหล่านี้ "
+        "ให้พิจารณาว่าผู้ใช้ 'ตั้งใจจะสั่งคำสั่งใดคำสั่งหนึ่งข้างต้นจริงๆ แต่แค่ลืม/ยังไม่ได้บอกค่าที่ขาด' "
+        "(เช่น 'ช่วยตั้งเวลาเตะหน่อยครับ' โดยไม่บอกเวลา ถือว่าตั้งใจสั่ง /kicktimer แค่ขาดเวลา) "
+        "ตรงข้ามกับข้อความที่แค่พูดถึงเรื่องนี้เฉยๆ/คุยเล่น/เล่าเรื่อง/ถามความเห็น ซึ่งไม่นับว่าตั้งใจสั่ง\n\n"
+        f'ข้อความจากผู้ใช้: "{message_text}"\n\n'
+        'ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น รูปแบบ: {"intent_command": "<ชื่อคำสั่งหรือ null>", "confident": true/false}'
+    )
+
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(temperature=0),
+        )
+        text = (getattr(resp, "text", "") or "").strip()
+        if text.startswith("`"):
+            text = text.strip("`").replace("json", "", 1).strip()
+        data = json.loads(text)
+        if data.get("confident") and data.get("intent_command") in candidate_cmds:
+            return data["intent_command"]
+    except Exception as e:
+        print(f"⚠️ [AI Router/SlotFill] ตรวจ incomplete-intent พลาด: {e}")
+    return None
+
+
+async def maybe_ask_for_missing_slot(message, bot: commands.Bot, client, model="gemini-3.1-flash-lite") -> bool:
+    """เรียก *ก่อน* ai_route_and_execute รอบปกติ (เฉพาะตอนที่ข้อความนี้จะถูกส่งเข้า AI Command
+    Router อยู่แล้วตามเงื่อนไขเดิมของ bot.py — เช่น ทัก/แท็กแบ็คลี่ หรือคุยใน DM) ถ้าเจอว่าข้อความนี้
+    'น่าจะตั้งใจสั่ง' คำสั่งที่รองรับ slot-fill แต่ขาดพารามิเตอร์ จะถามกลับทันทีแล้วจำสถานะไว้
+    คืนค่า True ถ้าเข้าโหมดถามกลับแล้ว (ผู้เรียกควร return ทันที ไม่ให้ไหลลงไปแชทปกติต่อ)"""
+    _cleanup_expired_slot_fill()
+    if _looks_like_personal_reminder(message.content):
+        return False
+
+    cmd_name = await _detect_incomplete_intent(client, message.content, model)
+    if not cmd_name:
+        return False
+
+    missing_param = next((p for (c, p) in _SLOT_FILL_QUESTIONS if c == cmd_name), None)
+    if not missing_param:
+        return False
+
+    question = _SLOT_FILL_QUESTIONS[(cmd_name, missing_param)]
+    key = _slot_fill_key(message)
+    _PENDING_SLOT_FILL[key] = {
+        "cmd_name": cmd_name,
+        "missing_param": missing_param,
+        "known_args": {},
+        "expires_at": time.time() + _SLOT_FILL_TTL_SECONDS,
+        "is_dm": message.guild is None,
+    }
+    await message.reply(question)
+    return True
+
+
+async def try_resolve_pending_slot_fill(message, bot: commands.Bot, find_member_by_name) -> bool:
+    """เรียกไว้ *ก่อน* ระบบอื่นๆ เกือบทั้งหมดใน on_message (ทำนองเดียวกับด่าน 'รอคำตอบเวลาแจ้งเตือน'
+    ที่มีอยู่แล้ว) ถ้ามีคำถามค้างอยู่จาก maybe_ask_for_missing_slot จะลองแกะคำตอบล่าสุดของผู้ใช้มา
+    เติมพารามิเตอร์ที่ขาด แล้วยิงคำสั่งเดิมทันที (ข้าม self-check รอบสองเพราะยืนยันเจตนาไปแล้วตอนถาม)
+    คืนค่า True ถ้าจัดการข้อความนี้ไปแล้ว (ผู้เรียกควร return ทันที)"""
+    _cleanup_expired_slot_fill()
+    key = _slot_fill_key(message)
+    pending = _PENDING_SLOT_FILL.get(key)
+    if not pending:
+        return False
+
+    cmd = bot.get_command(pending["cmd_name"])
+    if not cmd:
+        _PENDING_SLOT_FILL.pop(key, None)
+        return False
+
+    param = cmd.clean_params.get(pending["missing_param"])
+    raw_value = message.content.strip()
+    resolved_value = raw_value
+
+    if param is not None:
+        resolver = _PARAM_RESOLVERS.get(param.annotation)
+        if resolver:
+            resolved = await resolver(message, raw_value, find_member_by_name)
+            if resolved is None:
+                await message.reply(
+                    "ยังไม่เข้าใจคำตอบครับ ลองพิมพ์อีกทีให้ชัดกว่านี้ได้มั้ยครับ? "
+                    "(ถ้าไม่ตอบภายใน 2 นาที คำถามนี้จะหมดอายุไปเองครับ)"
+                )
+                return True
+            resolved_value = resolved
+
+    args = dict(pending["known_args"])
+    args[pending["missing_param"]] = resolved_value
+    _PENDING_SLOT_FILL.pop(key, None)
+
+    ctx = await bot.get_context(message)
+    print(f"🤖 [AI Router/SlotFill] เติมพารามิเตอร์ที่ขาดแล้ว เรียก /{cmd.name} args={args}")
+    try:
+        await ctx.invoke(cmd, **args)
+    except Exception as e:
+        print(f"⚠️ [AI Router/SlotFill] เรียก /{cmd.name} พลาด: {e}")
+        await message.reply("เกิดข้อผิดพลาดตอนสั่งคำสั่งครับ ลองใหม่อีกครั้งนะครับ")
+    return True
+
+
+# --------------------------------------------------------------
 # ฟังก์ชันหลัก: เรียกใช้จาก on_message
 # --------------------------------------------------------------
 
@@ -339,6 +486,11 @@ async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_b
                 break
 
         if not function_call:
+            # 🧩 [ใหม่] รอบหลักไม่เจอ function call เลย (อาจเพราะขาดพารามิเตอร์ที่จำเป็นไปจากข้อความ)
+            # ลองเช็คว่านี่คือ "ตั้งใจสั่งคำสั่งที่รองรับ slot-fill แต่ลืมบอกค่า" หรือแค่คุยเล่นเฉยๆ
+            asked = await maybe_ask_for_missing_slot(message, bot, client, model)
+            if asked:
+                return True
             return False
 
         cmd = bot.get_command(function_call.name)

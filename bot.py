@@ -26,7 +26,7 @@ from google.genai import types as genai_types
 from PIL import Image
 
 # --- AI Command Router (ให้ AI ตัดสินใจว่าข้อความควรเรียกคำสั่งไหน) ---
-from ai_command_router import ai_route_and_execute, looks_like_personal_reminder
+from ai_command_router import ai_route_and_execute, looks_like_personal_reminder, try_resolve_pending_slot_fill
 
 # --- ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราวที่ AI เขียนสด ---
 import bagley_learning
@@ -2505,11 +2505,40 @@ async def handle_same_game_query(message: discord.Message):
             print(f"❌ [Same Game Query] พูดออกเสียงไม่สำเร็จ: {e}")
 
 
-async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, target_member: discord.Member):
+def find_voice_member_across_guilds(name_query: str, exclude_ids: set = None):
+    """🆕 ค้นหาสมาชิกที่ชื่อ/ชื่อเล่นตรงกับ name_query ที่กำลังอยู่ในห้องเสียงอยู่ ข้ามทุกเซิร์ฟที่บอทอยู่ด้วย
+    ใช้เฉพาะระบบ "ชวน" (execute_warp_invite) เท่านั้น — ไม่ใช้กับคำสั่งจัดการสมาชิกอื่นๆ (เตะ/ปิดไมค์ ฯลฯ)
+    เพราะการชวนไปห้องเสียงไม่กระทบสิทธิ์/ความปลอดภัยเท่าคำสั่งจัดการสมาชิกที่ควรจำกัดอยู่แค่เซิร์ฟเดียวเหมือนเดิม
+    คืนค่า discord.Member ตัวแรกที่ตรง (เซิร์ฟที่ผู้สั่งอยู่ก่อน ตามด้วยเซิร์ฟอื่นตามลำดับที่บอทอยู่) หรือ None"""
+    exclude_ids = exclude_ids or set()
+    query = name_query.strip().lower()
+    if not query:
+        return None
+    for g in bot.guilds:
+        for member in g.members:
+            if member.id in exclude_ids or member.bot:
+                continue
+            if not (member.voice and member.voice.channel):
+                continue
+            if query in member.display_name.lower() or query in member.name.lower():
+                return member
+    return None
+
+
+async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, target_member: discord.Member, target_guild: discord.Guild = None):
     """ลอจิก "ชวน" — บอทวาร์ปตัวเองเข้าไปในห้องเสียงเป้าหมาย เปิดไมค์ตื๊อชวนตัวต่อตัว
     3 รอบ แล้ววาร์ปกลับห้องเดิม (คนละความสามารถกับ execute_dm_call ที่แค่ส่ง DM
-    พร้อมปุ่มตอบรับ ไม่วาร์ปตามไปหา)"""
+    พร้อมปุ่มตอบรับ ไม่วาร์ปตามไปหา)
+
+    🆕 [ข้ามเซิร์ฟ] ถ้า target_member อยู่คนละเซิร์ฟกับ host_member ให้ส่ง target_guild มาด้วย
+    (เซิร์ฟที่ target_member อยู่จริง) ฟังก์ชันจะ "เชื่อมต่อแยกต่างหาก" เข้าไปในเซิร์ฟนั้นโดยไม่ยุ่ง
+    กับการเชื่อมต่อห้องเสียงเดิมของบอทในเซิร์ฟของ host_member เลย (แต่ละเซิร์ฟมีสถานะห้องเสียงเป็นอิสระ
+    จากกันอยู่แล้วในตัว) เสร็จภารกิจแล้วจะออกจากห้องเสียงเซิร์ฟปลายทางไปเฉยๆ (ไม่ต้อง "ย้าย" กลับ เพราะ
+    การเชื่อมต่อฝั่งเซิร์ฟของ host_member ไม่เคยถูกแตะต้องเลยตั้งแต่แรก — จึง "กลับมา" ที่เดิมได้เองอัตโนมัติ)"""
     guild = ctx_or_interaction.guild
+    if target_guild is None:
+        target_guild = guild
+    is_cross_server = target_guild.id != guild.id
 
     # 🕵️‍♂️ ดึงชื่อเล่นเรียลไทม์จากคลัง
     host_name = get_realtime_name(host_member.id, host_member.display_name)
@@ -2519,7 +2548,7 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
     # ไม่ว่าจะถูกเรียกจาก /invite_voice ตรงๆ, AI Command Router ตีความจากแชทแล้วสั่ง
     # /invite_voice ให้เอง, หรือจากบล็อกดีเทคคำสำรองใน on_message ก็ตาม ถ้ามีการวาร์ป
     # ไปชวนคนคนเดียวกันในกิลด์นี้ค้างอยู่แล้ว จะกันไม่ให้วาร์ป/พูดตื๊อซ้ำสองรอบ
-    invite_key = (guild.id, target_member.id)
+    invite_key = (target_guild.id, target_member.id)
     if invite_key in active_warp_invites:
         msg = f"กำลังวาร์ปไปชวนคุณ {target_name} อยู่แล้วครับ ขอลุยรอบนี้ให้จบก่อนนะครับ ยังไม่ต้องสั่งซ้ำ 🙏"
         if isinstance(ctx_or_interaction, discord.Interaction):
@@ -2581,12 +2610,24 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
         target_text_channel = target_channel
 
         # 4. ลอจิกวาร์ปข้ามมิติ
+        # 🆕 [ข้ามเซิร์ฟ] ถ้าเป็นการชวนข้ามเซิร์ฟ ใช้ voice_client ของ target_guild (อิสระจากเซิร์ฟของ
+        # host_member โดยสิ้นเชิง) และจำ "สถานะเดิม" ของบอทในเซิร์ฟปลายทางไว้ก่อน เผื่อบอทเคยอยู่ห้องเสียง
+        # เซิร์ฟนั้นด้วยเหตุผลอื่นอยู่ก่อนแล้ว จะได้คืนกลับที่เดิมให้ถูกต้องหลังภารกิจจบ
+        previous_target_guild_channel = None
         try:
-            vc = guild.voice_client
-            if vc:
-                await vc.move_to(target_channel)
+            if is_cross_server:
+                previous_target_guild_channel = target_guild.voice_client.channel if target_guild.voice_client else None
+                vc = target_guild.voice_client
+                if vc:
+                    await vc.move_to(target_channel)
+                else:
+                    vc = await target_channel.connect()
             else:
-                vc = await target_channel.connect()
+                vc = guild.voice_client
+                if vc:
+                    await vc.move_to(target_channel)
+                else:
+                    vc = await target_channel.connect()
 
             # สร้างประโยคตื๊อ 3 รอบ
             invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับ!"
@@ -2601,8 +2642,8 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
                 if view.accepted or view.is_finished():
                     break  # ถ้าเขากดปุ่มแล้วให้หยุดตื๊อทันทีคัปพ้ม
 
-                print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}")
-                await bagley_speak_wait(guild, invite_quote)
+                print(f"🗣️ [Warp Invite]: กำลังพูดรอบที่ {i+1} ชวนคุณ {target_name}" + (" (ข้ามเซิร์ฟ)" if is_cross_server else ""))
+                await bagley_speak_wait(target_guild, invite_quote)
 
                 # 🛠️ [แก้บั๊ก] พูดตื๊อรอบแรกจบแล้ว ค่อยส่งข้อความปุ่มกดทิ้งไว้ที่ห้องแชทของห้องเสียง
                 # เป้าหมายที่บอทไปชวนตอนนี้ (ไม่ใช่ห้องเดิมที่คนสั่งคำสั่งอยู่ก่อนหน้า)
@@ -2623,7 +2664,23 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
                 await invite_msg.edit(content="⌛ หมดเวลาหรือคำเชิญนี้สิ้นสุดลงแล้วคัป", view=None)
 
             # ถ้าวาร์ปกลับไปหาคนสั่งได้ก็กลับคัป
-            if guild.voice_client:
+            if is_cross_server:
+                # 🆕 [ข้ามเซิร์ฟ] ไม่ต้องแตะเซิร์ฟของ host_member เลย (ไม่เคยถูกยุ่งด้วยตั้งแต่ต้น
+                # จึง "อยู่ที่เดิม" อัตโนมัติ) แค่คืนสถานะห้องเสียงของ target_guild ให้เหมือนก่อนหน้านี้:
+                # ถ้าบอทเคยอยู่ห้องอื่นในเซิร์ฟนั้นมาก่อน ให้ย้ายกลับไปห้องนั้น ไม่งั้นก็ออกจากห้องเสียงไปเฉยๆ
+                if target_guild.voice_client:
+                    if previous_target_guild_channel:
+                        await target_guild.voice_client.move_to(previous_target_guild_channel)
+                    else:
+                        await target_guild.voice_client.disconnect(force=False)
+                try:
+                    await ctx_or_interaction.channel.send(
+                        f"🛸 แบ็คลี่ทำภารกิจข้ามเซิร์ฟไปชวนคุณ {target_name} ที่เซิร์ฟ **{target_guild.name}** เสร็จแล้ว "
+                        f"วาร์ปกลับมาห้อง **{host_channel.name}** ที่นี่เรียบร้อยครับ! (ไม่เคยขยับออกจากห้องนี้เลยด้วยซ้ำ 😄)"
+                    )
+                except Exception:
+                    pass
+            elif guild.voice_client:
                 await guild.voice_client.move_to(host_channel)
                 await bagley_speak_wait(guild, " แบ็คลี่ทำภารกิจชวนตี้เสร็จสิ้นและวาร์ปกลับมาประจำการเรียบร้อยแล้วครับ!")
 
@@ -3933,6 +3990,18 @@ async def on_message(message):
                 # เดี๋ยวคำถามก็ยังค้างรออยู่จนกว่าจะตอบเวลามาจริงๆ หรือหมดเวลา)
 
     # ==========================================
+    # 🧩 [ด่านที่ 3.6: รอคำตอบที่ขาดของคำสั่ง (เช่น 'ตั้งเวลาเตะ' ที่ถามเวลากลับไปแล้ว)]
+    # ผูกกับระบบ Slot Filling ใน ai_command_router.py — ถ้าเพิ่งถามผู้ใช้คนนี้ในห้องนี้ไปว่า
+    # "กี่โมงครับ" ให้ลองแกะข้อความถัดไปมาเติมค่าแล้วยิงคำสั่งเดิมทันที ก่อนจะไหลไปเข้าระบบอื่นใดๆ
+    # ==========================================
+    if not message.author.bot and message.content.strip():
+        try:
+            if await try_resolve_pending_slot_fill(message, bot, find_member_by_name):
+                return
+        except Exception as e:
+            print(f"⚠️ [ด่านที่ 3.6] ระบบ Slot Filling ทำงานผิดพลาด: {e}")
+
+    # ==========================================
     # 🚨 [ด่านที่ 4: ตรวจจับคำหยาบที่พิมเจาะจงใส่แบ็คลี่ตรงๆ]
     # ==========================================
     if (
@@ -4308,12 +4377,36 @@ async def on_message(message):
                     
                     if is_away == 1 and datetime.now() < timestamp + timedelta(minutes=30):
                         name = get_realtime_name(target_user.id, target_user.display_name)
-                        jokes = [
-                            f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
-                            f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
-                            f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับ!"
-                        ]
-                        selected_joke = random.choice(jokes)
+
+                        # 🆕 [AI-generated] เดิมสุ่มมุกจากลิสต์คงที่ 3 แบบ ตอนนี้ให้ Gemini เจนประโยค
+                        # แซวธรรมชาติแบบใหม่ทุกครั้งจากสิ่งที่เจ้าตัวฝากบอกไว้ (status_msg) เหมือนระบบ
+                        # เจนคำแจ้งเตือน/ตื๊อชวนตี้ที่มีอยู่แล้วในบอท ถ้า AI พังค่อย fallback ไปใช้มุกเดิม
+                        try:
+                            away_reply_prompt = f"""
+                            คุณคือ 'แบ็คลี่' (Bagley) บอทดิสคอร์ดนิสัยกวนๆ เป็นกันเอง กำลังตอบคำถามว่า
+                            "{name} หายไปไหน" ให้เพื่อนในกลุ่มฟัง
+
+                            [ข้อความที่ {name} ฝากบอกไว้ก่อนหายตัวไป]: "{status_msg}"
+
+                            หน้าที่: เจนประโยคตอบสั้นๆ 1 ประโยค เป็นธรรมชาติ อ้างอิงข้อความที่ฝากไว้ตรงๆ
+                            (ห้ามเปลี่ยนความหมาย) แต่ใส่มุกแซวกวนๆ นิดหน่อยแบบเพื่อนหยอกเพื่อน
+                            กฎ: ห้ามหยาบคาย ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะบทพูดเท่านั้น ลงท้ายด้วย "ครับ"
+                            """
+                            away_ai_resp = await client.aio.models.generate_content(
+                                model='gemini-3.1-flash-lite', contents=away_reply_prompt
+                            )
+                            selected_joke = (away_ai_resp.text or "").strip()
+                            if not selected_joke:
+                                raise ValueError("AI ตอบข้อความว่างเปล่า")
+                        except Exception as ai_err:
+                            print(f"❌ Gemini เจนคำตอบระบบฝากบอกพัง ย้อนกลับไปใช้มุกสำรอง: {ai_err}")
+                            jokes = [
+                                f"คุณ {name} ฝากบอกว่า '{status_msg}' ครับ แต่ทรงนี้น่าจะแอบไปนอนมากกว่า",
+                                f"เจ้าตัวบอกว่า '{status_msg}' นะครับ แต่อย่าไปเชื่อมากเลย ผมว่าแอบไปอู้งาน!",
+                                f"พิกัดล่าสุดของ {name} คือ '{status_msg}' ครับ!"
+                            ]
+                            selected_joke = random.choice(jokes)
+
                         await message.channel.send(f"🤖 **[BAGLEY]**: {selected_joke}")
                         await bagley_speak(message.guild, selected_joke)
                         return
@@ -4671,12 +4764,28 @@ async def on_message(message):
             message,
             remove_keywords=["แบ็คลี่", "bagley", "ชวน", "คุณ", "หน่อย"]
         )
+        target_guild_for_invite = message.guild
+
+        # 🆕 [ข้ามเซิร์ฟ] ถ้าหาไม่เจอในเซิร์ฟนี้ ลองค้นข้ามทุกเซิร์ฟที่บอทอยู่ด้วย (เฉพาะระบบ "ชวน"
+        # เท่านั้น เพราะแค่วาร์ปไปพูดตื๊อ ไม่ใช่คำสั่งจัดการสมาชิกที่กระทบสิทธิ์)
+        if not target_member:
+            raw_name_match = regex_lib.sub(
+                r"(แบ็คลี่|bagley|ชวน|คุณ|หน่อย)", "", message.content, flags=regex_lib.IGNORECASE
+            ).strip()
+            if raw_name_match:
+                cross_member = find_voice_member_across_guilds(
+                    raw_name_match, exclude_ids={bot.user.id, host_member.id}
+                )
+                if cross_member:
+                    target_member = cross_member
+                    target_guild_for_invite = cross_member.guild
+
         if not target_member:
             await message.reply("❌ คุณต้องพิมพ์ชื่อเพื่อนหรือแท็ก @ชื่อเพื่อนที่จะให้ผมไปชวนด้วยสิคัปพ้ม เช่น `แบ็คลี่ ชวน ชื่อเพื่อน หน่อย` น้า")
             return
 
         ctx = await bot.get_context(message)
-        await execute_warp_invite(ctx, host_member, target_member)
+        await execute_warp_invite(ctx, host_member, target_member, target_guild=target_guild_for_invite)
         return
 
     # ==========================================
@@ -7534,12 +7643,73 @@ async def follow_me(ctx: commands.Context):
     else:
         await ctx.send("ขออภัยครับ คำสั่งนี้สงวนสิทธิ์เฉพาะผู้มีสิทธิ์ใช้งานเท่านั้นครับ!")
 
+async def _dm_self_kick_timer(ctx: commands.Context, target_time_str: str, delay_seconds: float):
+    """🆕 เวอร์ชันสำหรับสั่ง /kicktimer ผ่าน DM: ไม่มี ctx.guild ให้ใช้ ui.UserSelect เลือกใครไม่ได้
+    (คอมโพเนนต์นี้ต้องใช้บริบทเซิร์ฟเวอร์) เลยล็อกเป้าหมายเป็น "ตัวคนสั่งเอง" โดยอัตโนมัติ แล้วตามหา
+    ว่าตอนนี้อยู่ห้องเสียงเซิร์ฟไหนอยู่ (จากเซิร์ฟที่บอทกับคนสั่งอยู่ร่วมกัน) เพื่อเตะออกให้ตรงเวลา
+    แล้วแจ้งกลับใน DM ว่าเตะออกให้แล้วครับ"""
+    author = ctx.author
+    target_guild = None
+    for g in bot.guilds:
+        member = g.get_member(author.id)
+        if member and member.voice and member.voice.channel:
+            target_guild = g
+            break
+
+    if target_guild is None:
+        return await ctx.send(
+            "ตอนนี้ผมหาไม่เจอเลยครับว่าคุณอยู่ห้องเสียงเซิร์ฟไหนอยู่ 😅 "
+            "รบกวนเข้าห้องเสียงในเซิร์ฟที่มีผมอยู่ด้วยก่อน แล้วค่อยตั้งเวลาผ่าน DM อีกทีนะครับ "
+            "(ตั้งเวลาผ่าน DM จะล็อกเป้าหมายเป็นตัวคุณเองเท่านั้นครับ ถ้าอยากเลือกดีดคนอื่น ต้องสั่ง `/kicktimer` ในเซิร์ฟเวอร์แทนครับ)"
+        )
+
+    guild_id = target_guild.id
+    await ctx.send(
+        f"รับทราบครับ! ผมเจอคุณอยู่ห้องเสียง **{target_guild.name}** แล้วครับ "
+        f"ผมล็อกเป้าหมายเป็นตัวคุณเองไว้แล้ว จะดีดออกให้ตอน **{target_time_str}** ครับผม "
+        f"*(ตั้งผ่าน DM เลือกดีดได้แค่ตัวเองเท่านั้นน้า ถ้าอยากยกเลิกทัก DM มาบอกได้เลยครับ)*"
+    )
+
+    async def dm_kick_worker():
+        try:
+            await asyncio.sleep(delay_seconds)
+            member = target_guild.get_member(author.id)
+            if member and member.voice and member.voice.channel and member.voice.channel.guild.id == guild_id:
+                try:
+                    origin_channel = member.voice.channel  # ห้องเสียงมีแชทข้อความในตัว ใช้แจ้งในเซิร์ฟด้วย
+                    await member.move_to(None, reason=f"แบ็คลี่เคลียร์ตามเวลาที่ตั้งไว้ผ่าน DM {target_time_str} ครับ")
+                    notify_text = f"💥 ถึงเวลา {target_time_str} แล้ว! เตะออกให้ตามที่ตั้งไว้ผ่าน DM เรียบร้อยครับ!"
+                    try:
+                        await origin_channel.send(f"{author.mention} {notify_text}")
+                    except Exception:
+                        pass
+                    try:
+                        await author.send(notify_text)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
+        finally:
+            active_kick_tasks.pop((guild_id, author.id), None)
+
+    loop = asyncio.get_running_loop()
+    old_task = active_kick_tasks.get((guild_id, author.id))
+    if old_task:
+        old_task.cancel()
+    task = loop.create_task(dm_kick_worker())
+    active_kick_tasks[(guild_id, author.id)] = task
+
+
 @bot.hybrid_command(name="kicktimer", description="ตั้งเวลาตามหน้าปัดนาฬิกาเพื่อดีดพวกนอนหลับคาห้องเสียง")
 @app_commands.describe(target_time="ระบุเวลาที่ต้องการให้เตะออก เช่น 03:00, 3.00 หรือใส่แค่เลขชั่วโมง เช่น 3")
 async def kick_timer(ctx: commands.Context, target_time: str):
-    can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
-    if not can_act:
-        return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
+    # 🆕 [DM Support] คูลดาวน์รวมผูกกับห้องเสียงในเซิร์ฟ ข้าม guild-check ตอนสั่งผ่าน DM
+    if ctx.guild is not None:
+        can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+        if not can_act:
+            return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
 
     cleaned_time = target_time.strip().replace(".", ":")
 
@@ -7563,6 +7733,10 @@ async def kick_timer(ctx: commands.Context, target_time: str):
 
     delay_seconds = (target_datetime - now).total_seconds()
     target_time_str = target_datetime.strftime("%H:%M น.")
+
+    # 🆕 [DM Support] ไม่มีเซิร์ฟเวอร์ให้ใช้ ui.UserSelect เลือกเป้าหมาย -> ล็อกเป็นตัวเองอัตโนมัติ
+    if ctx.guild is None:
+        return await _dm_self_kick_timer(ctx, target_time_str, delay_seconds)
 
     view = KickVoiceView(target_time_str, delay_seconds)
     await ctx.send(f"ครับ! กรุณาเลือกสมาชิกที่คุณต้องการดีดออก ณ เวลา **{target_time_str}** :", view=view)
