@@ -215,6 +215,33 @@ def is_message_addressed_to_bagley(lower_text: str) -> bool:
         or (mention_tag is not None and mention_tag in lower_text)
     )
 
+async def is_reply_to_bagley_message(message) -> bool:
+    """เช็คว่าข้อความนี้เป็นการ 'ตอบกลับ (reply)' ข้อความใดๆ ที่แบ็คลี่เป็นคนพูด/พิมพ์ไว้ก่อนหน้าหรือไม่
+    ครอบคลุมทั้งข้อความที่แบ็คลี่ทักขึ้นเอง (autonomy) และข้อความที่แบ็คลี่ตอบกลับคำสั่ง/คำถามของใครก็ตามมาก่อน
+    ถ้าใช่ ให้ถือว่า 'เรียกแบ็คลี่แล้ว' เหมือนพิมพ์ชื่อ 'แบ็คลี่' ตรงๆ โดยไม่จำเป็นต้องพิมพ์ชื่อในข้อความที่ reply มาเลย
+    (พฤติกรรมเดียวกับใน DM ที่ไม่ต้องพิมพ์ชื่อแบ็คลี่ก็คุยได้)
+    """
+    # ⚡ เช็คทางลัดที่เร็วที่สุดก่อน (ไม่ต้องยิง network) — ข้อความที่แบ็คลี่ทักขึ้นเอง
+    if bagley_autonomy.is_reply_to_autonomous_message(message):
+        return True
+
+    ref = getattr(message, "reference", None)
+    if ref is None or getattr(ref, "message_id", None) is None:
+        return False
+    if bot.user is None:
+        return False
+
+    resolved = getattr(ref, "resolved", None)
+    try:
+        if resolved is not None and hasattr(resolved, "author"):
+            return resolved.author.id == bot.user.id
+        # 🔄 Discord ไม่ได้แนบ resolved มาให้ (เช่น cache หมดอายุ) ต้องไปดึงข้อความจริงมาดูเองว่าใครเป็นคนพูด
+        fetched = await message.channel.fetch_message(ref.message_id)
+        return fetched.author.id == bot.user.id
+    except Exception as e:
+        print(f"⚠️ [Reply Detect] เช็คว่า reply ถึงข้อความของแบ็คลี่พลาด: {e}")
+        return False
+
 def has_potential_profanity(text: str) -> bool:
     lowered = text.lower()
     return any(word in lowered for word in RUDE_WORD_PATTERNS)
@@ -305,6 +332,64 @@ async def ai_check_live_chat_message(message_text: str) -> Optional[str]:
     except Exception as e:
         print(f"⚠️ [ระบบตรวจคำหยาบแชทสด] AI ตรวจจับพลาด: {e}")
         return None  # fail-open: ถ้า AI พลาด ให้อ่านแชทไปตามปกติ กันไม่ให้แชทค้าง
+
+
+async def ai_reply_to_live_chat_mention(author_name: str, message_text: str) -> Optional[str]:
+    """
+    🆕 เวลามีคนเอ่ยถึง "แบ็คลี่"/"bagley" ในแชทสด YouTube (ไม่ใช่การแนะนำตัว) ให้ AI แต่งประโยค
+    ทักทาย/ตอบกลับสั้นๆ เป็นบทพูดของแบ็คลี่เอง เพื่อเอาไปพูดออกเสียงอย่างเดียว (ไม่มีข้อความ)
+    ใช้กับ youtube_live_chat.py เป็น mention_reply_func
+
+    เช่น ถ้าคนพิมพ์ "สวัสดีแบ็คลี่" -> แบ็คลี่จะพูดทักทายกลับพร้อมเอ่ยชื่อคนคนนั้น
+    """
+    try:
+        prompt = (
+            "คุณคือ \"แบ็คลี่\" บอทมาสคอตชายตัวหนึ่ง (คาแรกเตอร์แนว watch dogs legion) กำลังไลฟ์สตรีมอยู่บน "
+            "YouTube และมีผู้ชมคนหนึ่งพิมพ์แชทเอ่ยถึงคุณ (เรียกชื่อคุณ) เข้ามา\n\n"
+            f'ชื่อผู้ชมคนที่พิมพ์: "{author_name}"\n'
+            f'ข้อความที่เขาพิมพ์มา: "{message_text}"\n\n'
+            "หน้าที่ของคุณ: แต่งประโยคพูดสั้นๆ (1 ประโยค ไม่เกิน 2 ประโยค) เพื่อทักทาย/ตอบกลับผู้ชมคนนี้ "
+            "โดยเอ่ยชื่อเขากลับไปด้วย ให้ฟังดูเป็นธรรมชาติ เป็นกันเอง สดใส เหมือนพิธีกรพูดคุยกับคนดูในไลฟ์จริงๆ\n"
+            "กฎการพูดของแบ็คลี่: เป็นผู้ชาย ต้องลงท้ายประโยคด้วย 'ครับ' เท่านั้น ห้ามใช้คำว่า 'ค่ะ'/'คะ' เด็ดขาด "
+            "ห้ามมีวงเล็บ หัวข้อ หรือคำอธิบายใดๆ เพิ่มเติม ตอบมาเฉพาะบทพูดที่จะพูดออกเสียงเท่านั้น ห้ามใส่เครื่องหมายคำพูด"
+        )
+        response = await client.aio.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt
+        )
+        result_text = (getattr(response, "text", "") or "").strip()
+        return result_text or None
+    except Exception as e:
+        print(f"⚠️ [Live Chat Mention] AI แต่งคำทักทายพลาด: {e}")
+        return None  # fail-open: youtube_live_chat.py จะใช้ประโยคทักทายสำรองแทนเอง
+
+
+async def ai_extract_yt_intro_name(message_text: str) -> Optional[str]:
+    """
+    🆕 ตัวช่วยสำรอง เผื่อ regex ในตัวของ youtube_live_chat.py จับชื่อจากประโยคแนะนำตัวไม่ได้
+    (เช่นพิมพ์รูปแบบแปลกๆ ไม่ตรง pattern "ฉัน/เรา/เค้า ชื่อ ... นะ" ตรงๆ) ให้ AI ช่วยแยกชื่อออกมาแทน
+    คืนค่า None ถ้า AI ตัดสินว่าข้อความนี้ไม่ใช่การแนะนำตัว/ไม่มีชื่อระบุมา
+    """
+    try:
+        prompt = (
+            "ข้อความต่อไปนี้มาจากแชทสด YouTube ที่มีคำว่า \"ชื่อ\" อยู่ และเอ่ยถึงบอทชื่อ \"แบ็คลี่\"\n"
+            f'ข้อความ: "{message_text}"\n\n'
+            "หน้าที่ของคุณ: พิจารณาว่าข้อความนี้เป็นการ \"แนะนำตัว\" (บอกชื่อเล่น/ชื่อของตัวเอง) หรือไม่\n"
+            "ถ้าใช่ ให้ตอบกลับมาเฉพาะชื่อ/ชื่อเล่นที่เขาบอกเท่านั้น (คำเดียวหรือวลีสั้นๆ ไม่เกิน 5 คำ) "
+            "ห้ามมีคำอธิบายเพิ่มเติมใดๆ\n"
+            "ถ้าไม่ใช่การแนะนำตัว ให้ตอบกลับมาคำเดียวเท่านั้นคือ: NONE"
+        )
+        response = await client.aio.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=prompt
+        )
+        result_text = (getattr(response, "text", "") or "").strip()
+        if not result_text or result_text.upper() == "NONE":
+            return None
+        return result_text
+    except Exception as e:
+        print(f"⚠️ [ระบบจำชื่อ YouTube] AI ช่วยแยกชื่อพลาด: {e}")
+        return None
 
 # --- โหลดค่า Config ---
 load_dotenv()
@@ -3988,7 +4073,10 @@ async def on_message(message):
             message.guild is None
             or is_from_my_webhook
             or is_message_addressed_to_bagley(lower_content)
-            or bagley_autonomy.is_reply_to_autonomous_message(message)
+            # 💬 นับว่า "เรียกบอท" ด้วย ถ้าเป็นการตอบกลับ (reply) ข้อความใดๆ ที่แบ็คลี่เคยพูด/พิมพ์ไว้ก่อนหน้า
+            # ไม่ว่าจะเป็นข้อความที่แบ็คลี่ทักขึ้นเอง หรือข้อความที่แบ็คลี่ตอบใครไว้ก่อน — ไม่ต้องพิมพ์ชื่อ
+            # แบ็คลี่ในข้อความที่ reply มาเลยก็ได้ เหมือนพฤติกรรมใน DM
+            or await is_reply_to_bagley_message(message)
         )
     )
 
@@ -4021,9 +4109,10 @@ async def on_message(message):
             message.guild is None
             or is_from_my_webhook
             or is_message_addressed_to_bagley(lower_content)
-            # 💬 นับว่า "เรียกบอท" ด้วย ถ้าเป็นการตอบกลับ (reply) ข้อความที่แบ็คลี่พูดขึ้นเองก่อนหน้า
-            # (จาก bagley_autonomy) แม้ผู้ใช้จะไม่ได้เอ่ยชื่อ/แท็กบอทตรงๆ ในข้อความที่ตอบกลับมา
-            or bagley_autonomy.is_reply_to_autonomous_message(message)
+            # 💬 นับว่า "เรียกบอท" ด้วย ถ้าเป็นการตอบกลับ (reply) ข้อความใดๆ ของแบ็คลี่ก่อนหน้า
+            # (ทั้งข้อความทักขึ้นเอง และข้อความที่ตอบใครไว้ก่อน) แม้ผู้ใช้จะไม่ได้เอ่ยชื่อ/แท็กบอทตรงๆ
+            # ในข้อความที่ตอบกลับมาเลยก็ตาม เหมือนพฤติกรรมใน DM
+            or await is_reply_to_bagley_message(message)
         )
         if should_try_ai_command:
             # 🤝 [ระบบ Trust] นับว่าคนนี้คุยกับแบ็คลี่ตรงๆ อีกครั้ง (ใช้สะสมสิทธิ์ ephemeral tools)
@@ -4884,9 +4973,10 @@ async def on_message(message):
             is_from_my_webhook
             or any(k in lower_content for k in ["แบ็คลี่", "bagley"])
             or bot.user.mentioned_in(message)
-            # 💬 ถ้าเป็นการตอบกลับ (reply) ข้อความที่แบ็คลี่พูดขึ้นเองก่อนหน้า ให้ถือว่าถูกเรียกด้วย
+            # 💬 ถ้าเป็นการตอบกลับ (reply) ข้อความใดๆ ของแบ็คลี่ก่อนหน้า (ทั้งทักขึ้นเอง และตอบใครไว้ก่อน)
+            # ให้ถือว่าถูกเรียกด้วย ไม่ต้องพิมพ์ชื่อแบ็คลี่ในข้อความที่ reply มาเลย เหมือนพฤติกรรมใน DM
             # จะได้รับรู้และตอบกลับได้เลย (ระบบข้างล่างจะพูดออกเสียงให้เองอยู่แล้วถ้าบอทอยู่ในห้องเสียง)
-            or bagley_autonomy.is_reply_to_autonomous_message(message)
+            or await is_reply_to_bagley_message(message)
         ):
             is_bot_called = True
 
@@ -5678,7 +5768,10 @@ async def watch_live_chat(ctx: commands.Context, video: str):
             except Exception:
                 pass
 
-        await ylc.start_watch(ctx.guild, video, bagley_speak, _announce, ai_check_live_chat_message)
+        await ylc.start_watch(
+            ctx.guild, video, bagley_speak, _announce, ai_check_live_chat_message,
+            ai_reply_to_live_chat_mention, ai_extract_yt_intro_name,
+        )
         if ylc.LIVE_CHAT_KEYWORDS:
             msg = f"เริ่มอ่านแชทสดแล้วครับ! กำลังฟังคำว่า: {', '.join(ylc.LIVE_CHAT_KEYWORDS)}"
         else:
@@ -5717,7 +5810,10 @@ async def toggle_live_chat(ctx: commands.Context, video: Optional[str] = None):
             except Exception:
                 pass
 
-        result = await ylc.toggle_watch(ctx.guild, video or "", bagley_speak, _announce, ai_check_live_chat_message)
+        result = await ylc.toggle_watch(
+            ctx.guild, video or "", bagley_speak, _announce, ai_check_live_chat_message,
+            ai_reply_to_live_chat_mention, ai_extract_yt_intro_name,
+        )
         if result == "started":
             if ylc.LIVE_CHAT_KEYWORDS:
                 msg = f"เริ่มอ่านแชทสดแล้วครับ! กำลังฟังคำว่า: {', '.join(ylc.LIVE_CHAT_KEYWORDS)}"
