@@ -61,6 +61,14 @@ voice_action_cooldowns = {}
 
 song_queue = []
 
+# 🚨 [ใหม่] ระบบให้ความสำคัญกับการแจ้งเตือน (ตารางนัด/reminder/ระบบวาร์ปแจ้งเตือนทุกชนิด) เหนือกว่าเพลง
+# current_playing_search: guild_id -> คำค้น/URL ของเพลงที่กำลังเล่นอยู่ล่าสุด เก็บไว้เผื่อโดนตัดจบกลางคัน
+#   จากการแจ้งเตือนสำคัญ จะได้ดึงกลับมาเล่นต่อ (เริ่มใหม่) ให้คุณหลังแจ้งเตือนเสร็จ
+# priority_alert_active_guilds: เซ็ต guild_id ที่ตอนนี้กำลังมีการวาร์ปไปแจ้งเตือนสำคัญอยู่ ใช้กันไม่ให้
+#   คิวเพลงถัดไปแทรกเข้ามาเล่นชนกับเสียงแจ้งเตือนระหว่างที่ยังแจ้งเตือนไม่เสร็จ
+current_playing_search = {}
+priority_alert_active_guilds = set()
+
 user_join_times = {}
 
 voice_report_status = {}
@@ -1166,11 +1174,42 @@ async def _deliver_voice_reminder(guild, target_voice_channel, content):
       ผ่าน bagley_hijack_alert แล้ววาร์ปกลับห้องเดิมให้อัตโนมัติ (หรือออกจากห้องถ้าเดิมไม่ได้อยู่ไหนเลย)"""
     if not target_voice_channel:
         return
-    vc = guild.voice_client
-    if vc and vc.is_connected() and vc.channel and vc.channel.id == target_voice_channel.id:
-        await bagley_speak_reminder_direct(guild, content)
-    else:
-        await bagley_hijack_alert(target_voice_channel, content)
+
+    # 🚨 [ใหม่] แจ้งเตือนสำคัญกว่าเพลงเสมอ: ถ้าบอทกำลังเปิดเพลง/พูดอะไรอยู่ตอนถึงเวลาต้องแจ้งเตือน
+    # ให้ตัดจบเสียง/เพลงที่เล่นอยู่ทันที ไม่ต้องรอให้จบก่อนเหมือนเดิม (เดิม bagley_speak_wait จะรอ
+    # vc.is_playing() จนกว่าเพลงจะจบเองก่อนถึงจะพูดแจ้งเตือน ทำให้แจ้งเตือนล่าช้าได้)
+    interrupted_search = None
+    vc_now = guild.voice_client if guild else None
+    if vc_now and vc_now.is_connected() and vc_now.is_playing():
+        priority_alert_active_guilds.add(guild.id)
+        # เอาเพลงกลับมาเข้าคิวใหม่เฉพาะตอนที่สิ่งที่กำลังเล่นอยู่คือ "เพลง" จริงๆ (is_playing_music)
+        # เท่านั้น กันเคสตัดจบทับเสียงพูด TTS ธรรมดา (ทักทาย/ตอบแชท) แล้วดันเอาเพลงเก่าที่จบไปนานแล้ว
+        # กลับมาเล่นซ้ำแบบผิดๆ
+        if is_playing_music:
+            interrupted_search = current_playing_search.get(guild.id)
+        try:
+            vc_now.stop()  # ตัดจบเพลง/เสียงที่กำลังเล่นอยู่ทันที
+            print(f"⏹️ [Priority Alert] ตัดจบเพลง/เสียงในกิลด์ {guild.id} เพื่อวาร์ปไปแจ้งเตือนก่อนครับ")
+        except Exception as e:
+            print(f"⚠️ [Priority Alert] ตัดจบเพลงไม่สำเร็จ: {e}")
+        # เผื่อเวลาเล็กน้อยให้ callback ของเพลงเดิม (after_playing/_after) เคลียร์ตัวเองให้เสร็จก่อน
+        await asyncio.sleep(0.3)
+
+    try:
+        vc = guild.voice_client
+        if vc and vc.is_connected() and vc.channel and vc.channel.id == target_voice_channel.id:
+            await bagley_speak_reminder_direct(guild, content)
+        else:
+            await bagley_hijack_alert(target_voice_channel, content)
+    finally:
+        if interrupted_search:
+            # 🎵 แจ้งเตือนเสร็จแล้ว เอาเพลงที่โดนตัดจบไปกลางคันกลับมาเข้าคิวไว้อันดับแรก
+            # ฟังก์ชัน check_queue ที่ถูกคิวไว้อัตโนมัติตอนสั่ง vc.stop() ด้านบน (ผ่าน after=_after
+            # ของ play_song) จะรอ priority_alert_active_guilds เคลียร์อยู่แล้ว พอเคลียร์ปุ๊บก็จะ
+            # หยิบเพลงนี้ขึ้นมาเล่นต่อ(เริ่มใหม่)ให้คุณเองอัตโนมัติ ไม่ต้องสั่งเล่นซ้ำเองตรงนี้อีกรอบ
+            song_queue.insert(0, interrupted_search)
+        if guild:
+            priority_alert_active_guilds.discard(guild.id)
 
 # --- ระบบเสียงกลางของ Bagley ---
 async def bagley_speak(guild, text, rate="+0%"):
@@ -1467,6 +1506,9 @@ async def play_song(ctx, search):
                     print(f"Player error: {error}")
 
             is_playing_music = True
+            # 🚨 [ใหม่] จำคำค้น/URL ของเพลงที่กำลังจะเล่นไว้ เผื่อโดนตัดจบกลางคันเพราะมีแจ้งเตือนสำคัญ
+            # เข้ามา (เช่น ตารางนัด/reminder) จะได้เอากลับมาเล่นต่อ(ใหม่)ให้คุณได้หลังแจ้งเตือนเสร็จ
+            current_playing_search[ctx.guild.id] = search
             raw_source = discord.FFmpegPCMAudio(
                 url, 
                 executable='C:/ffmpeg/bin/ffmpeg.exe', 
@@ -1515,7 +1557,15 @@ async def play_song(ctx, search):
 # ฟังก์ชันเช็คคิวเพื่อเล่นเพลงถัดไป
 async def check_queue(ctx):
     global is_playing_music, pending_exit_after_music, bot_follow_targets
-    
+
+    # 🚨 [ใหม่] ถ้าตอนนี้กิลด์นี้กำลังมีการวาร์ปไปแจ้งเตือนสำคัญอยู่ (ตารางนัด/reminder ที่เพิ่งตัด
+    # จบเพลงปัจจุบันเพื่อไปเตือนก่อน) ให้รอจนกว่าจะแจ้งเตือนเสร็จก่อน กันไม่ให้เพลงถัดไปเริ่มเล่นแทรก
+    # ชนกับเสียงแจ้งเตือนที่กำลังพูดอยู่ในอีกห้องหนึ่ง (กันเผื่อค้างนานสุด ~60 วินาที)
+    wait_ticks = 0
+    while ctx.guild.id in priority_alert_active_guilds and wait_ticks < 300:
+        await asyncio.sleep(0.2)
+        wait_ticks += 1
+
     if len(song_queue) > 0:
         is_playing_music = True
         next_search = song_queue.pop(0) 
