@@ -33,6 +33,7 @@ import bagley_learning
 import bagley_autonomy
 import bagley_trust
 import bagley_rules
+import bagley_rooms
 import ephemeral_tools
 import youtube_live_chat as ylc
 
@@ -979,7 +980,9 @@ def resolve_target_member(message, remove_keywords=None, exclude_bot=True):
     target = find_member_by_name(message.guild, clean_text, exclude_ids=exclude_ids, prefer_channel=prefer_channel)
     return target, clean_text
 
-async def bagley_speak_wait(guild, text, filename=None):
+async def bagley_speak_wait(guild, text, filename=None, rate="+0%"):
+    """rate: ปรับความเร็วเสียงพูดของ edge_tts เช่น '-20%' ให้พูดช้าลง (ใช้ตอนเล่าเรื่องยาวๆ
+    จะได้ฟังง่าย ไม่รีบจนตามไม่ทัน), '+0%' คือความเร็วปกติ (ค่าเริ่มต้น)"""
     if not guild: return
     vc = guild.voice_client
     if vc and vc.is_connected():
@@ -995,7 +998,7 @@ async def bagley_speak_wait(guild, text, filename=None):
 
             try:
                 voice = "th-TH-NiwatNeural"
-                communicate = edge_tts.Communicate(text, voice)
+                communicate = edge_tts.Communicate(text, voice, rate=rate)
                 await communicate.save(unique_name)
                 file_created = True
 
@@ -1170,7 +1173,7 @@ async def _deliver_voice_reminder(guild, target_voice_channel, content):
         await bagley_hijack_alert(target_voice_channel, content)
 
 # --- ระบบเสียงกลางของ Bagley ---
-async def bagley_speak(guild, text):
+async def bagley_speak(guild, text, rate="+0%"):
     """ฟังก์ชันกลางสำหรับสั่งให้ Bagley พูดในห้องเสียงที่บอทอยู่
 
     🛠️ [แก้บั๊ก]: เดิมฟังก์ชันนี้เช็ค vc.is_playing() แล้ว "ดรอปข้อความทิ้งเงียบๆ" ทันที
@@ -1190,7 +1193,7 @@ async def bagley_speak(guild, text):
         return
 
     try:
-        await bagley_speak_wait(guild, text)
+        await bagley_speak_wait(guild, text, rate=rate)
     except Exception as e:
         print(f"Bagley Voice Error: {e}")
 
@@ -3618,7 +3621,7 @@ SYSTEM_PROMPT = """
 
 📏 ความยาวคำตอบ (สำคัญ):
 - ค่าเริ่มต้น: ตอบสั้น กระชับ ประมาณ 1-3 ประโยคพอ อย่ายืดเยื้อโดยไม่จำเป็น คุยเล่น ทักทาย แซว ตอบคำถามทั่วไปสั้นๆ ให้ตอบสั้นแบบคนคุยแชทจริงๆ ไม่ใช่เขียนเรียงความ
-- ข้อยกเว้น: ถ้าผู้ใช้ถามหาข้อมูล/ให้อธิบาย/ให้สอน/ให้สรุป/ให้วิเคราะห์อะไรสักอย่างที่ต้องใช้รายละเอียดจริงๆ ถึงจะตอบได้ครบถ้วนมีประโยชน์ ก็อนุญาตให้ตอบยาวได้เต็มที่ตามความจำเป็นของเนื้อหา ไม่ต้องกลัวยาว แต่ต้องยังคงน้ำเสียงเป็นธรรมชาติ ไม่ใช่โทนทางการแข็งทื่อ
+- ข้อยกเว้น: ถ้าผู้ใช้ถามหาข้อมูล/ให้อธิบาย/ให้สอน/ให้สรุป/ให้วิเคราะห์/ให้เล่าเรื่อง (เช่น เล่านิทาน เรื่องผี เรื่องเล่าจากเว็บ) อะไรสักอย่างที่ต้องใช้รายละเอียดจริงๆ ถึงจะตอบได้ครบถ้วนมีประโยชน์ ก็อนุญาตให้ตอบยาวได้เต็มที่ตามความจำเป็นของเนื้อหา ไม่ต้องกลัวยาว ไม่ต้องตัดทอนเนื้อเรื่อง แต่ต้องยังคงน้ำเสียงเป็นธรรมชาติ ไม่ใช่โทนทางการแข็งทื่อ
 
 🚫 กฎเหล็กดักคอ (สำคัญที่สุด):
 - ห้ามพูดจาเพ้อเจ้อ อวดอ้าง มโนเรื่องการแฮ็กระบบ, เจาะไฟล์ข้อมูลลับ, เจาะไฟร์วอลล์ หรือใช้คำศัพท์เนิร์ดคอมพิวเตอร์ที่ดูปลอมและน่ารำคาญเด็ดขาด! ให้เน้นตอบคำถามและช่วยเหลือคุณตามข้อมูลจริงที่เป็นธรรมชาติและสมเหตุสมผล
@@ -3836,6 +3839,12 @@ async def on_ready():
 
         bagley_trust.configure(conn)
         bagley_trust.init_trust_db(conn)
+
+        # 🏷️🔒 [Rooms] เฝ้าห้องที่ถูก /rename_room หรือ /lock_room ไว้ พอห้องว่างจากคนจริง
+        # แล้วจะรีเซ็ตชื่อ/ปลดล็อกกลับเป็นค่าเดิมให้อัตโนมัติ (ลงทะเบียนแค่ครั้งเดียวกัน on_ready ยิงซ้ำ)
+        if not getattr(bot, "_bagley_rooms_watcher_registered", False):
+            bot._bagley_rooms_watcher_registered = True
+            bot.add_listener(bagley_rooms.watch_voice_state, "on_voice_state_update")
 
         # คนใน ALLOWED_TEACH_USERS ได้สิทธิ์สร้างความสามารถชั่วคราวทันทีเสมอ
         # คนอื่นๆ จะได้สิทธิ์อัตโนมัติถ้าคุยกับแบ็คลี่คุ้นเคยพอ (ดู bagley_trust.py)
@@ -5490,6 +5499,172 @@ async def on_voice_state_update(member, before, after):
             save_voice_data(data)
             print(f"DEBUG: [ประจำวันที่ {today_str}] บันทึกเวลาให้ {member.display_name} ในเซิร์ฟ {guild_id_str} แล้วครับ")
 
+# ============================================================
+# 📖 ระบบเล่าเรื่อง (แบ็คลี่หาเรื่องมาเล่าให้ฟังได้)
+# ============================================================
+async def _send_long_text(destination, text: str, limit: int = 1900):
+    """ส่งข้อความยาวๆ แบบเต็มไม่ตัดทอนเลย โดยหั่นเป็นหลายข้อความถ้าเกิน limit ตัวอักษร
+    (Discord จำกัดข้อความละไม่เกิน 2000 ตัวอักษร) ใช้ตอนแบ็คลี่ต้องเล่าเรื่องยาวๆ เป็นตัวหนังสือ
+    เหมือนตอนหาข้อมูล/อธิบายอะไรยาวๆ ให้ ไม่ต้องกลัวเนื้อเรื่องขาดหาย"""
+    text = (text or "").strip()
+    if not text:
+        return
+
+    chunks = []
+    remaining = text
+    while len(remaining) > limit:
+        split_at = remaining.rfind("\n", 0, limit)
+        if split_at < limit * 0.5:
+            split_at = remaining.rfind(" ", 0, limit)
+        if split_at <= 0:
+            split_at = limit
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+
+    for chunk in chunks:
+        if chunk:
+            await destination.send(chunk)
+
+
+async def _generate_story_text(topic: Optional[str]) -> str:
+    """ให้ Gemini (เปิดความสามารถค้นเว็บจริงด้วย Google Search) หาเรื่องเล่าจริงจากเว็บมาปรับสำนวน
+    เป็นน้ำเสียงของแบ็คลี่ แล้วคืนค่าเป็นเนื้อเรื่องพร้อมเล่า"""
+    if topic:
+        topic_line = f"หัวข้อ/แนวเรื่องที่ผู้ใช้ขอมา: {topic}"
+    else:
+        topic_line = (
+            "ผู้ใช้ไม่ได้ระบุหัวข้อมา ให้เลือกแนวเรื่องเล่าที่น่าสนใจเอง "
+            "(เช่น เรื่องผี เรื่องลึกลับ เรื่องเล่าสยองขวัญ หรือเรื่องเล่าตลกขำขัน)"
+        )
+
+    prompt = f"""
+    คุณคือ 'แบ็คลี่' กำลังจะเล่าเรื่องให้เพื่อนๆ ฟังในห้องเสียงดิสคอร์ด
+    {topic_line}
+
+    ให้ค้นหาเรื่องเล่า/เหตุการณ์จริงจากเว็บมาก่อน แล้วเรียบเรียงใหม่เป็นสำนวนเล่าเรื่องของตัวเอง
+    (ห้ามลอกข้อความต้นฉบับคำต่อคำ) เขียนเป็นเรื่องเล่าต่อเนื่อง มีบทนำ เนื้อเรื่อง และจุดจบที่ชัดเจน
+    ความยาวพอเหมาะกับการเล่าปากเปล่า (ประมาณ 150-400 คำ)
+    ใช้น้ำเสียงเป็นกันเอง ชวนติดตาม ลงท้ายประโยคด้วย 'ครับ' บ้างแบบเป็นธรรมชาติ (ไม่ต้องทุกประโยค)
+    ตอบมาแค่เนื้อเรื่องที่จะใช้เล่าเท่านั้น ห้ามมีคำนำ/คำอธิบายอื่นปนมา ห้ามใส่หัวข้อหรือบูลเล็ตพอยต์
+    """
+
+    response = await client.aio.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
+            tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+        ),
+    )
+    return (response.text or "").strip()
+
+
+class StoryChoiceView(ui.View):
+    """ปุ่มให้เลือกว่าจะให้แบ็คลี่หาคลิปเรื่องเล่ามาเปิด หรือหาเรื่องเล่าจากเว็บมาเล่าเอง"""
+    def __init__(self, ctx: commands.Context, topic: Optional[str]):
+        super().__init__(timeout=60)
+        self.ctx = ctx
+        self.topic = topic
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("ปุ่มนี้ไม่ใช่ของคุณนะครับ 😅", ephemeral=True)
+            return False
+        return True
+
+    @ui.button(label="🎬 หาคลิปมาเปิดให้ฟัง", style=discord.ButtonStyle.primary)
+    async def pick_clip(self, interaction: discord.Interaction, button: ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        await _run_story_clip(self.ctx, self.topic, interaction)
+
+    @ui.button(label="📖 หาเรื่องเล่าจากเว็บ", style=discord.ButtonStyle.secondary)
+    async def pick_web_story(self, interaction: discord.Interaction, button: ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        await _run_story_web(self.ctx, self.topic, interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+
+
+async def _run_story_clip(ctx: commands.Context, topic: Optional[str], interaction: Optional[discord.Interaction] = None):
+    """โหมด 'หาคลิป': เข้าห้องเสียง (ถ้ายังไม่ได้เข้า) แล้วค้นหาคลิปเรื่องเล่าจาก YouTube มาเปิดให้ฟัง"""
+    global is_playing_music
+
+    if not ctx.voice_client:
+        if ctx.author.voice:
+            await ctx.author.voice.channel.connect()
+        else:
+            text = "คุณต้องเข้าห้องเสียงก่อนนะครับ ผมถึงจะเปิดคลิปเรื่องเล่าให้ฟังได้!"
+            if interaction:
+                await interaction.followup.send(text)
+            else:
+                await ctx.send(text)
+            return
+
+    search_query = f"{topic} เรื่องเล่า" if topic else "เรื่องเล่าสยองขวัญ ผี เรื่องจริง"
+
+    text = f"เดี๋ยวผมหาคลิป **{search_query}** จาก YouTube มาเปิดให้ฟังเลยนะครับ"
+    if interaction:
+        await interaction.followup.send(text)
+    else:
+        await ctx.send(text)
+
+    is_playing_music = True
+    await play_song(ctx, search_query)
+
+
+async def _run_story_web(ctx: commands.Context, topic: Optional[str], interaction: Optional[discord.Interaction] = None):
+    """โหมด 'หาเรื่องเล่าจากเว็บ': ให้ Gemini ค้นเรื่องเล่ามา แล้วพูดในห้องเสียงแบบช้าลง (ถ้าอยู่ในห้องเสียง)
+    ถ้าไม่มีห้องเสียงให้พูด ค่อยส่งเป็นข้อความเต็มๆ ในแชทแทน (ไม่ตัดทอน ไม่จำกัดความยาว) กันไม่ให้สแปมแชท
+    ถ้าพูดในห้องเสียงได้อยู่แล้ว ก็จะส่งแค่ข้อความสั้นๆ บอกว่ากำลังเล่าให้ฟัง"""
+    thinking_text = f"เดี๋ยวผมไปหาเรื่องเล่ามาก่อนนะครับ รอแป๊บ..." if not topic else f"เดี๋ยวผมไปหาเรื่องเล่าเกี่ยวกับ '{topic}' มาก่อนนะครับ รอแป๊บ..."
+    if interaction:
+        await interaction.followup.send(thinking_text)
+    else:
+        await ctx.send(thinking_text)
+
+    try:
+        story_text = await _generate_story_text(topic)
+    except Exception as e:
+        print(f"❌ [Story] หาเรื่องเล่าจากเว็บไม่สำเร็จ: {e}")
+        story_text = ""
+
+    if not story_text:
+        await ctx.send("ขอโทษครับ วันนี้หาเรื่องมาเล่าไม่สำเร็จ ลองใหม่อีกทีได้มั้ยครับ")
+        return
+
+    can_speak = bool(ctx.guild.voice_client and ctx.guild.voice_client.is_connected())
+
+    if can_speak:
+        # 🐢 พูดช้าลงตอนเล่าเรื่อง ฟังง่ายกว่าปกติ และไม่ต้องส่งข้อความยาวๆ ซ้ำในแชท (กันสแปม)
+        await ctx.send("📖 กำลังเล่าให้ฟังในห้องเสียงครับ...")
+        await bagley_speak_wait(ctx.guild, story_text, rate="-15%")
+    else:
+        # ไม่มีห้องเสียงให้พูด ก็ส่งเนื้อเรื่องเต็มๆ ในแชทแทน (เหมือนตอนหาข้อมูลให้ ไม่ตัดทอน)
+        await _send_long_text(ctx.channel, story_text)
+
+
+@bot.hybrid_command(
+    name="tell_story",
+    description=(
+        "ให้แบ็คลี่หาเรื่องมาเล่าให้ฟัง (เช่น เรื่องผี เรื่องลึกลับ เรื่องตลก) จะถามก่อนว่าให้หาคลิปจาก "
+        "YouTube มาเปิดให้ฟัง หรือให้หาเรื่องเล่าจากเว็บมาเล่าเอง (พูดช้าลงตอนเล่า ถ้าอยู่ในห้องเสียงอยู่แล้ว) "
+        "ใช้ตอนมีคนพูดกับแบ็คลี่ว่า 'เล่าเรื่องผีให้ฟังหน่อย', 'เล่าเรื่องให้ฟังหน่อย', 'มีเรื่องอะไรเล่าบ้าง' ก็ได้"
+    ),
+)
+@app_commands.describe(topic="หัวข้อ/แนวเรื่องที่อยากให้เล่า (ถ้ามี) เช่น 'เรื่องผี' หรือ 'เรื่องตลก' ถ้าไม่ระบุ แบ็คลี่จะเลือกแนวเรื่องเอง")
+async def tell_story(ctx: commands.Context, *, topic: Optional[str] = None):
+    view = StoryChoiceView(ctx, topic)
+    prompt_text = "จะให้ผมหาคลิปเรื่องเล่ามาเปิดให้ฟัง หรือให้ผมหาเรื่องเล่าจากในเว็บมาเล่าเองดีครับ?"
+    await ctx.send(prompt_text, view=view)
+
+
 # --- [CORE COMMANDS] สั่งแล้วพูดด้วย ---
 @bot.hybrid_command(name="move", description="ย้ายสมาชิกไปห้องเสียงอื่น")
 async def move(ctx: commands.Context, member: discord.Member, channel: discord.VoiceChannel):
@@ -6723,6 +6898,89 @@ async def create_party(ctx, name: str):
 
     else:
         await ctx.send("คุณต้องอยู่ในห้องเสียงก่อนถึงจะสร้างปาร์ตี้ดึงเพื่อนไปได้ครับ!")
+
+# ============================================================
+# 🏷️ /rename_room - เปลี่ยนชื่อห้องเสียงที่ผู้สั่งอยู่ตอนนี้ชั่วคราว
+# ============================================================
+@bot.hybrid_command(
+    name="rename_room",
+    description=(
+        "เปลี่ยนชื่อห้องเสียงที่คุณอยู่ตอนนี้ชั่วคราว (บอทไม่จำเป็นต้องอยู่ในห้องเสียงด้วยก็สั่งได้) "
+        "พอทุกคนออกจากห้องหมดแล้ว ชื่อห้องจะเปลี่ยนกลับเป็นชื่อเดิมให้อัตโนมัติ "
+        "ใช้ได้ทั้งพิมพ์คำสั่งเองและพูดกับแบ็คลี่แบบ 'แบ็คลี่ เปลี่ยนชื่อห้องนี้เป็น A' หรือ 'แบ็คลี่ เปลี่ยนห้องนี้เป็น A'"
+    ),
+)
+@app_commands.describe(name="ชื่อใหม่ที่ต้องการตั้งให้ห้องเสียง (ชั่วคราว)")
+async def rename_room(ctx: commands.Context, *, name: str):
+    can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+    if not can_act:
+        return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
+
+    if not (ctx.author.voice and ctx.author.voice.channel):
+        return await ctx.send("คุณต้องอยู่ในห้องเสียงก่อนถึงจะสั่งให้ผมเปลี่ยนชื่อห้องได้ครับ!")
+
+    channel = ctx.author.voice.channel
+    new_name = name.strip()[:100]
+    if not new_name:
+        return await ctx.send("ชื่อห้องใหม่ห้ามเว้นว่างนะครับ!")
+
+    try:
+        original_name = await bagley_rooms.rename_room_temp(channel, new_name, ctx.author)
+    except Exception as e:
+        return await ctx.send(f"❌ เปลี่ยนชื่อห้องไม่ได้ครับ ผมอาจไม่มีสิทธิ์จัดการห้องนี้: {e}")
+
+    msg = (
+        f"เปลี่ยนชื่อห้องเป็น '{new_name}' เรียบร้อยครับ! "
+        f"พอทุกคนออกจากห้องหมด ผมจะเปลี่ยนชื่อกลับเป็น '{original_name}' ให้อัตโนมัติเลย"
+    )
+    await ctx.send(msg)
+    if ctx.guild.voice_client:
+        await bagley_speak(ctx.guild, msg)
+
+# ============================================================
+# 🔒 /lock_room - ล็อกห้องเสียงที่ผู้สั่งอยู่ตอนนี้ให้เป็นห้องส่วนตัว
+# ============================================================
+@bot.hybrid_command(
+    name="lock_room",
+    description=(
+        "ล็อกห้องเสียงที่คุณอยู่ตอนนี้ให้เป็นห้องส่วนตัว คนอื่นที่ไม่ได้อยู่ในห้องตอนสั่งล็อกจะเข้าไม่ได้เลย "
+        "(คนที่อยู่ในห้องอยู่แล้วตอนล็อก ถึงจะออกไปห้องอื่นก่อนก็ยังกลับเข้ามาได้ตามปกติ) "
+        "พอทุกคนออกจากห้องจนหมด ห้องจะปลดล็อกกลับเป็นห้องปกติเองอัตโนมัติ สั่งซ้ำอีกรอบเพื่อปลดล็อกเองได้ทันที "
+        "ใช้ได้ทั้งพิมพ์คำสั่งเองและพูดกับแบ็คลี่แบบ 'แบ็คลี่ เปลี่ยนห้องนี้เป็นห้องส่วนตัว' หรือ 'แบ็คลี่ ล็อกห้องให้ที'"
+    ),
+)
+async def lock_room(ctx: commands.Context):
+    can_act, rem = await check_shared_voice_quota(ctx.author.id, ctx.guild)
+    if not can_act:
+        return await ctx.send(f"⚠️ ติดคูลดาวน์รวมครับ รออีก {rem} วินาที", ephemeral=True)
+
+    if not (ctx.author.voice and ctx.author.voice.channel):
+        return await ctx.send("คุณต้องอยู่ในห้องเสียงก่อนถึงจะสั่งให้ผมล็อกห้องได้ครับ!")
+
+    channel = ctx.author.voice.channel
+
+    if channel.id in bagley_rooms.locked_voice_rooms:
+        try:
+            await bagley_rooms.unlock_room_private(channel, reason=f"ปลดล็อกโดย {ctx.author.display_name}")
+        except Exception as e:
+            return await ctx.send(f"❌ ปลดล็อกห้องไม่ได้ครับ: {e}")
+        msg = f"ปลดล็อกห้อง '{channel.name}' กลับเป็นห้องปกติให้แล้วครับ ใครก็เข้าได้ตามเดิม"
+    else:
+        try:
+            await bagley_rooms.lock_room_private(channel, ctx.author)
+        except Exception as e:
+            return await ctx.send(f"❌ ล็อกห้องไม่ได้ครับ ผมอาจไม่มีสิทธิ์จัดการห้องนี้: {e}")
+
+        human_names = [get_realtime_name(m.id, m.display_name) for m in channel.members if not m.bot]
+        who_text = "、".join(human_names) if human_names else "ยังไม่มีใครอยู่ในห้องเลยตอนนี้"
+        msg = (
+            f"ล็อกห้อง '{channel.name}' เป็นห้องส่วนตัวเรียบร้อยครับ! ตอนนี้เข้าได้เฉพาะ {who_text} เท่านั้น "
+            f"พอทุกคนออกจากห้องหมด ผมจะปลดล็อกให้อัตโนมัติเลย"
+        )
+
+    await ctx.send(msg)
+    if ctx.guild.voice_client:
+        await bagley_speak(ctx.guild, msg)
 
 @bot.hybrid_command(name="deaf_work", description="ปิดหูฟังสมาชิก (กรณีทำงาน/ต้องการความสงบ)")
 @commands.cooldown(1, 60, commands.BucketType.user)
