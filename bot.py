@@ -138,6 +138,32 @@ is_webhook_enabled = True
 
 is_webhook_enabled = True
 
+# ============================================================
+# 🖼️ [ใหม่] แคชคำบรรยายรูปภาพ (message_id -> caption) — ใช้ข้ามหลายจุดในไฟล์นี้
+# ============================================================
+# เก็บ caption ของรูปที่เคยวิเคราะห์ไว้แล้ว (ทั้งจากระบบแคปชั่นเงียบๆ ให้ bagley_learning/bagley_autonomy
+# และจากระบบสแกนรูปเต็มรูปแบบตอนมีคนเรียกชื่อบอทถามเรื่องรูป) เพื่อให้ระบบ Free Chat ทั่วไป (ตอบเวลา
+# คนเรียก "แบ็คลี่" คุยเล่น) ดึงมาใช้ประกอบ context ได้ ถ้ารูปนั้นยังอยู่ใน 10 ข้อความล่าสุดของห้อง
+# กันไม่ให้ต้องยิง Gemini vision ซ้ำถ้าเคยแคปไปแล้ว — จำกัดขนาดไว้ไม่ให้บวมไม่จำกัด (ตัดอันเก่าสุดทิ้งเมื่อเกิน)
+_IMAGE_CAPTION_CACHE_MAX = 300
+_image_caption_cache: dict[int, str] = {}
+
+
+def _remember_image_caption(message_id: int, caption: str | None):
+    """จำ caption ของรูปภาพไว้ผูกกับ message_id — เรียกทุกครั้งที่วิเคราะห์รูปสำเร็จ ไม่ว่าจะจากจุดไหนในไฟล์นี้"""
+    if not caption:
+        return
+    _image_caption_cache[message_id] = caption
+    if len(_image_caption_cache) > _IMAGE_CAPTION_CACHE_MAX:
+        # ตัดอันที่เก่าที่สุดทิ้ง (dict ใน Python 3.7+ เรียงตามลำดับที่ใส่เข้ามา)
+        oldest_id = next(iter(_image_caption_cache))
+        _image_caption_cache.pop(oldest_id, None)
+
+
+def _get_cached_image_caption(message_id: int) -> str | None:
+    return _image_caption_cache.get(message_id)
+
+
 # ID Discord ของ Owner
 OWNER_DISCORD_ID = 1133740216822267954  
 
@@ -4254,6 +4280,7 @@ async def on_message(message):
         )
         if _img_attachment_for_learning:
             _image_caption_for_learning = await get_quick_image_caption(_img_attachment_for_learning.url)
+            _remember_image_caption(message.id, _image_caption_for_learning)
 
     if not message.author.bot and (message.content.strip() or _image_caption_for_learning):
         bagley_learning.track_message(
@@ -4989,6 +5016,11 @@ async def on_message(message):
                     
                     if not ai_text:
                         ai_text = f"หึๆ ภาพนี้มองปุ๊บก็รู้ปั๊บเลยครับ! แต่ระบบส่งข้อมูลผมมันเอ๋อนิดหน่อย สรุปมันคือภาพที่ดีครับ! 🤠✨"
+
+                    # 🖼️ [ใหม่] จำสิ่งที่วิเคราะห์ได้จากรูปนี้ไว้ ผูกกับ message.id ของ "ข้อความที่มีรูปจริงๆ"
+                    # (target_message อาจเป็นข้อความที่ถูกตอบกลับมา ไม่ใช่ message ปัจจุบันเสมอไป) เพื่อให้ระบบ
+                    # Free Chat ทั่วไปดึงไปใช้ต่อได้ทีหลัง ถ้ารูปนี้ยังอยู่ใน 10 ข้อความล่าสุดของห้องตอนนั้น
+                    _remember_image_caption(target_message.id, ai_text[:300])
                         
                     await message.channel.send(ai_text)
                     
@@ -5219,9 +5251,28 @@ async def on_message(message):
                     # เพราะด้านล่างเราจะเติมข้อความปัจจุบันต่อท้ายเองอยู่แล้วเสมอ
                     if msg.id == message.id:
                         continue
-                    if msg.content.strip():
-                        speaker = "แบ็คลี่" if msg.author.id == bot.user.id else get_realtime_name(msg.author.id, msg.author.display_name)
-                        chat_log += f"[{speaker}]: {msg.clean_content}\n"
+
+                    speaker = "แบ็คลี่" if msg.author.id == bot.user.id else get_realtime_name(msg.author.id, msg.author.display_name)
+
+                    # 🖼️ [ใหม่] ถ้าข้อความนี้มีรูปภาพแนบมาด้วย ให้แนบคำบรรยายรูปเข้าไปในบรรทัดนี้ด้วย
+                    # เอาจากแคชก่อน (ถ้าเคยวิเคราะห์ไว้แล้วจากระบบแคปชั่นเงียบๆ หรือระบบสแกนรูปเต็มรูปแบบ)
+                    # ถ้ายังไม่เคยมี ให้แคปสดตอนนี้เลย (จำกัดแค่ 10 ข้อความล่าสุด ไม่หนักเกินไป) แล้วเก็บแคชไว้
+                    # ด้วย เพื่อให้ Free Chat "จำ" รูปที่คนส่งไปก่อนหน้าได้ ไม่ใช่แค่ระบบชวนคุยเองเท่านั้น
+                    image_note = ""
+                    img_attachment = next(
+                        (a for a in msg.attachments if a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))),
+                        None,
+                    )
+                    if img_attachment:
+                        caption = _get_cached_image_caption(msg.id)
+                        if caption is None:
+                            caption = await get_quick_image_caption(img_attachment.url)
+                            _remember_image_caption(msg.id, caption)
+                        if caption:
+                            image_note = f" [แนบรูปภาพมาด้วย — ในรูปคือ: {caption}]"
+
+                    if msg.content.strip() or image_note:
+                        chat_log += f"[{speaker}]: {msg.clean_content}{image_note}\n"
 
                 # 🎙️ [แก้บั๊ก] เติมข้อความปัจจุบันต่อท้าย chat_log เองเสมอ แทนที่จะพึ่งพา
                 # message.channel.history() อย่างเดียว เพราะคำสั่งเสียงที่มาจาก Voice Relay
@@ -5267,6 +5318,10 @@ async def on_message(message):
 {bagley_rules.format_rules_for_prompt()}
 นี่คือประวัติการสนทนาล่าสุดในห้องแชทนี้ (จงอ่านเพื่อตอบให้ต่อเนื่องและเนียนที่สุด):
 {chat_log}
+
+🖼️ หมายเหตุ: ถ้าในประวัติแชทข้างบนมีข้อความไหนมีวงเล็บ [แนบรูปภาพมาด้วย — ในรูปคือ: ...] ต่อท้าย
+แปลว่าคนนั้นเคยส่งรูปภาพมาในห้องนี้จริง และในวงเล็บคือสิ่งที่คุณเห็นในรูปนั้น ให้ถือว่าคุณเคยเห็นรูปนั้นด้วย
+ตาตัวเองแล้ว สามารถเอ่ยถึงหรือตอบคำถามเกี่ยวกับรูปนั้นได้เป็นธรรมชาติ เหมือนคุณจำภาพที่เพิ่งเห็นในห้องได้จริงๆ
 
 คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับ! (คุมความยาวตามกฎ "ความยาวคำตอบ" ข้างบนให้ดี)
 """
