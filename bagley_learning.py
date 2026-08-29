@@ -90,16 +90,29 @@ def is_channel_active(channel_id: int) -> bool:
     return channel_id in _active_channel_ids
 
 
-def track_message(channel_id: int, author_name: str, content: str):
+def track_message(channel_id: int, author_name: str, content: str, image_caption: str | None = None):
     """เรียกจาก on_message ทุกครั้ง เพื่อสะสมบทสนทนาไว้ให้ AI สรุปเป็นระยะ —
     สะสมเฉพาะห้องที่บอทเคยถูกเรียก/เกี่ยวข้องด้วยจริงๆ เท่านั้น (ดู mark_channel_active) กันไม่ให้
-    ระบบเรียนรู้/ทักเองไปยุ่งกับห้องที่บอทไม่เคยเกี่ยวข้องด้วยเลย"""
-    if not content or not content.strip():
+    ระบบเรียนรู้/ทักเองไปยุ่งกับห้องที่บอทไม่เคยเกี่ยวข้องด้วยเลย
+
+    🖼️ image_caption (ใหม่): ถ้ามีคนแนบรูปภาพมาด้วย (ไม่ว่าจะพิมพ์ข้อความมาด้วยหรือไม่) ฝั่ง bot.py
+    จะสรุปคำบรรยายรูปสั้นๆ ด้วย Gemini vision แล้วส่งเข้ามาทาง argument นี้ — เก็บแนบเข้าไปในบรรทัด
+    บทสนทนาเดียวกัน เพื่อให้ทั้ง bagley_learning (สรุป insight) และ bagley_autonomy (ตัดสินใจ "ชวนคุย"
+    เอง) มองเห็นว่ามีรูปภาพอะไรถูกโพสต์ไปด้วย ไม่ใช่แค่ข้อความล้วนๆ เหมือนเดิม"""
+    line = None
+    if content and content.strip():
+        line = f"{author_name}: {content}"
+        if image_caption:
+            line += f" [แนบรูปภาพมาด้วย — ในรูปคือ: {image_caption}]"
+    elif image_caption:
+        line = f"{author_name}: [ส่งรูปภาพมาเฉยๆ ไม่มีข้อความ — ในรูปคือ: {image_caption}]"
+
+    if not line:
         return
     if not is_channel_active(channel_id):
         return
     buf = _recent_channel_messages.setdefault(channel_id, [])
-    buf.append(f"{author_name}: {content}")
+    buf.append(line)
     if len(buf) > _MAX_MESSAGES_PER_SCAN:
         del buf[: len(buf) - _MAX_MESSAGES_PER_SCAN]
 

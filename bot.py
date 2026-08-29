@@ -2906,6 +2906,31 @@ async def daily_announcement_task():
                 except Exception as e:
                     print(f"❌ เกิดข้อผิดพลาดตอนพูดแจ้งเตือนเวลาด้วย AI: {e}")
 
+async def get_quick_image_caption(image_url: str) -> str | None:
+    """🖼️ [ใหม่] แคปชั่นรูปภาพแบบสั้นๆ เร็วๆ (1 ประโยค) เอาไว้ป้อนเข้า bagley_learning/bagley_autonomy
+    เท่านั้น (ไม่ใช่คำตอบที่จะส่งให้ user เห็นตรงๆ) — ใช้ตอนมีคนโพสต์รูปในห้องที่บอทเคยเกี่ยวข้องด้วย
+    โดยไม่ได้เรียกชื่อบอทตรงๆ (ถ้าเรียกชื่อบอทตรงๆ ระบบสแกนรูปเต็มรูปแบบด้านล่างจะจัดการให้เองอยู่แล้ว
+    ไม่ต้องเรียกฟังก์ชันนี้ซ้ำ) เพื่อให้ระบบ 'ชวนคุย' ของบอทมองเห็นว่ามีรูปอะไรถูกโพสต์ไปด้วย
+    คืนค่า None เงียบๆ ถ้าดึง/วิเคราะห์รูปไม่สำเร็จ (ไม่ต้องการให้ error ตรงนี้ไปรบกวน flow หลักของ on_message)"""
+    try:
+        response_img = requests.get(image_url, timeout=10)
+        img = Image.open(io.BytesIO(response_img.content))
+        prompt = (
+            "อธิบายสิ่งที่เห็นในรูปภาพนี้สั้นๆ แค่ 1 ประโยคเท่านั้น เป็นภาษาไทย เน้นข้อเท็จจริงที่เห็นจริงในภาพ "
+            "ห้ามใส่มุกตลก คำแซว หรือความเห็นส่วนตัวใดๆ เพราะข้อความนี้จะถูกเก็บไว้เป็นความจำเบื้องหลังของบอทเฉยๆ "
+            "ไม่ได้ส่งให้ใครอ่านตรงๆ"
+        )
+        response = await client.aio.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=[prompt, img],
+        )
+        caption = (response.text or "").strip()
+        return caption or None
+    except Exception as e:
+        print(f"⚠️ [ImageCaption] แคปชั่นรูปภาพสำหรับระบบเรียนรู้พลาด: {e}")
+        return None
+
+
 async def generate_and_send_image(ctx_or_interaction, prompt: str):
     global is_playing_music 
     
@@ -4211,8 +4236,32 @@ async def on_message(message):
     if message.guild is not None and _addressed_to_bagley_now:
         bagley_learning.mark_channel_active(message.channel.id, message.guild.id)
 
-    if not message.author.bot and message.content.strip():
-        bagley_learning.track_message(message.channel.id, get_realtime_name(message.author.id, message.author.display_name), message.content)
+    # 🖼️ [ใหม่] ถ้ามีคนแนบรูปภาพมาในห้องที่บอทเคยเกี่ยวข้องด้วย (is_channel_active) แต่ "ไม่ได้" เรียกชื่อ
+    # บอทตรงๆ ให้แคปชั่นรูปสั้นๆ เก็บเข้าระบบเรียนรู้/ชวนคุยไว้ด้วย (ให้ bagley_autonomy เอาไปใช้ทักทาย/
+    # แซวเกี่ยวกับรูปนั้นเองทีหลังได้ คล้ายๆระบบสแกนรูปที่มีอยู่ แต่ทำงานเบื้องหลังไม่ตอบกลับทันที)
+    # ถ้าเรียกชื่อบอทตรงๆ มาพร้อมรูป ปล่อยให้ระบบสแกนรูปเต็มรูปแบบ (ส่วนที่ 10 ด้านล่าง) จัดการแทน กันแคปซ้ำ 2 รอบ
+    _image_caption_for_learning = None
+    if (
+        not message.author.bot
+        and message.guild is not None
+        and message.attachments
+        and not _addressed_to_bagley_now
+        and bagley_learning.is_channel_active(message.channel.id)
+    ):
+        _img_attachment_for_learning = next(
+            (a for a in message.attachments if a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))),
+            None,
+        )
+        if _img_attachment_for_learning:
+            _image_caption_for_learning = await get_quick_image_caption(_img_attachment_for_learning.url)
+
+    if not message.author.bot and (message.content.strip() or _image_caption_for_learning):
+        bagley_learning.track_message(
+            message.channel.id,
+            get_realtime_name(message.author.id, message.author.display_name),
+            message.content,
+            image_caption=_image_caption_for_learning,
+        )
 
     # 📜 [Rules] เช็คก่อนว่าข้อความนี้เป็นการ "จำไว้ว่า.../สั่งสอน/กำหนดกฎ" ให้แบ็คลี่จำมั้ย (ดู bagley_rules.py)
     # AI จะแยกหมวดให้ก่อนว่าเป็น ข้อมูลส่วนตัว (personal) / กฎถาวร (rule) / เรื่องที่ต้องตั้งเตือน (reminder)
