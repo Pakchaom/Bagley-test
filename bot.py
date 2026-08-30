@@ -8359,6 +8359,21 @@ async def guard_room(ctx: commands.Context, mode: str = None):
         except Exception as e:
             print(f"Guard Room Speech Error: {e}")
 
+    # 5. 🚪 [แก้บั๊ก] ถ้าปิดโหมดเฝ้าห้อง และห้องตอนนี้ "ว่างอยู่แล้วตั้งแต่ก่อนสั่ง" (เหลือแบ็คลี่คนเดียว)
+    # ให้เช็คแล้วถอนกำลังออกทันทีเลย ไม่ต้องรอให้มีคนเข้า-ออกห้องอีกครั้งก่อน — เดิมตรรกะ "ห้องร้างให้ออก"
+    # อยู่ใน on_voice_state_update เท่านั้น ซึ่งทำงานเฉพาะตอนมี event คนเข้า/ออกห้องจริงๆ ถ้าห้องว่าง
+    # อยู่ก่อนแล้วตั้งแต่ต้น (ไม่มี event ใหม่เกิดขึ้นเลยหลังสั่งปิดโหมด) บอทเลยไม่เคยถูกกระตุ้นให้เช็คซ้ำ
+    if not room_guard_status[guild_id]:
+        vc = ctx.guild.voice_client
+        if vc and vc.channel and len(vc.channel.members) == 1 and bot.user in vc.channel.members:
+            if vc.channel.id not in created_party_channels:
+                print(f"DEBUG: /guard_room ปิดโหมดแล้วพบว่าห้อง '{vc.channel.name}' ว่างอยู่แล้ว แบ็คลี่ถอนกำลังออกทันทีครับ")
+                try:
+                    await vc.disconnect()
+                    voice_report_status.pop(guild_id, None)
+                except Exception as e:
+                    print(f"❌ เกิดข้อผิดพลาดตอนถอนกำลังหลังปิดโหมดเฝ้าห้อง: {e}")
+
 @bot.hybrid_command(name="party_recall", description="ดึงทุกคนในห้องปาร์ตี้ล่าสุดที่เราสร้าง กลับมาที่ห้องเสียงปัจจุบันของเรา")
 async def party_recall(ctx: commands.Context):
     # 🔍 เช็กก่อนว่าคุณชะอมอยู่ในห้องเสียงไหม (เพราะเราจะดึงคนมาหาห้องที่เรานั่งอยู่คัป)
