@@ -8333,11 +8333,20 @@ async def guard_room(ctx: commands.Context, mode: str = None):
         # ถ้าพิมพ์ /guard_room เปล่า ๆ หรือดักคำพูดทั่วไป ให้สลับสถานะ
         new_status = not current_status
     else:
-        # ถ้าเลือกช้อยส์หรือมาจากระบบคัดกรองคำพูด
-        if mode.lower() in ["on", "เปิด", "start"]:
-            new_status = True
-        elif mode.lower() in ["off", "ปิด", "stop"]:
+        # ถ้าเลือกช้อยส์หรือมาจากระบบคัดกรองคำพูด (AI Router อาจส่งคำที่ผู้ใช้พูดมาตรงๆ เช่น
+        # "เฝ้าห้องนี้ไว้นะ" / "เลิกเฝ้าห้องแล้ว" ไม่ใช่แค่คำว่า on/off ตรงๆ เท่านั้น เลยต้องดักคำ
+        # ใกล้เคียงให้ครอบคลุมขึ้น เช็คฝั่ง "ปิด" ก่อนเสมอ เพราะคำพวกนี้มักมีคำว่า "เฝ้า" ปนอยู่ด้วย
+        # (เช่น "เลิกเฝ้า" มีคำว่า "เฝ้า" ปนอยู่ ถ้าเช็คฝั่งเปิดก่อนจะตีความผิดเป็นเปิดแทน)
+        mode_lower = mode.lower().strip()
+        off_keywords = ("off", "ปิด", "stop", "เลิก", "หยุด", "ไม่ต้อง")
+        on_keywords = ("on", "เปิด", "start", "เฝ้า", "คุ้มกัน", "ปกป้อง", "guard")
+        if any(kw in mode_lower for kw in off_keywords):
             new_status = False
+        elif any(kw in mode_lower for kw in on_keywords):
+            new_status = True
+        else:
+            # คำที่ส่งมาไม่ตรงกับที่รู้จักเลย กันเหนียวด้วยการสลับสถานะแทนที่จะปล่อยให้คำสั่งพังไปเฉยๆ
+            new_status = not current_status
 
     room_guard_status[guild_id] = new_status
 
