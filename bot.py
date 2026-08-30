@@ -868,6 +868,41 @@ def get_realtime_name(user_id, default_name):
         print(f"❌ เกิดข้อผิดพลาดใน get_realtime_name: {e}")
     return default_name
 
+def _describe_member_activities(guild, max_members: int = 30) -> str:
+    """🎮 [แก้ไข] สรุปสั้นๆ ว่าตอนนี้ใครในเซิร์ฟกำลังเล่นเกม/ทำกิจกรรมอะไรอยู่บ้าง — จำกัดเฉพาะคนที่อยู่
+    "ในห้องเสียงเดียวกับบอทตอนนี้เท่านั้น" (เดิมส่องทั้งเซิร์ฟ ไม่สนว่าบอทอยู่ห้องไหน ทำให้ข้อมูลไม่แม่นเวลา
+    บอทไม่ได้อยู่ด้วยจริงๆ) ถ้าบอทไม่ได้อยู่ในห้องเสียงไหนเลย ให้คืนข้อความบอกตรงๆ ว่าไม่รู้เพราะไม่ได้อยู่ด้วย
+    กัน AI เดามั่วเอาสถานะของคนที่ไม่ได้อยู่ห้องเดียวกันมาตอบราวกับเห็นด้วยตาตัวเอง
+    """
+    if guild is None:
+        return "ไม่ทราบสถานะ (ไม่อยู่ในเซิร์ฟเวอร์)"
+    vc = guild.voice_client
+    if not vc or not vc.is_connected():
+        return "ตอนนี้บอทไม่ได้อยู่ในห้องเสียงไหนเลย เลยไม่รู้ว่าใครกำลังเล่น/ทำอะไรอยู่ — ถ้ามีคนถาม ให้ตอบตรงๆว่าไม่ทราบเพราะไม่ได้อยู่ในห้องเสียงด้วยตอนนี้"
+    channel = vc.channel
+    members = [m for m in channel.members if not m.bot]
+    if not members:
+        return "ตอนนี้บอทอยู่ในห้องเสียงคนเดียว ไม่มีใครอยู่ด้วยเลย"
+    lines = []
+    for m in members:
+        activity_bits = []
+        for activity in getattr(m, "activities", []) or []:
+            if isinstance(activity, discord.Game):
+                activity_bits.append(f"เล่น {activity.name}")
+            elif isinstance(activity, discord.Streaming):
+                activity_bits.append(f"สตรีม {activity.game or ''}".strip())
+            elif isinstance(activity, discord.Activity) and activity.type == discord.ActivityType.playing and activity.name:
+                activity_bits.append(f"เล่น {activity.name}")
+        calling_name = get_realtime_name(m.id, m.display_name)
+        if activity_bits:
+            lines.append(f"{calling_name}: {', '.join(activity_bits)}")
+        else:
+            lines.append(f"{calling_name}: ไม่ได้เปิดเกม/ไม่มีข้อมูลกิจกรรมให้เห็น")
+        if len(lines) >= max_members:
+            break
+    return f"(อยู่ในห้องเสียง '{channel.name}' เดียวกับบอทตอนนี้) " + "; ".join(lines)
+
+
 def find_member_by_name(guild, name_text, exclude_ids=None, prefer_channel=None, fuzzy_cutoff=0.72):
     """
     🔍 ค้นหาสมาชิกจากชื่อที่พิมพ์เฉยๆ (ไม่ต้อง @แท็ก)
@@ -5241,8 +5276,17 @@ async def on_message(message):
         async with message.channel.typing():
             try:
                 messages = []
-                async for msg in message.channel.history(limit=10):
+                # 📅 [แก้บั๊ก] ถ้าข้อความในประวัติเป็นของ "เมื่อวาน" หรือก่อนหน้า (คนละวันกับข้อความ
+                # ปัจจุบัน ตามเวลาไทย) ไม่นับรวมเข้า "10 ข้อความล่าสุด" — history() คืนข้อความจากใหม่ไปเก่า
+                # เรียงตามเวลา ดังนั้นพอเจอข้อความที่ข้ามวันไปแล้วก็หยุดดึงต่อได้เลย (ที่เหลือเก่ากว่านี้ทั้งหมด)
+                # กันไม่ให้ AI เอาบทสนทนาของวันก่อนมาปนกับวันนี้ จนสับสนว่า "วันนี้"/"เมื่อวาน" คือวันไหนกันแน่
+                today_bkk = message.created_at.astimezone(bangkok_tz).date()
+                async for msg in message.channel.history(limit=30):
+                    if msg.created_at.astimezone(bangkok_tz).date() != today_bkk:
+                        break
                     messages.append(msg)
+                    if len(messages) >= 10:
+                        break
                 messages.reverse()
                 
                 chat_log = ""
@@ -5322,6 +5366,12 @@ async def on_message(message):
 🖼️ หมายเหตุ: ถ้าในประวัติแชทข้างบนมีข้อความไหนมีวงเล็บ [แนบรูปภาพมาด้วย — ในรูปคือ: ...] ต่อท้าย
 แปลว่าคนนั้นเคยส่งรูปภาพมาในห้องนี้จริง และในวงเล็บคือสิ่งที่คุณเห็นในรูปนั้น ให้ถือว่าคุณเคยเห็นรูปนั้นด้วย
 ตาตัวเองแล้ว สามารถเอ่ยถึงหรือตอบคำถามเกี่ยวกับรูปนั้นได้เป็นธรรมชาติ เหมือนคุณจำภาพที่เพิ่งเห็นในห้องได้จริงๆ
+
+🎮 สถานะกำลังเล่น/ทำกิจกรรมอะไรอยู่ตอนนี้ของคนในห้องเสียงเดียวกับคุณ (ดึงจาก Discord จริง ณ ตอนนี้เลย):
+{_describe_member_activities(message.guild)}
+ถ้ามีคนถามว่า "คนนี้/สองคนนี้กำลังเล่นอะไรอยู่" หรือ "ใครเล่นเกมอะไรบ้าง" ให้ใช้ข้อมูลด้านบนนี้ตอบได้เลย
+แต่ข้อมูลนี้ครอบคลุมเฉพาะคนที่อยู่ในห้องเสียงเดียวกับคุณตอนนี้เท่านั้น ถ้าคุณไม่ได้อยู่ในห้องเสียงไหนเลย
+หรือคนที่ถูกถามไม่ได้อยู่ในห้องเสียงกับคุณ ให้ตอบตรงๆว่าไม่ทราบเพราะไม่ได้อยู่ในห้องเสียงด้วยตอนนั้น ห้ามเดามั่ว
 
 คำสั่ง: จงประมวลผลข้อความล่าสุดและตอบกลับด้วยความกวนโอ๊ยอย่างมีระดับตามสถานะของเขา ไม่หลุดคาแรกเตอร์แฮกเกอร์อังกฤษครับ! (คุมความยาวตามกฎ "ความยาวคำตอบ" ข้างบนให้ดี)
 """
