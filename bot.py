@@ -61,6 +61,17 @@ voice_action_cooldowns = {}
 
 song_queue = []
 
+# 🔇 [ใหม่] กันพูดซ้ำซ้อนตอนสั่งหยุดเพลงด้วยคำสั่ง: guild_id ที่อยู่ในเซ็ตนี้แปลว่าเพิ่งสั่ง /stop
+# มาเอง (ไม่ใช่เพลงหมดคิวเองตามธรรมชาติ) ดังนั้น check_queue() จะได้รู้ว่าไม่ต้องพูด
+# "คิวหมดแล้วครับ" ซ้ำอีกรอบ เพราะคำสั่ง stop จะพูด "หยุดเล่นเพลงตามคำสั่งแล้วครับ" ของตัวเองอยู่แล้ว
+manual_stop_guilds = set()
+
+# 🗣️ [ใหม่] นับจำนวนประโยคที่กำลังรอคิวพูด (ผ่าน bagley_speak_wait) อยู่ต่อกิลด์
+# ใช้เช็คว่าตอนนี้มีข้อความอื่น (เช่น คนเข้า-ออกห้อง) รอต่อคิวพูดอยู่หรือเปล่า
+# ถ้ามีอยู่แล้ว ข้อความเติมเต็มที่ไม่ค่อยสำคัญของระบบเพลง (เช่น "คิวหมดแล้วครับ") จะถูกข้ามไป
+# กันไม่ให้บอทพูดรัวเกินไปตอนเพลงจบพร้อมๆ กับมีคนเข้า-ออกห้องสะสมไว้ ส่วนคนเข้า-ออกยังต่อคิวพูดตามปกติ
+pending_speak_count = {}
+
 # 🚨 [ใหม่] ระบบให้ความสำคัญกับการแจ้งเตือน (ตารางนัด/reminder/ระบบวาร์ปแจ้งเตือนทุกชนิด) เหนือกว่าเพลง
 # current_playing_search: guild_id -> คำค้น/URL ของเพลงที่กำลังเล่นอยู่ล่าสุด เก็บไว้เผื่อโดนตัดจบกลางคัน
 #   จากการแจ้งเตือนสำคัญ จะได้ดึงกลับมาเล่นต่อ (เริ่มใหม่) ให้คุณหลังแจ้งเตือนเสร็จ
@@ -1057,51 +1068,62 @@ async def bagley_speak_wait(guild, text, filename=None, rate="+0%"):
     if vc and vc.is_connected():
         # 🔒 ล็อกกันคนอื่นพูดแซง/ทับกันตอนมีหลาย event เรียกมาพร้อมกัน
         # (เช่น คนเข้าห้องเสียงพร้อมกันหลายคน) ทำให้เล่นเรียงต่อกันแทน
+        # 🗣️ [ใหม่] +1 ตัวนับ "กำลังรอคิวพูด" ของกิลด์นี้ไว้ก่อนต่อคิว เพื่อให้ข้อความเติมเต็ม
+        # ของระบบเพลง (เช่น "คิวหมดแล้วครับ") รู้ว่าตอนนี้มีข้อความอื่นรอพูดอยู่แล้วหรือเปล่า
+        pending_speak_count[guild.id] = pending_speak_count.get(guild.id, 0) + 1
         lock = _get_voice_speak_lock(guild.id)
-        async with lock:
-            while vc.is_playing():
-                await asyncio.sleep(0.1)
-
-            unique_name = f"speak_{int(time.time() * 1000)}.mp3"
-            file_created = False
-
-            try:
-                voice = "th-TH-NiwatNeural"
-                communicate = edge_tts.Communicate(text, voice, rate=rate)
-                await communicate.save(unique_name)
-                file_created = True
-
-                await asyncio.sleep(0.5)
-
-                executable_path = r'C:\ffmpeg\bin\ffmpeg.exe'
-                source = discord.FFmpegPCMAudio(unique_name, executable=executable_path)
-
-                vc.play(source)
-
+        try:
+            async with lock:
                 while vc.is_playing():
                     await asyncio.sleep(0.1)
 
-            except Exception as e:
-                print(f"Error ในการพูดด้วยเสียง Niwat: {e}")
+                unique_name = f"speak_{int(time.time() * 1000)}.mp3"
+                file_created = False
 
-            finally:
-                # 🛡️ 1. สั่งเคลียร์และคลายล็อกไฟล์เสียงจาก FFmpeg ก่อนเลยคัปพ้ม
                 try:
-                    if 'source' in locals() and source:
-                        source.cleanup()
-                except Exception as src_err:
-                    print(f"Error ตอนสั่ง cleanup source: {src_err}")
+                    voice = "th-TH-NiwatNeural"
+                    communicate = edge_tts.Communicate(text, voice, rate=rate)
+                    await communicate.save(unique_name)
+                    file_created = True
 
-                # ⏳ 2. หน่วงเวลานิดนึง (0.5 วินาที) ให้ระบบปฏิบัติการ Windows คืนสิทธิ์ไฟล์เสร็จสรรพ
-                await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.5)
 
-                # 🗑️ 3. สั่งทำลายไฟล์ขยะทิ้ง
-                if file_created and os.path.exists(unique_name):
+                    executable_path = r'C:\ffmpeg\bin\ffmpeg.exe'
+                    source = discord.FFmpegPCMAudio(unique_name, executable=executable_path)
+
+                    vc.play(source)
+
+                    while vc.is_playing():
+                        await asyncio.sleep(0.1)
+
+                except Exception as e:
+                    print(f"Error ในการพูดด้วยเสียง Niwat: {e}")
+
+                finally:
+                    # 🛡️ 1. สั่งเคลียร์และคลายล็อกไฟล์เสียงจาก FFmpeg ก่อนเลยคัปพ้ม
                     try:
-                        os.remove(unique_name)
-                        print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับ!")
-                    except Exception as clean_error:
-                        print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
+                        if 'source' in locals() and source:
+                            source.cleanup()
+                    except Exception as src_err:
+                        print(f"Error ตอนสั่ง cleanup source: {src_err}")
+
+                    # ⏳ 2. หน่วงเวลานิดนึง (0.5 วินาที) ให้ระบบปฏิบัติการ Windows คืนสิทธิ์ไฟล์เสร็จสรรพ
+                    await asyncio.sleep(0.5)
+
+                    # 🗑️ 3. สั่งทำลายไฟล์ขยะทิ้ง
+                    if file_created and os.path.exists(unique_name):
+                        try:
+                            os.remove(unique_name)
+                            print(f"🗑️ [TTS Clean]: ทำลายไฟล์เสียงชั่วคราว {unique_name} เรียบร้อยครับ!")
+                        except Exception as clean_error:
+                            print(f"❌ ไม่สามารถลบไฟล์ได้เนื่องจาก: {clean_error}")
+        finally:
+            # 🗣️ [ใหม่] -1 ตัวนับ "กำลังรอคิวพูด" ของกิลด์นี้ เมื่อพูดประโยคนี้เสร็จ (ไม่ว่าจะสำเร็จหรือพัง)
+            remaining = pending_speak_count.get(guild.id, 1) - 1
+            if remaining <= 0:
+                pending_speak_count.pop(guild.id, None)
+            else:
+                pending_speak_count[guild.id] = remaining
 
 async def bagley_speak_reminder_direct(guild, content):
     """พูดแจ้งเตือนตรงๆ ในห้องเสียงที่ผู้ใช้อยู่ด้วยอยู่แล้ว (ไม่ต้องวาร์ปห้อง ไม่มีเสียงโดรน ไม่ทักทายว่าไฮแจ็ค) แล้วพูดย้ำอีก 1 รอบ"""
@@ -1640,7 +1662,13 @@ async def check_queue(ctx):
             
     else:
         is_playing_music = False
-        
+
+        # 🔇 [ใหม่] ถ้าคิวว่างเพราะเพิ่งสั่ง /stop มาเอง ไม่ใช่เพลงหมดคิวตามธรรมชาติ
+        # ให้ข้ามการพูด "คิวหมดแล้วครับ" ไปเลย เพราะคำสั่ง stop พูด "หยุดเล่นเพลงตามคำสั่งแล้วครับ"
+        # ของตัวเองอยู่แล้ว พูดซ้ำสองประโยคติดกันมันเยิ่นเย้อเกินไป
+        was_manual_stop = ctx.guild.id in manual_stop_guilds
+        manual_stop_guilds.discard(ctx.guild.id)
+
         left_user_name = pending_exit_after_music.pop(ctx.guild.id, None)
         
         if left_user_name:
@@ -1654,6 +1682,13 @@ async def check_queue(ctx):
                 print(f"DEBUG: 🎵 เพลงจบเซ็ต -> พบบันทึกเตือนจำ -> แบ็คลี่พูดรายงานคุณ {left_user_name} แล้ววาร์ปออกเรียบร้อย!")
             except Exception as e:
                 print(f"❌ เกิดข้อผิดพลาดตอนบอทตัดสายหลังคิวเพลงจบเซ็ต: {e}")
+        elif was_manual_stop:
+            print("DEBUG: 🔇 คิวว่างเพราะสั่ง /stop มาเอง ข้ามพูด 'คิวหมดแล้วครับ' กันพูดซ้ำกับข้อความของคำสั่ง stop")
+        elif pending_speak_count.get(ctx.guild.id, 0) > 0:
+            # 🔇 [ใหม่] ตอนนี้มีข้อความอื่น (เช่น คนเข้า-ออกห้องที่สะสมไว้ระหว่างเปิดเพลง) กำลังรอต่อคิว
+            # พูดอยู่แล้ว ข้ามข้อความเติมเต็มของระบบเพลงไปเลย กันไม่ให้บอทพูดรัวเกินไป ส่วนข้อความ
+            # คนเข้า-ออกที่รออยู่จะได้ต่อคิวพูดกันไปตามปกติ (พูดเสร็จทีละประโยคแล้วพูดต่อ)
+            print(f"DEBUG: 🔇 มีข้อความอื่นรอต่อคิวพูดอยู่ {pending_speak_count.get(ctx.guild.id, 0)} รายการ ข้ามพูด 'คิวหมดแล้วครับ' กันพูดรัวเกินไป")
         else:
             await bagley_speak(ctx.guild, "เพลงในคิวหมดแล้วครับ ถ้าอยากฟังต่อก็สั่งเปิดเพลงใหม่ได้เลยนะครับ")
             print("คิวว่างแล้วครับ Bagley พูดรายงานเรียบร้อย")
@@ -6338,11 +6373,13 @@ async def skip(ctx: commands.Context):
 
     await ctx.send("⏭️ **ข้ามให้แล้วครับ!** กำลังดึงเพลงถัดไป...")
 
-    # 2. สั่งหยุดเพลงปัจจุบัน 
+    # 2. สั่งหยุดเพลงปัจจุบัน (การ stop() นี้จะไปสั่งให้ callback `_after` ใน play_song()
+    # เรียก check_queue() ให้เล่นเพลงถัดไปเองอัตโนมัติอยู่แล้ว)
+    # 🔧 [แก้บั๊ก] เดิมโค้ดตรงนี้เรียก `await check_queue(ctx)` ซ้ำอีกรอบด้านล่าง ทำให้
+    # check_queue() ถูกเรียกพร้อมกัน 2 ที่ (ทั้งจาก callback และจากตรงนี้) แย่งกัน pop
+    # เพลงถัดไปออกจากคิวไปเล่นซ้อนกัน ทำให้บางทีข้ามเพลงเกินไป 1 เพลง หรือเสียงเพลงสองเพลง
+    # เล่นชนกัน ตอนนี้ปล่อยให้ callback อัตโนมัติจัดการเล่นเพลงถัดไปแทนโดยไม่ต้องเรียกซ้ำเอง
     ctx.voice_client.stop()
-
-    # 3. บังคับให้เช็คคิวและเล่นเพลงถัดไปทันทีโดยไม่ต้องรอ after
-    await check_queue(ctx)
 
 @bot.hybrid_command(name="queue", description="ดูรายการเพลงในคิว")
 async def queue(ctx: commands.Context):
@@ -6366,6 +6403,10 @@ async def stop(ctx: commands.Context):
 
         # 2. ถ้าเพลงกำลังเล่นอยู่ ก็สั่งให้หยุด
         if ctx.voice_client.is_playing():
+            # 🔇 [ใหม่] ปักธงไว้ก่อนว่ากิลด์นี้เพิ่งสั่ง /stop มาเอง เพื่อให้ check_queue()
+            # (ที่จะถูกเรียกอัตโนมัติจาก callback ตอนเพลงหยุด) รู้ว่าไม่ต้องพูด "คิวหมดแล้วครับ"
+            # ซ้ำอีกรอบ เดี๋ยวข้างล่างจะพูด "หยุดเล่นเพลงตามคำสั่งแล้วครับ" แค่ประโยคเดียวพอ
+            manual_stop_guilds.add(ctx.guild.id)
             ctx.voice_client.stop()
         
         msg = "หยุดเล่นเพลงและล้างคิวทั้งหมดเรียบร้อยครับ!"
