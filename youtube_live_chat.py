@@ -314,6 +314,9 @@ async def _watch_loop(
         MAX_PENDING = 40
         pending = collections.deque(maxlen=MAX_PENDING)
 
+        consecutive_errors = 0
+        MAX_CONSECUTIVE_ERRORS = 15  # ยอมให้พลาดติดกันได้กี่ครั้งก่อนจะยอมแพ้จริง ๆ (กันหลุดถาวรจากปัญหาชั่วคราว)
+
         try:
             while True:
                 params = f"?key={_get_yt_api_key()}&liveChatId={live_chat_id}&part=snippet,authorDetails"
@@ -321,8 +324,40 @@ async def _watch_loop(
                     params += f"&pageToken={page_token}"
                 url = f"https://www.googleapis.com/youtube/v3/liveChat/messages{params}"
 
-                async with session.get(url) as resp:
-                    data = await resp.json()
+                # 🛠️ [แก้บั๊ก] "ไม่มีแชทมานาน ๆ แล้วพอมีแชทเข้ามาบอทไม่อ่านต่อเลย"
+                # เดิมส่วนยิงคำขอ + อ่านผลลัพธ์ตรงนี้ไม่มี try/except คลุมของตัวเองเลย ถ้าเจอปัญหา
+                # เครือข่ายชั่วคราว (เช่น คอนเนกชันที่ปล่อยว่างไว้เฉย ๆ นานเกินไปตอนไม่มีแชทเข้ามาเลย
+                # ถูกเราท์เตอร์/ไฟร์วอลล์/ISP ตัดทิ้งระหว่างทาง, เน็ตสะดุดแป๊บเดียว, หรือ YouTube ตอบช้า
+                # เกินไปจนค้าง) exception จะกระเด็นไปเข้า `except Exception` ตัวนอกสุดของฟังก์ชันทันที
+                # ซึ่งจบเซสชันอ่านแชททั้งเซสชันไปเลย (ดู finally ด้านล่างสุดที่ลบ session ทิ้ง)
+                # พอแชทกลับมาไหลอีกครั้งแบ็คลี่จึงไม่อ่านต่อให้เลย เพราะเซสชันตายไปแล้วเงียบ ๆ ตั้งแต่ตอน
+                # ที่ยังไม่มีแชทมานานก่อนหน้านั้น (ยิ่งช่วงเงียบนานเท่าไหร่ ยิ่งมีโอกาสเจอปัญหานี้มากขึ้น)
+                # ตอนนี้แก้ให้ error จากการยิง request/parse JSON แค่ log ไว้แล้ว "ลองใหม่" (retry แบบมี
+                # backoff) แทนที่จะฆ่าทั้งเซสชันทันที จะยอมแพ้จริง ๆ ก็ต่อเมื่อพลาดติดกันเกิน
+                # MAX_CONSECUTIVE_ERRORS ครั้งเท่านั้น (เผื่อเป็นปัญหาถาวรจริง ๆ เช่น API key ผิด/โดนลบคีย์)
+                try:
+                    request_timeout = aiohttp.ClientTimeout(total=30)
+                    async with session.get(url, timeout=request_timeout) as resp:
+                        data = await resp.json()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as req_err:
+                    consecutive_errors += 1
+                    print(
+                        f"⚠️ [Live Chat] ดึงแชทสดพลาดชั่วคราว (ครั้งที่ {consecutive_errors}): {req_err} "
+                        f"— จะลองใหม่อีกครั้งครับ (ไม่ปิดเซสชัน)"
+                    )
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        if announce_func:
+                            await announce_func(
+                                f"⚠️ อ่านแชทสดหยุดเพราะเชื่อมต่อไม่ได้ติดต่อกันหลายครั้งครับ ({req_err})"
+                            )
+                        break
+                    # รอแป๊บก่อนลองใหม่ ยิ่งพลาดติดกันหลายครั้งยิ่งรอนานขึ้น (backoff) แต่ไม่เกิน 30 วิ
+                    await asyncio.sleep(min(2 * consecutive_errors, 30))
+                    continue
+
+                consecutive_errors = 0  # ✅ ดึงสำเร็จแล้ว รีเซ็ตตัวนับข้อผิดพลาดติดกัน
 
                 if "error" in data:
                     reason = data["error"].get("message", "unknown error")
@@ -333,7 +368,14 @@ async def _watch_loop(
                 # ✅ เลื่อน pageToken เสมอแม้ตอนนี้จะหยุดชั่วคราวอยู่ก็ตาม เพื่อไม่ให้ YouTube
                 # ส่งข้อความชุดเดิมซ้ำมาให้อีกตอนเรียกครั้งถัดไป (กันพูดซ้ำ)
                 page_token = data.get("nextPageToken", page_token)
-                polling_ms = data.get("pollingIntervalMillis", 5000)
+                # 🛠️ [แก้บั๊ก] "ไม่มีแชทมานาน ๆ แล้วบอทไม่อ่านต่อ" ต่ออีกจุดหนึ่ง: YouTube จะแนะนำ
+                # pollingIntervalMillis ที่ยาวขึ้นเรื่อย ๆ เองโดยอัตโนมัติเวลาแชทเงียบนาน ๆ (เพื่อประหยัด
+                # quota ฝั่งเซิร์ฟเวอร์) ซึ่งบางครั้งอาจยาวหลายนาที ถ้าเผลอปล่อยตามค่าที่ YouTube แนะนำ
+                # ตรง ๆ พอมีคนพิมพ์แชทเข้ามาใหม่หลังช่วงเงียบ แบ็คลี่จะ "ดูเหมือน" ไม่อ่านต่อเลย ทั้งที่จริง
+                # ๆ แค่กำลังหลับรอรอบ poll ถัดไปอยู่ (อาจจะอีกหลายนาทีถัดจากนี้) จำกัดเพดานไว้ไม่ให้เกิน
+                # MAX_POLLING_MS เพื่อให้กลับมา responsive เร็วขึ้นเสมอไม่ว่าจะเงียบไปนานแค่ไหนก็ตาม
+                MAX_POLLING_MS = 10000  # อย่างมากรอ 10 วิ ก่อน poll รอบถัดไป ต่อให้ YouTube แนะนำนานกว่านี้
+                polling_ms = min(data.get("pollingIntervalMillis", 5000), MAX_POLLING_MS)
 
                 # 🧺 เก็บข้อความที่ตรงเงื่อนไขทุกข้อความเข้าคิวไว้ก่อนเสมอ ไม่ว่าจะหยุดชั่วคราวอยู่
                 # หรือไม่ก็ตาม — ตอน "พูดต่อ" (resume) ค่อยไปดึงจากคิวนี้มาพูดทีหลัง จะได้ไม่ตกหล่น

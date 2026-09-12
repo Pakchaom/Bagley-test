@@ -83,6 +83,14 @@ priority_alert_active_guilds = set()
 user_join_times = {}
 
 voice_report_status = {}
+# 🆕 [daily_announcement on/off] สถานะเปิด/ปิดระบบแจ้งเตือนเวลาเที่ยงวัน/เที่ยงคืน (daily_announcement_task)
+# แยกตามกิลด์ ค่าเริ่มต้นถ้ายังไม่เคยตั้งคือ True (เปิด) เหมือนพฤติกรรมเดิม
+daily_announcement_status = {}
+
+# 🆕 [โหมดสตรีม] สถานะเปิด/ปิด "โหมดสตรีม" แยกตามกิลด์ (guild_id -> bool)
+# เปิดโหมดนี้แล้วจะ: 1) ปิดระบบชวนตี้ (same_game_alert) 2) ปิดแจ้งเวลาเที่ยงวัน/เที่ยงคืน 3) รับคำสั่ง
+# เฉพาะเจ้าของบอท/คนที่กำลังสตรีมอยู่เท่านั้น 4) ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียง
+stream_mode_status = {}
 # 🔒 ล็อกสำหรับกันไม่ให้แบ็คลี่พูด 2 ประโยคทับกันตอนมีคนเข้าห้องพร้อมกัน
 # (ป้องกัน race condition ที่ 2 event ยิงมาพร้อมกันแล้วเช็ค is_playing() ไม่ทัน)
 voice_speak_locks = {}
@@ -196,6 +204,38 @@ command_follow_targets = {}
 
 ALLOWED_USERS = [1133740216822267954, 856568101919653918] # ชะอมกับชาช่า
 auto_follow_status = {uid: True for uid in ALLOWED_USERS}
+
+# ============================================================
+# 🎥 [โหมดสตรีม] ตัวช่วยเช็คสิทธิ์: ตอนเปิดโหมดสตรีมอยู่ ใครสั่งแบ็คลี่ได้บ้าง
+# ============================================================
+def is_stream_mode_on(guild_id) -> bool:
+    """เช็คว่ากิลด์นี้เปิด 'โหมดสตรีม' อยู่หรือไม่ (ค่าเริ่มต้นคือปิด)"""
+    if guild_id is None:
+        return False
+    return stream_mode_status.get(guild_id, False)
+
+
+def is_stream_authorized(user, guild) -> bool:
+    """เช็คว่า user คนนี้มีสิทธิ์สั่งแบ็คลี่ได้ระหว่างเปิดโหมดสตรีมอยู่หรือไม่
+    เงื่อนไข: เป็นเจ้าของบอท/ผู้พัฒนา (ALLOWED_TEACH_USERS/OWNER_DISCORD_ID) หรือ
+    เป็น 'คนที่กำลังสตรีมอยู่' (เปิด Go Live ในห้องเสียง หรือมีสถานะ Streaming เช่นสตรีมผ่าน Twitch)"""
+    if user is None:
+        return False
+    if user.id == OWNER_DISCORD_ID or user.id in ALLOWED_TEACH_USERS:
+        return True
+    if guild is None:
+        return False
+    member = guild.get_member(user.id) if hasattr(guild, "get_member") else None
+    if member is None:
+        return False
+    voice_state = getattr(member, "voice", None)
+    if voice_state is not None and getattr(voice_state, "self_stream", False):
+        return True  # กำลังกด Go Live (แชร์หน้าจอสตรีม) อยู่ในห้องเสียง
+    for activity in (getattr(member, "activities", None) or []):
+        if getattr(activity, "type", None) == discord.ActivityType.streaming:
+            return True  # มีสถานะ "กำลังสตรีม" (เช่น เชื่อม Twitch ไว้กับ Discord)
+    return False
+
 last_greeting_dates = {}
 
 last_reminder_dates = {}
@@ -2951,6 +2991,11 @@ async def daily_announcement_task():
     ai_ready = True
 
     for voice_client in bot.voice_clients:
+        # 🎥 [โหมดสตรีม] ถ้ากิลด์นี้ปิดระบบแจ้งเตือนเที่ยงวัน/เที่ยงคืนไว้ (ผ่าน /stream_mode หรือสั่งปิด
+        # เองโดยตรง) ให้ข้ามกิลด์นี้ไปเลย ไม่ต้องพูดแจ้งเตือน
+        if voice_client and voice_client.guild and not daily_announcement_status.get(voice_client.guild.id, True):
+            continue
+
         if voice_client and voice_client.channel and voice_client.is_connected():
             
             human_members = [m for m in voice_client.channel.members if not m.bot]
@@ -3835,10 +3880,36 @@ async def _bagley_tree_interaction_check(interaction: discord.Interaction) -> bo
         except Exception:
             pass
         return False
+
+    # 🎥 [โหมดสตรีม] ถ้ากิลด์นี้เปิดโหมดสตรีมอยู่ รับคำสั่งเฉพาะเจ้าของบอท/คนที่กำลังสตรีมเท่านั้น
+    if (
+        interaction.guild is not None
+        and is_stream_mode_on(interaction.guild.id)
+        and not is_stream_authorized(interaction.user, interaction.guild)
+    ):
+        try:
+            await interaction.response.send_message(
+                "🎥 ตอนนี้เปิดโหมดสตรีมอยู่ครับ รับคำสั่งเฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้นนะ",
+                ephemeral=True
+            )
+        except Exception:
+            pass
+        return False
+
     return True
 
 bot.tree.interaction_check = _bagley_tree_interaction_check
 tree = bot.tree
+
+# 🎥 [โหมดสตรีม] เช็คสิทธิ์แบบเดียวกันนี้กับคำสั่งที่สั่งผ่านข้อความ (prefix "!"/hybrid command ทาง
+# ข้อความ) ด้วย — ครอบคลุมทุกคำสั่งของบอทโดยอัตโนมัติ ไม่ต้องไปแก้ทีละคำสั่ง
+@bot.check
+async def _bagley_stream_mode_command_check(ctx: commands.Context) -> bool:
+    if ctx.guild is None:
+        return True
+    if not is_stream_mode_on(ctx.guild.id):
+        return True
+    return is_stream_authorized(ctx.author, ctx.guild)
 
 # ============================================================
 # 🎙️ [Voice Relay] ระบบรับคำสั่งเสียงตรงจาก mic_to_discord.py
@@ -4390,7 +4461,17 @@ async def on_message(message):
             # ในข้อความที่ตอบกลับมาเลยก็ตาม เหมือนพฤติกรรมใน DM
             or await is_reply_to_bagley_message(message)
         )
-        if should_try_ai_command:
+        # 🎥 [โหมดสตรีม] ถ้ากิลด์นี้เปิดโหมดสตรีมอยู่ รับคำสั่ง (ผ่าน AI Router/พิมพ์ธรรมชาติ หรือความสามารถ
+        # ชั่วคราว) เฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้น คนอื่นข้ามส่วนสั่งคำสั่งพวกนี้ไปเลย
+        # (แต่ยังคุยเล่นทั่วไปกับแบ็คลี่ต่อได้ตามปกติ ไหลลงไปเข้า teach memory/free chat ด้านล่างแทน)
+        _stream_mode_blocks_command = (
+            message.guild is not None
+            and not message.author.bot
+            and is_stream_mode_on(message.guild.id)
+            and not is_stream_authorized(message.author, message.guild)
+        )
+
+        if should_try_ai_command and not _stream_mode_blocks_command:
             # 🤝 [ระบบ Trust] นับว่าคนนี้คุยกับแบ็คลี่ตรงๆ อีกครั้ง (ใช้สะสมสิทธิ์ ephemeral tools)
             if message.guild is not None and not message.author.bot:
                 bagley_trust.track_interaction(message.author.id, message.guild.id)
@@ -7037,6 +7118,112 @@ async def same_game_alert(ctx: commands.Context, mode: str = None):
             print(f"Same Game Alert Speech Error: {e}")
 
 
+# ============================================================
+# 🎥 [โหมดสตรีม] ปุ่มเปิด/ปิดโหมดสตรีมทีเดียว รวม 4 อย่าง:
+#   1) ปิดระบบ "ชวนตี้" (party_matcher_disabled_guilds)
+#   2) ปิดแจ้งเตือนเวลาเที่ยงวัน/เที่ยงคืน (daily_announcement_status)
+#   3) รับคำสั่งเฉพาะเจ้าของบอท/คนที่กำลังสตรีมอยู่เท่านั้น (stream_mode_status -> เช็คใน
+#      bot.check / tree.interaction_check / ก่อนเรียก ai_route_and_execute ด้านบนของไฟล์)
+#   4) ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียง (voice_report_status)
+# ปิดโหมดสตรีมแล้ว จะคืนค่าทั้ง 4 อย่างกลับไปเป็น "เปิด" (ค่าเริ่มต้นเดิมของบอท) ให้ทั้งหมด
+# ============================================================
+def _bagley_apply_stream_mode(guild_id: int, enable: bool):
+    """ตั้งค่าสถานะทั้ง 4 ระบบให้ตรงกับโหมดสตรีมที่ต้องการ (enable=True คือ 'เปิดโหมดสตรีม')"""
+    global party_matcher_disabled_guilds
+    stream_mode_status[guild_id] = enable
+    if enable:
+        party_matcher_disabled_guilds.add(guild_id)      # เปิดโหมดสตรีม -> ปิดชวนตี้
+    else:
+        party_matcher_disabled_guilds.discard(guild_id)
+    daily_announcement_status[guild_id] = not enable    # เปิดโหมดสตรีม -> ปิดแจ้งเที่ยงวัน/เที่ยงคืน
+    voice_report_status[guild_id] = not enable          # เปิดโหมดสตรีม -> ปิดทักทายคนเข้า-ออกห้อง
+    # ข้อ 3 (รับคำสั่งเฉพาะเจ้าของบอท/คนที่กำลังสตรีม) อ่านค่าจาก stream_mode_status ตรงๆ ผ่าน
+    # is_stream_mode_on() ที่ bot.check / tree.interaction_check / ai_route_and_execute เช็คอยู่แล้ว
+
+
+class StreamModeView(discord.ui.View):
+    """View แบบปุ่มเดียวกดสลับเปิด/ปิดโหมดสตรีม (persistent - ไม่หมดอายุ) — ปุ่มนี้กดได้เฉพาะ
+    เจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้น (เงื่อนไขเดียวกับที่ใช้จำกัดสิทธิ์สั่งคำสั่งตอนเปิดโหมดสตรีม)"""
+
+    def __init__(self, guild_id: int):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self._sync_button_label()
+
+    def _sync_button_label(self):
+        is_on = stream_mode_status.get(self.guild_id, False)
+        self.toggle_button.label = "🔴 ปิดโหมดสตรีม" if is_on else "🎥 เปิดโหมดสตรีม"
+        self.toggle_button.style = discord.ButtonStyle.red if is_on else discord.ButtonStyle.green
+
+    @discord.ui.button(label="🎥 เปิดโหมดสตรีม", style=discord.ButtonStyle.green, custom_id="bagley_stream_mode_toggle")
+    async def toggle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("คำสั่งนี้ใช้ได้ในเซิร์ฟเวอร์เท่านั้นครับ", ephemeral=True)
+            return
+
+        # 🔒 กดปุ่มนี้ได้เฉพาะเจ้าของบอท/คนที่กำลังสตรีมอยู่เท่านั้น (กันคนอื่นมากดเล่น)
+        if not is_stream_authorized(interaction.user, guild):
+            await interaction.response.send_message(
+                "🛑 ปุ่มนี้กดได้เฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้นนะครับ", ephemeral=True
+            )
+            return
+
+        new_status = not stream_mode_status.get(guild.id, False)
+        _bagley_apply_stream_mode(guild.id, new_status)
+        self._sync_button_label()
+
+        if new_status:
+            desc = (
+                "✅ **เปิดโหมดสตรีมแล้วครับ!**\n"
+                "1️⃣ ปิดระบบชวนตี้ (ปิดหาคนเล่นเกมเดียวกัน)\n"
+                "2️⃣ ปิดแจ้งเตือนเที่ยงวัน/เที่ยงคืน\n"
+                "3️⃣ รับคำสั่งเฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้น\n"
+                "4️⃣ ปิดระบบพูดทักทายคนเข้า-ออกห้องเสียง"
+            )
+            voice_msg = "เปิดโหมดสตรีมแล้วครับ ผมจะเงียบๆ ไม่รบกวนตอนไลฟ์นะครับ"
+        else:
+            desc = "🔓 **ปิดโหมดสตรีมแล้วครับ!** คืนค่าทั้ง 4 ระบบกลับเป็นปกติเรียบร้อยครับ"
+            voice_msg = "ปิดโหมดสตรีมแล้วครับ กลับมาทำงานตามปกติแล้วนะครับ"
+
+        embed = discord.Embed(
+            title="🎥 โหมดสตรีม",
+            description=desc,
+            color=0xff4d4d if new_status else 0x2ecc71,
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+        if not is_playing_music:
+            try:
+                await bagley_speak(guild, voice_msg)
+            except Exception as e:
+                print(f"Stream Mode Toggle Speech Error: {e}")
+
+
+@bot.hybrid_command(name="stream_mode", description="เปิด/ปิดโหมดสตรีมของแบ็คลี่ด้วยปุ่มเดียว (ปิดชวนตี้/แจ้งเที่ยงวัน-เที่ยงคืน/ทักทายเข้าออกห้อง + รับคำสั่งเฉพาะเจ้าของบอทหรือคนที่กำลังสตรีม)")
+async def stream_mode_panel(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("คำสั่งนี้จำเป็นต้องสั่งใช้งานภายในเซิร์ฟเวอร์เท่านั้นครับ")
+        return
+
+    is_on = stream_mode_status.get(ctx.guild.id, False)
+    embed = discord.Embed(
+        title="🎥 โหมดสตรีม",
+        description=(
+            f"สถานะตอนนี้: {'🔴 **เปิดอยู่**' if is_on else '🟢 **ปิดอยู่**'}\n\n"
+            "กดปุ่มด้านล่างเพื่อสลับเปิด/ปิดโหมดสตรีม:\n"
+            "1️⃣ ปิด/เปิดระบบชวนตี้ (หาคนเล่นเกมเดียวกัน)\n"
+            "2️⃣ ปิด/เปิดแจ้งเตือนเที่ยงวัน/เที่ยงคืน\n"
+            "3️⃣ รับคำสั่งเฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้น (เปิดโหมดสตรีมแล้วคนอื่นสั่งไม่ได้)\n"
+            "4️⃣ ปิด/เปิดระบบพูดทักทายคนเข้า-ออกห้องเสียง\n\n"
+            "*(ปุ่มนี้กดได้เฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้นนะครับ)*"
+        ),
+        color=0xff4d4d if is_on else 0x2ecc71,
+    )
+    view = StreamModeView(ctx.guild.id)
+    await ctx.send(embed=embed, view=view)
+
+
 @bot.hybrid_command(name="follow", description="สั่งให้แบ็คลี่ตามติดสมาชิกคนนี้ไปทุกห้องเสียงในเซิร์ฟนี้")
 async def follow(ctx: commands.Context, member: discord.Member):
     """เพิ่มการตามติดแบบกำหนดเองผ่านคำสั่ง (แยกจากระบบตามผู้พัฒนาโดยอัตโนมัติ)
@@ -7362,7 +7549,15 @@ async def on_command_error(ctx, error):
     
     elif isinstance(error, commands.CommandOnCooldown):
         return await ctx.send(f"⚠️ ใจเย็นครับ รอก่อนอีก {error.retry_after:.1f} วินาทีน้า", delete_after=5)
-    
+
+    elif isinstance(error, commands.CheckFailure):
+        if ctx.guild is not None and is_stream_mode_on(ctx.guild.id):
+            return await ctx.send(
+                "🎥 ตอนนี้เปิดโหมดสตรีมอยู่ครับ รับคำสั่งเฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้นนะ",
+                delete_after=10
+            )
+        return await ctx.send("🛑 ขออภัยครับ ไม่มีสิทธิ์ใช้คำสั่งนี้นะครับ", delete_after=10)
+
     else:
         print(f'Ignoring exception in command {ctx.command}:', error)
 
