@@ -96,7 +96,7 @@ def track_message(channel_id: int, author_name: str, content: str, image_caption
     ระบบเรียนรู้/ทักเองไปยุ่งกับห้องที่บอทไม่เคยเกี่ยวข้องด้วยเลย
 
     🖼️ image_caption (ใหม่): ถ้ามีคนแนบรูปภาพมาด้วย (ไม่ว่าจะพิมพ์ข้อความมาด้วยหรือไม่) ฝั่ง bot.py
-    จะสรุปคำบรรยายรูปสั้นๆ ด้วย Gemini vision แล้วส่งเข้ามาทาง argument นี้ — เก็บแนบเข้าไปในบรรทัด
+    จะสรุปคำบรรยายรูปสั้นๆ ด้วย AI vision แล้วส่งเข้ามาทาง argument นี้ — เก็บแนบเข้าไปในบรรทัด
     บทสนทนาเดียวกัน เพื่อให้ทั้ง bagley_learning (สรุป insight) และ bagley_autonomy (ตัดสินใจ "ชวนคุย"
     เอง) มองเห็นว่ามีรูปภาพอะไรถูกโพสต์ไปด้วย ไม่ใช่แค่ข้อความล้วนๆ เหมือนเดิม"""
     line = None
@@ -140,7 +140,7 @@ async def _summarize_channel(guild_id: int, channel_id: int, lines: list[str]):
     )
     try:
         resp = await _client.aio.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=prompt
+            model="chat", contents=prompt
         )
         text = (getattr(resp, "text", "") or "").strip()
         if text and text.upper() != "NONE":

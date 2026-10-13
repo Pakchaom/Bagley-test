@@ -6,9 +6,9 @@
 # `find_member_by_name` และคำสั่งทุกตัวถูกลงทะเบียนแล้ว)
 #
 # วิธีทำงาน:
-#   1. สแกน bot.commands (เฉพาะ HybridCommand) แล้วสร้าง Gemini FunctionDeclaration
+#   1. สแกน bot.commands (เฉพาะ HybridCommand) แล้วสร้าง AI FunctionDeclaration
 #      ให้อัตโนมัติจาก name / description / parameters ของแต่ละคำสั่ง
-#   2. ส่งข้อความผู้ใช้ให้ Gemini เลือกว่าควรเรียกคำสั่งไหน (หรือไม่เรียกเลย) — รอบที่ 1
+#   2. ส่งข้อความผู้ใช้ให้ AI เลือกว่าควรเรียกคำสั่งไหน (หรือไม่เรียกเลย) — รอบที่ 1
 #   3. ตรวจทานซ้ำอีกรอบ (self-check) ก่อนสั่งจริง เพื่อกรองเคสตีความมั่ว — รอบที่ 2
 #      (นี่คือส่วนที่ทำให้ระบบฉลาดขึ้น แยกแยะ "คุยเล่น" กับ "สั่งงานจริง" ได้แม่นกว่าเดิม)
 #   4. พารามิเตอร์ที่เป็น discord.Member / VoiceChannel / TextChannel / Role
@@ -31,7 +31,7 @@ import json
 import time
 import discord
 from discord.ext import commands
-from google.genai import types as genai_types
+from bagley.ai import gate
 
 # --------------------------------------------------------------
 # ตั้งค่า: คำสั่งที่ไม่ต้องการให้ AI เรียกเองจากแชทธรรมดา
@@ -52,73 +52,59 @@ AI_ROUTER_EXCLUDED_COMMANDS = {
 _COMMAND_TOOLS_CACHE = None
 
 
-def _build_command_tools(bot: commands.Bot):
-    """สแกนคำสั่ง hybrid_command ทั้งหมด แล้วแปลงเป็น Gemini FunctionDeclaration อัตโนมัติ"""
-    declarations = []
+def _param_desc(cmd, pname, annotation) -> str:
+    """คำอธิบายพารามิเตอร์แบบสั้น (ประหยัดโทเคนมาก — เดิมยาว 3-5 บรรทัดต่อพารามิเตอร์)"""
+    if annotation in (discord.Member, discord.User):
+        return "ชื่อสมาชิกตามที่ผู้ใช้พูดเป๊ะๆ (ไม่ต้องแปลงเป็น ID)"
+    if annotation in (discord.VoiceChannel, discord.TextChannel):
+        return "ชื่อห้องตามที่พูด ถ้าพูดว่า 'ห้องนี้/ตรงนี้/ที่นี่' ให้ใส่คำนั้นตามเดิม ห้ามเดาชื่อ"
+    if annotation in (discord.Role,):
+        return "ชื่อยศตามที่ผู้ใช้พูด"
+    if cmd.name in ("watch_live_chat", "toggle_live_chat") and pname == "video":
+        return "ลิงก์/รหัสไลฟ์ที่ปรากฏในข้อความจริงๆ เท่านั้น ห้ามเดา"
+    if cmd.name == "guard_room" and pname == "mode":
+        return "คัดลอกวลีเปิด/ปิดโหมดเฝ้าห้องที่ผู้ใช้พูดมาเป๊ะๆ ถ้าไม่ชัดเจนให้เว้นว่าง"
+    return f"{pname} (ใช้ค่าที่ผู้ใช้พูดจริงเท่านั้น)"
 
+
+def _build_command_tools(bot: commands.Bot, only=None):
+    """สแกนคำสั่ง hybrid_command แล้วแปลงเป็น tool schema ของ OpenAI อัตโนมัติ
+    only = ชุดชื่อคำสั่งที่ผ่านด่าน gate.shortlist (ส่งให้ AI เฉพาะที่เกี่ยวข้อง = เร็วและแม่นขึ้น)"""
+    tools = []
     for cmd in bot.commands:
         if cmd.name in AI_ROUTER_EXCLUDED_COMMANDS:
             continue
         if not isinstance(cmd, commands.HybridCommand):
-            # ข้าม tree.command ล้วน ๆ (รับ interaction ตรง ๆ เรียกผ่าน ctx.invoke ไม่ได้)
+            continue
+        if only is not None and cmd.name not in only:
             continue
 
         properties = {}
         required = []
-
         for pname, param in cmd.clean_params.items():
-            annotation = param.annotation
-            base_desc = f"พารามิเตอร์ '{pname}' ของคำสั่ง /{cmd.name}"
-
-            if annotation in (discord.Member, discord.User):
-                desc = (f"{base_desc} — ชื่อเล่น/ชื่อดิสคอร์ดของสมาชิกเป้าหมาย "
-                         f"ให้ใส่ตามที่ผู้ใช้พูดมาเป๊ะๆ ไม่ต้องแปลงเป็น ID เอง")
-            elif annotation in (discord.VoiceChannel, discord.TextChannel):
-                desc = (f"{base_desc} — ชื่อห้องตามที่ผู้ใช้พูดถึง (ไม่ต้องแปลงเป็น ID) "
-                         f"ถ้าผู้ใช้พูดว่า 'ห้องนี้', 'ตรงนี้', 'ที่นี่' หรือคำใกล้เคียงที่หมายถึง "
-                         f"ห้องเสียงที่ตัวเองอยู่อยู่แล้ว ให้ใส่คำนั้นตามที่พูดมาเป๊ะๆ ไม่ต้องเดาชื่อห้องเอง")
-            elif annotation in (discord.Role,):
-                desc = f"{base_desc} — ชื่อยศ/role ตามที่ผู้ใช้พูดถึง"
-            elif cmd.name in ("watch_live_chat", "toggle_live_chat") and pname == "video":
-                desc = (f"{base_desc} — ลิงก์ไลฟ์ YouTube หรือ video id/channel id ที่ผู้ใช้แปะมา "
-                         f"ต้องมีลิงก์หรือรหัสวิดีโอปรากฏอยู่ในข้อความจริงๆ เท่านั้น ห้ามเดาลิงก์เอง")
-            elif cmd.name == "guard_room" and pname == "mode":
-                desc = (f"{base_desc} — ใส่คำหรือวลีที่ผู้ใช้พูด 'จริงๆ' ที่บ่งบอกทิศทาง เปิด/ปิด โหมดเฝ้าห้อง "
-                         f"เช่น ถ้าผู้ใช้พูดว่า 'เฝ้าห้องนี้ไว้นะ', 'ช่วยเฝ้าห้องหน่อย', 'อยู่เฝ้าห้องนี้ไว้ให้หน่อย' "
-                         f"หรือ 'เปิด' ให้คัดลอกคำนั้นมาเป๊ะๆ (ไม่ต้องแปลเป็น on/off เอง) "
-                         f"ถ้าผู้ใช้พูดว่า 'เลิกเฝ้าห้องแล้ว', 'หยุดเฝ้าห้อง', 'ไม่ต้องเฝ้าแล้ว' หรือ 'ปิด' "
-                         f"ก็คัดลอกคำนั้นมาเช่นกัน ถ้าข้อความแค่พูดถึงคำสั่งลอยๆ ไม่ได้ระบุทิศทางชัดเจน "
-                         f"ให้เว้นพารามิเตอร์นี้ว่างไว้เลย (ไม่ต้องใส่ค่าอะไรทั้งนั้น)")
-            else:
-                desc = base_desc
-
-            properties[pname] = {"type": "string", "description": desc}
-
+            properties[pname] = {"type": "string", "description": _param_desc(cmd, pname, param.annotation)}
             if param.default is param.empty:
                 required.append(pname)
 
-        declarations.append(
-            genai_types.FunctionDeclaration(
-                name=cmd.name,
-                description=(cmd.description or cmd.help or cmd.name)[:1000],
-                parameters={
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                },
-            )
-        )
-
-    return declarations
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": cmd.name,
+                "description": (cmd.description or cmd.help or cmd.name)[:140],
+                "parameters": {"type": "object", "properties": properties, "required": required},
+            },
+        })
+    return tools
 
 
-def get_command_tools(bot: commands.Bot):
+def get_command_tools(bot: commands.Bot, only=None):
     global _COMMAND_TOOLS_CACHE
     if _COMMAND_TOOLS_CACHE is None:
-        _COMMAND_TOOLS_CACHE = [
-            genai_types.Tool(function_declarations=_build_command_tools(bot))
-        ]
-    return _COMMAND_TOOLS_CACHE
+        _COMMAND_TOOLS_CACHE = {}
+    key = tuple(sorted(only)) if only is not None else None
+    if key not in _COMMAND_TOOLS_CACHE:
+        _COMMAND_TOOLS_CACHE[key] = _build_command_tools(bot, only)
+    return _COMMAND_TOOLS_CACHE[key]
 
 
 def invalidate_command_tools_cache():
@@ -276,32 +262,19 @@ _ROUTER_SYSTEM_PROMPT = """คุณคือระบบแยกแยะเ�
 
 
 async def _confirm_command_intent(client, message_text: str, cmd_name: str, args: dict, model: str) -> bool:
-    """ตรวจทานซ้ำอีกรอบ (self-check) ก่อนสั่งคำสั่งจริง — ช่วยกรองเคสที่โมเดลรอบแรกตีความมั่ว/เดาเกินไป
-    ถ้าเรียก AI ไม่สำเร็จ (error/parse พัง) จะถือว่า "ไม่มั่นใจ" (False) ไว้ก่อน เพื่อความปลอดภัย
-    (แค่ไม่เรียกคำสั่งเฉยๆ ข้อความจะไหลไปเข้าระบบแชทปกติต่อ ไม่ได้หายไปไหน)"""
-    try:
-        confirm_prompt = (
-            "คุณกำลังจะให้บอทดิสคอร์ด 'แบ็คลี่' เรียกใช้คำสั่งนี้ตามการตีความรอบแรก:\n"
-            f'ข้อความต้นฉบับของผู้ใช้: "{message_text}"\n'
-            f"คำสั่งที่จะเรียก: /{cmd_name}\n"
-            f"พารามิเตอร์ที่จะใส่: {args}\n\n"
-            "ช่วยตรวจทานอีกรอบว่า การตีความนี้ถูกต้องและสมเหตุสมผลจริงๆ หรือไม่ "
-            "(ผู้ใช้ต้องการให้ทำจริงๆ ไม่ใช่แค่พูดถึง/ถามเฉยๆ/เล่าเรื่อง/คุยเล่น และคำสั่งนี้ตรงกับความต้องการจริงๆ)\n"
-            'ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น รูปแบบ: {"confident": true/false}'
-        )
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=confirm_prompt,
-            config=genai_types.GenerateContentConfig(temperature=0),
-        )
-        text = (getattr(resp, "text", "") or "").strip()
-        if text.startswith("`"):
-            text = text.strip("`").replace("json", "", 1).strip()
-        data = json.loads(text)
-        return bool(data.get("confident"))
-    except Exception as e:
-        print(f"⚠️ [AI Router] ตรวจทานซ้ำ (confirm) พลาด ถือว่าไม่มั่นใจไว้ก่อน: {e}")
-        return False
+    """ตรวจทานซ้ำ (self-check) ก่อนสั่งจริง — ใช้เฉพาะคำสั่งที่กระทบคนอื่น/ย้อนกลับยาก (ดู gate.NEEDS_CONFIRM)
+    ถ้า AI ล่ม/ตอบพัง ถือว่า "ไม่มั่นใจ" (ปลอดภัยไว้ก่อน ข้อความจะไหลไปแชทปกติ)"""
+    confirm_prompt = (
+        "คุณกำลังจะให้บอทดิสคอร์ด 'แบ็คลี่' เรียกใช้คำสั่งนี้ตามการตีความรอบแรก:\n"
+        f'ข้อความต้นฉบับของผู้ใช้: "{message_text}"\n'
+        f"คำสั่งที่จะเรียก: /{cmd_name}\n"
+        f"พารามิเตอร์ที่จะใส่: {args}\n\n"
+        "ช่วยตรวจทานอีกรอบว่า การตีความนี้ถูกต้องและสมเหตุสมผลจริงๆ หรือไม่ "
+        "(ผู้ใช้ต้องการให้ทำจริงๆ ไม่ใช่แค่พูดถึง/ถามเฉยๆ/เล่าเรื่อง/คุยเล่น และคำสั่งนี้ตรงกับความต้องการจริงๆ)\n"
+        'ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น รูปแบบ: {"confident": true/false}'
+    )
+    data = await client.classify_json(confirm_prompt, cache_ttl=0, max_tokens=120)
+    return bool(data and data.get("confident"))
 
 
 # --------------------------------------------------------------
@@ -340,12 +313,14 @@ def _cleanup_expired_slot_fill():
 
 
 async def _detect_incomplete_intent(client, message_text: str, model: str):
-    """เช็คว่าข้อความนี้ 'ตั้งใจสั่งคำสั่งที่รองรับ slot-fill ตัวใดตัวหนึ่งจริงๆ แต่ลืมบอกค่าที่ขาด'
-    หรือแค่พูดถึง/คุยเล่นเฉยๆ ไม่ได้ต้องการสั่งจริง ถ้าไม่มั่นใจ ให้ถือว่าไม่ใช่ (กันถามกวนใจ)"""
+    """เช็คว่าข้อความนี้ 'ตั้งใจสั่งคำสั่งที่รองรับ slot-fill แต่ลืมบอกค่าที่ขาด' หรือแค่คุยเล่น
+    ถ้าไม่มั่นใจ ให้ถือว่าไม่ใช่ (กันถามกวนใจ)"""
     candidate_cmds = sorted({c for (c, _p) in _SLOT_FILL_QUESTIONS.keys()})
     if not candidate_cmds:
         return None
-
+    # ด่านเร็ว: ต้องมีคำที่เกี่ยวกับคำสั่งนั้นๆ ก่อน ไม่งั้นไม่ต้องเรียก AI
+    if not any(any(k.lower() in message_text.lower() for k in gate.COMMAND_KEYWORDS.get(c, [])) for c in candidate_cmds):
+        return None
     prompt = (
         "คุณคือระบบแยกแยะเจตนาให้บอทดิสคอร์ดชื่อ 'แบ็คลี่'\n"
         f"คำสั่งที่รองรับ ได้แก่: {', '.join(candidate_cmds)}\n\n"
@@ -356,25 +331,13 @@ async def _detect_incomplete_intent(client, message_text: str, model: str):
         f'ข้อความจากผู้ใช้: "{message_text}"\n\n'
         'ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น รูปแบบ: {"intent_command": "<ชื่อคำสั่งหรือ null>", "confident": true/false}'
     )
-
-    try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(temperature=0),
-        )
-        text = (getattr(resp, "text", "") or "").strip()
-        if text.startswith("`"):
-            text = text.strip("`").replace("json", "", 1).strip()
-        data = json.loads(text)
-        if data.get("confident") and data.get("intent_command") in candidate_cmds:
-            return data["intent_command"]
-    except Exception as e:
-        print(f"⚠️ [AI Router/SlotFill] ตรวจ incomplete-intent พลาด: {e}")
+    data = await client.classify_json(prompt, cache_ttl=0, max_tokens=150)
+    if data and data.get("confident") and data.get("intent_command") in candidate_cmds:
+        return data["intent_command"]
     return None
 
 
-async def maybe_ask_for_missing_slot(message, bot: commands.Bot, client, model="gemini-3.1-flash-lite") -> bool:
+async def maybe_ask_for_missing_slot(message, bot: commands.Bot, client, model="fast") -> bool:
     """เรียก *ก่อน* ai_route_and_execute รอบปกติ (เฉพาะตอนที่ข้อความนี้จะถูกส่งเข้า AI Command
     Router อยู่แล้วตามเงื่อนไขเดิมของ bot.py — เช่น ทัก/แท็กแบ็คลี่ หรือคุยใน DM) ถ้าเจอว่าข้อความนี้
     'น่าจะตั้งใจสั่ง' คำสั่งที่รองรับ slot-fill แต่ขาดพารามิเตอร์ จะถามกลับทันทีแล้วจำสถานะไว้
@@ -454,7 +417,7 @@ async def try_resolve_pending_slot_fill(message, bot: commands.Bot, find_member_
 # ฟังก์ชันหลัก: เรียกใช้จาก on_message
 # --------------------------------------------------------------
 
-async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_by_name, model="gemini-3.1-flash-lite") -> bool:
+async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_by_name, model="fast") -> bool:
     """
     ให้ AI พิจารณาว่าข้อความนี้ควรสั่งคำสั่งไหนของบอท (ถ้ามี)
 
@@ -473,31 +436,21 @@ async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_b
     if _looks_like_personal_reminder(message.content):
         return False
 
-    try:
-        response = await client.aio.models.generate_content(
-            model=model,
-            contents=(
-                _ROUTER_SYSTEM_PROMPT
-                + f'\nข้อความจากผู้ใช้: "{message.content}"'
-            ),
-            config=genai_types.GenerateContentConfig(
-                tools=get_command_tools(bot),
-                tool_config=genai_types.ToolConfig(
-                    function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
-                ),
-                temperature=0,  # ลดการสุ่มเดา อยากให้ตัดสินใจนิ่งๆ ซ้ำๆ เดิมทุกครั้งที่ข้อความเหมือนกัน
-            ),
-        )
+    # ⚡ ด่านเร็ว (ไม่ใช้ AI): ข้อความที่ไม่มีคำสั่งงานเลย = คุยเล่น ข้าม Router ทั้งหมด (ประหยัด 1-3 รอบ AI)
+    if not gate.looks_like_command(message.content):
+        return False
 
-        function_call = None
-        for part in response.candidates[0].content.parts:
-            if getattr(part, "function_call", None):
-                function_call = part.function_call
-                break
+    try:
+        candidates = gate.shortlist(message.content, [c.name for c in bot.commands])
+        tools = get_command_tools(bot, only=set(candidates) if candidates else None)
+        response = await client.ask(
+            _ROUTER_SYSTEM_PROMPT + f'\nข้อความจากผู้ใช้: "{message.content}"',
+            tier="fast", tools=tools, temperature=0, effort="low", max_tokens=400,
+        )
+        function_call = response.tool_calls[0] if response.tool_calls else None
 
         if not function_call:
-            # 🧩 [ใหม่] รอบหลักไม่เจอ function call เลย (อาจเพราะขาดพารามิเตอร์ที่จำเป็นไปจากข้อความ)
-            # ลองเช็คว่านี่คือ "ตั้งใจสั่งคำสั่งที่รองรับ slot-fill แต่ลืมบอกค่า" หรือแค่คุยเล่นเฉยๆ
+            # 🧩 รอบหลักไม่เจอ function call (อาจเพราะขาดพารามิเตอร์) ลองเช็ค slot-fill
             asked = await maybe_ask_for_missing_slot(message, bot, client, model)
             if asked:
                 return True
@@ -525,8 +478,8 @@ async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_b
                 )
                 return False
 
-        # 🔍 รอบ 2: ตรวจทานซ้ำก่อนสั่งจริง — กันเคสตีความมั่ว/เดาคำสั่งผิดจากรอบแรก
-        confident = await _confirm_command_intent(client, message.content, cmd.name, raw_args, model)
+        # 🔍 รอบ 2: ตรวจทานซ้ำเฉพาะคำสั่งที่กระทบคนอื่น/ย้อนกลับยาก (คำสั่งอื่นข้ามเพื่อความไว)
+        confident = True if not gate.needs_confirm(cmd.name) else await _confirm_command_intent(client, message.content, cmd.name, raw_args, model)
         if not confident:
             print(f"🤖 [AI Router] ไม่มั่นใจพอหลังตรวจทานซ้ำ -> ข้าม /{cmd.name} (args={raw_args}) ปล่อยไหลไปแชทปกติ")
             return False

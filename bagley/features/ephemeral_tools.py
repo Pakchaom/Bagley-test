@@ -2,7 +2,7 @@
 # ⚡ Ephemeral Tools — คำสั่ง/ความสามารถชั่วคราวที่ AI เขียนสดสำหรับงานเฉพาะครั้ง
 # ============================================================
 # แนวคิด: เมื่อ ai_command_router หา hybrid_command ที่ตรงไม่เจอ แต่ผู้ใช้ขอให้ทำ
-# อะไรที่ทำได้ด้วยชุด "ความสามารถปลอดภัย" (SafeAPI) ด้านล่าง ให้ Gemini เขียนฟังก์ชัน
+# อะไรที่ทำได้ด้วยชุด "ความสามารถปลอดภัย" (SafeAPI) ด้านล่าง ให้ AI เขียนฟังก์ชัน
 # Python สั้นๆ ที่เรียกผ่าน api.xxx(...) เท่านั้น (ห้าม import, ห้ามแตะไฟล์/เน็ต/token)
 # ฟังก์ชันที่สร้างขึ้นอยู่ใน dict บน RAM เท่านั้น ใช้เสร็จลบทิ้งทันที ไม่เขียนลงดิสก์เลย
 # รีสตาร์ทบอทก็หายไปเองโดยธรรมชาติอยู่แล้ว (เพราะไม่เคย persist ตั้งแต่ต้น)
@@ -38,8 +38,7 @@
 import asyncio
 import secrets
 import discord
-import bagley_trust
-
+from bagley.features import trust as bagley_trust
 # ใครสร้างความสามารถใหม่ได้บ้าง — ตั้งค่าจาก bot.py ตอน configure
 # คนใน list นี้ได้สิทธิ์ทันทีเสมอ (เช่น owner/ผู้ดูแล) ส่วนคนอื่นๆ จะได้สิทธิ์อัตโนมัติ
 # ถ้าคุยกับแบ็คลี่คุ้นเคยพอตามเกณฑ์ใน bagley_trust.py (ดู is_trusted_for_dynamic_tools)
@@ -151,8 +150,15 @@ def _code_is_safe(code: str) -> bool:
 # ถามข้อมูล/ทักทาย ถ้าไม่ใช่คำขอ action ให้คืน False ทันที (ไม่นับว่า handled)
 # ปล่อยให้ข้อความไหลลงไปทำงานปกติ (Free Chat / Teach Memory) ต่อไป
 # ============================================================
+# ⚡ ด่านเร็ว (ไม่ใช้ AI): ต้องมีกริยา "ลงมือทำ" ก่อน ไม่งั้นถือว่าเป็นแค่คุยเล่น ไม่ต้องเสียเวลาเรียก AI ตรวจ
+_ACTION_HINTS = ("ย้าย","เปลี่ยน","ลบ","สร้าง","ตั้ง","เพิ่ม","ปิด","เปิด","ล็อก","ล็อค","เตะ","แบน","ส่ง","ทำให้","จัดการ",
+                 "รีแอค","กด","ตอบ","สุ่ม","นับ","รวม","แจก","ปักหมุด","เชิญ","mute","kick","ban","move","rename","delete","create")
+
+
 async def _looks_like_capability_request(task_description: str) -> bool:
     if _client is None:
+        return False
+    if not any(h in (task_description or "").lower() for h in _ACTION_HINTS):
         return False
     try:
         prompt = (
@@ -164,7 +170,7 @@ async def _looks_like_capability_request(task_description: str) -> bool:
             "หรือเป็นการสนทนาทั่วไปที่ไม่ได้ต้องการให้บอททำ action ใดๆ ให้ตอบว่า NO\n"
             "ตอบเพียงคำเดียวเท่านั้น: YES หรือ NO ห้ามอธิบายเพิ่มเติมใดๆ ทั้งสิ้น"
         )
-        resp = await _client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+        resp = await _client.aio.models.generate_content(model="fast", contents=prompt)
         text = (getattr(resp, "text", "") or "").strip().upper()
         return text.startswith("YES")
     except Exception as e:
@@ -201,7 +207,7 @@ async def try_create_and_run(message: discord.Message, task_description: str) ->
     )
 
     try:
-        resp = await _client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+        resp = await _client.aio.models.generate_content(model="chat", contents=prompt)
         code = (getattr(resp, "text", "") or "").strip()
         code = code.strip("`")
         if code.lower().startswith("python"):

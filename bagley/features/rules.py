@@ -37,8 +37,7 @@ import re
 import sqlite3
 import discord
 
-import bagley_trust
-
+from bagley.features import trust as bagley_trust
 _client = None
 _conn = None
 
@@ -122,7 +121,7 @@ async def _classify_remember_message(message_text: str) -> tuple[str, str | None
         return "none", None
     try:
         resp = await _client.aio.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model="fast",
             contents=_REMEMBER_CLASSIFY_PROMPT.format(message_text=message_text),
         )
         text = (getattr(resp, "text", "") or "").strip().strip('"')

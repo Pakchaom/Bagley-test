@@ -34,13 +34,13 @@
 # ============================================================
 
 import json
+from bagley.ai import persona
 import time
 import sqlite3
 import discord
 from discord.ext import tasks
-import bagley_learning
-import bagley_rules
-
+from bagley.features import learning as bagley_learning
+from bagley.features import rules as bagley_rules
 _bot = None
 _client = None
 _bagley_speak = None  # ฟังก์ชัน bagley_speak(guild, text) จาก bot.py — ส่งเข้ามาตอน configure()
@@ -262,7 +262,7 @@ async def _decide(guild, lines: list[str], bot_in_voice: bool) -> dict | None:
         else "ตอนนี้คุณไม่ได้อยู่ในห้องเสียง ไม่ต้องพิจารณาเรื่องพูดออกเสียง ตอบ confident_enough_for_voice เป็น false เสมอ"
     )
     prompt = (
-        "คุณคือแบ็คลี่ บอทดิสคอร์ดที่มีความเป็นตัวของตัวเอง เหมือนเป็นเพื่อนคนหนึ่งในกลุ่ม "
+        persona.BRIEF + "\nสถานการณ์: คุณเป็นเพื่อนคนหนึ่งในกลุ่ม "
         "ไม่ใช่แค่ทำตามคำสั่ง แต่ก็ไม่ใช่คนที่พูดพร่ำเพรื่อ — คุณเป็นคนที่นานๆพูดสักที "
         "แต่พอพูดแล้วมันน่าฟัง ทำให้ห้องดูมีชีวิตขึ้น ไม่ใช่พูดเพื่อเรียกร้องความสนใจ\n"
         "มีนิสัยกวนบาทานิดหน่อย ชอบแซวชอบเล่นมุข แต่กวนแบบมีสาระ ทุกครั้งที่พูดขึ้นเองต้องมีประโยชน์หรือมีเหตุผลที่คุ้มค่าจริงๆ ไม่ใช่กวนเฉยๆ ไร้สาระ\n"
@@ -288,7 +288,7 @@ async def _decide(guild, lines: list[str], bot_in_voice: bool) -> dict | None:
         '{"want_to_speak": true/false, "message": "...", "confident_enough_for_voice": true/false}'
     )
     try:
-        resp = await _client.aio.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+        resp = await _client.aio.models.generate_content(model="chat", contents=prompt)
         text = (getattr(resp, "text", "") or "").strip()
         text = text.strip("`").replace("json", "", 1).strip() if text.startswith("`") else text
         data = json.loads(text)

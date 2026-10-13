@@ -30,3 +30,7 @@ run_bagley.vbs
 build/
 dist/
 __pycache__/
+
+# แคชไฟล์เสียงพูด (สร้างอัตโนมัติ)
+tts_cache/
+__pycache__/

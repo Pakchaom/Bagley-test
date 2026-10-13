@@ -1,0 +1,8 @@
+discord.py[voice]>=2.4
+python-dotenv
+aiohttp
+edge-tts
+yt-dlp
+Pillow
+psutil
+PyNaCl
