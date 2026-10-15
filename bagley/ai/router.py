@@ -31,7 +31,7 @@ import json
 import time
 import discord
 from discord.ext import commands
-from bagley.ai import gate
+from bagley.ai import gate, understanding
 
 # --------------------------------------------------------------
 # ตั้งค่า: คำสั่งที่ไม่ต้องการให้ AI เรียกเองจากแชทธรรมดา
@@ -46,6 +46,8 @@ AI_ROUTER_EXCLUDED_COMMANDS = {
     # ตั้งใจจะสั่งคำสั่งระดับนี้เลย ตัดออกจาก AI Router ไปเลยดีกว่า (ยังสั่งตรงผ่าน /คำสั่ง ได้ปกติ
     # สำหรับคนที่มีสิทธิ์จริง)
     "teach", "unteach", "list_teach", "view_logs",
+    # 🧠 ความจำระยะยาว: ขอดู/ขอลบด้วยภาษาพูดมีตัวจัดการเฉพาะอยู่แล้ว (knowledge.handle_memory_request) ไม่ให้ AI Router เดาซ้ำ
+    "my_memory", "forget_fact",
 }
 
 # แคช tool schema ไว้ ไม่ต้องสร้างใหม่ทุกครั้งที่มีข้อความเข้ามา
@@ -121,6 +123,10 @@ def invalidate_command_tools_cache():
 async def _resolve_member_param(message, raw_value: str, find_member_by_name):
     if not raw_value or not message.guild:
         return None
+
+    # 🙋 "ฉัน/ผม/เรา/ตัวเอง" = คนที่พิมพ์ข้อความนี้เอง (เดิมต้องไปเดาชื่อ ทำให้ "ย้ายผมไปห้อง X" พลาดบ่อย)
+    if understanding.is_self_reference(raw_value) and isinstance(message.author, discord.Member):
+        return message.author
 
     id_match = regex_lib.search(r"\d{15,20}", raw_value)
     if id_match:
@@ -248,8 +254,13 @@ _ROUTER_SYSTEM_PROMPT = """คุณคือระบบแยกแยะเ�
    กุค่าขึ้นมาเองเด็ดขาด ถ้าจำเป็นต้องเดาค่าพารามิเตอร์ใดๆ ให้ถือว่าไม่ใช่คำสั่ง แล้วไม่เรียกฟังก์ชัน
 4. ถ้าไม่มั่นใจเกิน 90% ว่าข้อความนี้ตรงกับฟังก์ชันใดฟังก์ชันหนึ่งแบบชัดเจน ห้ามเรียกฟังก์ชันเด็ดขาด
    ปล่อยให้ไหลไปเป็นบทสนทนาปกติดีกว่าเรียกผิด (ให้เอียงไปทาง "ไม่เรียกฟังก์ชัน" เป็นค่าเริ่มต้นเสมอ)
-5. เรียกได้สูงสุดฟังก์ชันเดียวต่อข้อความ และกรอกพารามิเตอร์ตามคำพูดของผู้ใช้แบบคงคำเดิมไว้เป๊ะๆ
-   (ไม่ต้องแปล ไม่ต้องสรุปใหม่ ไม่ต้องเดา ID เอง ไม่ต้องเติมค่าที่ไม่ได้พูดมา)
+5. ปกติเรียกฟังก์ชันเดียว แต่ถ้าผู้ใช้สั่งหลายอย่างต่อเนื่องในประโยคเดียว (มีคำว่า แล้ว/จากนั้น/และก็/ด้วย) ให้เรียกเรียงตามลำดับที่พูด
+   ได้สูงสุด 3 ตัว กรอกพารามิเตอร์ตามคำพูดของผู้ใช้แบบคงคำเดิมไว้ (ไม่ต้องแปล ไม่ต้องสรุปใหม่ ไม่ต้องเดา ID เอง ไม่ต้องเติมค่าที่ไม่ได้พูดมา)
+6. มี "บริบทแชทล่าสุด" ให้ดู: คำอ้างอิงอย่าง "เขา/คนนั้น/เพลงนั้น/อีกที/ห้องเมื่อกี้" ให้ดึงค่าจากบริบทมาใช้ได้
+   แต่ต้องเป็นค่าที่ปรากฏจริงในบริบทหรือข้อความเท่านั้น ห้ามกุ
+7. "ฉัน/ผม/เรา/หนู/กู" ในข้อความ = ผู้พูด (ชื่อผู้พูดระบุไว้ท้ายพรอมต์) ใส่คำนั้นตามเดิมได้เลย ระบบแปลงให้เอง
+8. ถ้ามั่นใจเกิน 90% ว่าผู้ใช้ "ตั้งใจสั่ง" คำสั่งของบอทแน่ๆ แต่ขาดข้อมูลสำคัญ หรือกำกวมระหว่างหลายทาง ให้เรียก ask_user ถามกลับ 1 คำถามสั้นๆ
+   (ห้ามใช้ ask_user กับการคุยเล่น/ถามความเห็น/เล่าเรื่อง — ถ้าไม่แน่ใจว่าเป็นคำสั่งไหม ให้ไม่เรียกอะไรเลย)
 
 ตัวอย่าง (ห้ามเรียกฟังก์ชัน): "เมื่อวานโดนเตะออกจากห้องอ่ะ", "เพลงนี้เพราะดี", "ห้องนี้เงียบจัง",
   "แชทสดของช่องนี้มันส์มาก", "เมื่อกี้แบ็คลี่เฝ้าห้องอยู่ป่าววะ" (แค่ถามเฉยๆ ไม่ได้สั่งให้ทำ)
@@ -417,95 +428,147 @@ async def try_resolve_pending_slot_fill(message, bot: commands.Bot, find_member_
 # ฟังก์ชันหลัก: เรียกใช้จาก on_message
 # --------------------------------------------------------------
 
-async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_by_name, model="fast") -> bool:
+ASK_USER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "ask_user",
+        "description": "ถามกลับ 1 คำถามสั้นๆ เมื่อมั่นใจว่าผู้ใช้ตั้งใจสั่งคำสั่งของบอทแต่ขาดข้อมูลสำคัญ/กำกวม (ห้ามใช้กับการคุยเล่น)",
+        "parameters": {
+            "type": "object",
+            "properties": {"question": {"type": "string", "description": "คำถามสั้นๆ ภาษาไทย ลงท้ายครับ"}},
+            "required": ["question"],
+        },
+    },
+}
+
+MAX_CHAINED_COMMANDS = 3
+
+
+def has_pending_clarification(message) -> bool:
+    """มีคำถามค้างที่แบ็คลี่ถามผู้ใช้คนนี้ในห้องนี้อยู่ไหม (ให้ on_message รับคำตอบได้โดยไม่ต้องเรียกชื่อซ้ำ)"""
+    return understanding.get_pending((message.channel.id, message.author.id)) is not None
+
+
+def _command_catalog(bot: commands.Bot) -> dict:
+    out = {}
+    for cmd in bot.commands:
+        if cmd.name in AI_ROUTER_EXCLUDED_COMMANDS or not isinstance(cmd, commands.HybridCommand):
+            continue
+        out[cmd.name] = (cmd.description or cmd.help or cmd.name)
+    return out
+
+
+async def ai_route_and_execute(message, bot: commands.Bot, client, find_member_by_name, model="fast",
+                               context_text: str = "") -> bool:
     """
     ให้ AI พิจารณาว่าข้อความนี้ควรสั่งคำสั่งไหนของบอท (ถ้ามี)
 
-    ทำงาน 2 รอบเพื่อลดการเรียกคำสั่งผิด/มั่ว (แยกแยะ "คุยเล่น" ออกจาก "สั่งงานจริง" ได้แม่นยำขึ้น):
-      รอบ 1: ให้ AI เลือกฟังก์ชัน (หรือไม่เลือกเลย) จากข้อความผู้ใช้ (temperature=0 กันสุ่มเดา)
-      รอบ 2: ให้ AI ตรวจทานซ้ำว่าการตีความรอบแรกสมเหตุสมผลจริงหรือไม่ ก่อนจะสั่งคำสั่งจริง
+    v2 (ฉลาดขึ้นกับภาษาพูด):
+      - เห็นบริบทแชทล่าสุด (context_text) -> เข้าใจคำอ้างอิง "เขา/เพลงนั้น/อีกที"
+      - gate คำสำคัญพลาดแต่ประโยคเหมือนขอให้ทำ -> ใช้ AI ตัวเล็กตัดสินเชิงความหมายแทน (ไม่ทิ้งเงียบๆ)
+      - สั่งต่อเนื่องได้สูงสุด 3 คำสั่งในประโยคเดียว ("เปิดเพลง X แล้วย้ายทุกคนไปห้อง Y")
+      - ขาดข้อมูล/กำกวม -> ถามกลับ (ask_user) แล้วรับคำตอบถัดไปเติมต่อโดยไม่ต้องเรียกชื่อซ้ำ
+      - "ฉัน/ผม" = ผู้พูด ถูกแปลงเป็นตัวผู้พูดจริง
+      - ยังคงกันการกุพารามิเตอร์ (ค่าต้องมีที่มาจากข้อความหรือบริบท) และตรวจทานซ้ำกับคำสั่งเสี่ยง
 
-    Returns:
-        True  -> ตีความเป็นคำสั่งแล้ว (ไม่ว่าจะสั่งสำเร็จ หรือหา entity ไม่เจอแล้วแจ้งผู้ใช้ไปแล้ว)
-                 ผู้เรียกควร `return` ทันทีเพื่อไม่ให้ไหลลงไปทำ free-chat ต่อ
-        False -> ไม่ใช่คำสั่ง ปล่อยให้ไหลไปทำงานส่วนอื่นต่อ (เช่น free chat / teach memory / ระบบเตือนตัวเอง-เพื่อน)
+    Returns True = จัดการแล้ว (ผู้เรียก return ได้เลย) / False = ไม่ใช่คำสั่ง ปล่อยไหลไปส่วนอื่น
     """
-    # 🛡️ กันไม่ให้ AI Router แย่งข้อความแบบ "เตือนฉันตอน.../เตือน @เพื่อน ตอน..." ไปเรียก /remind
-    # ปล่อยให้ตกไปใช้ระบบเตือนตัวเอง/เพื่อนเดิมใน bot.py แทน (ส่วนที่ 2) ซึ่งทำงานถูกต้องกว่าและ
-    # วาร์ปเข้าห้องเสียงมาเตือนจริงแล้ว (ผ่าน bagley_hijack_alert)
-    if _looks_like_personal_reminder(message.content):
-        return False
+    text = message.content
+    key = (message.channel.id, message.author.id)
 
-    # ⚡ ด่านเร็ว (ไม่ใช้ AI): ข้อความที่ไม่มีคำสั่งงานเลย = คุยเล่น ข้าม Router ทั้งหมด (ประหยัด 1-3 รอบ AI)
-    if not gate.looks_like_command(message.content):
+    # 🔁 มีคำถามค้างอยู่ -> ข้อความนี้คือ "คำตอบ" รวมเข้ากับคำสั่งเดิมแล้วตีความใหม่ทั้งก้อน (ลองครั้งเดียว)
+    pending = understanding.get_pending(key)
+    if pending:
+        understanding.clear_pending(key)
+        text = understanding.combine_with_pending(pending, message.content)
+
+    if _looks_like_personal_reminder(text):
         return False
 
     try:
-        candidates = gate.shortlist(message.content, [c.name for c in bot.commands])
-        tools = get_command_tools(bot, only=set(candidates) if candidates else None)
-        response = await client.ask(
-            _ROUTER_SYSTEM_PROMPT + f'\nข้อความจากผู้ใช้: "{message.content}"',
-            tier="fast", tools=tools, temperature=0, effort="low", max_tokens=400,
-        )
-        function_call = response.tool_calls[0] if response.tool_calls else None
+        names = [c.name for c in bot.commands]
+        candidates = None
+        if pending or gate.looks_like_command(text):
+            candidates = gate.shortlist(text, names)
+        else:
+            # ⚡ gate คำสำคัญไม่เจอ: ถ้าประโยคเหมือนขอให้ทำ ให้ AI ตัวเล็กดูความหมาย (แคชผลไว้ ephemeral ใช้ต่อได้)
+            if not understanding.looks_requestish(text):
+                return False
+            if await understanding.classify_request(client, text, context_text) != "command":
+                return False
+            candidates = await understanding.pick_candidates(client, text, context_text, _command_catalog(bot))
+            if not candidates:
+                return False
 
-        if not function_call:
-            # 🧩 รอบหลักไม่เจอ function call (อาจเพราะขาดพารามิเตอร์) ลองเช็ค slot-fill
+        tools = list(get_command_tools(bot, only=set(candidates) if candidates else None)) + [ASK_USER_TOOL]
+        speaker = getattr(message.author, "display_name", "")
+        ctx_block = f"\nบริบทแชทล่าสุด (เก่า->ใหม่):\n{context_text}\n" if context_text else ""
+        response = await client.ask(
+            _ROUTER_SYSTEM_PROMPT + ctx_block + f'\nผู้พูด: {speaker}\nข้อความจากผู้ใช้: "{text}"',
+            tier="fast", tools=tools, temperature=0, effort="low", max_tokens=500,
+        )
+        calls = list(response.tool_calls or [])
+
+        if not calls:
             asked = await maybe_ask_for_missing_slot(message, bot, client, model)
-            if asked:
+            return bool(asked)
+
+        # ❓ AI ขอถามกลับ
+        if calls[0].name == "ask_user":
+            question = str((calls[0].args or {}).get("question", "")).strip()[:200]
+            if question and understanding.can_clarify(key):
+                understanding.set_pending(key, text, question)
+                await message.reply(question)
                 return True
             return False
 
-        cmd = bot.get_command(function_call.name)
-        if not cmd or not isinstance(cmd, commands.HybridCommand):
-            return False
-
-        raw_args = dict(function_call.args or {})
-
-        # 🛡️ กันโมเดล hallucinate ค่าพารามิเตอร์ขึ้นมาเอง (เช่นกุเวลา '22:00' ที่ผู้ใช้ไม่ได้พูดถึงเลย)
-        # เช็คว่าค่าที่ AI แกะมาได้ 'มีอยู่จริง' ในข้อความดิบของผู้ใช้ (ตัดช่องว่างเทียบแบบไม่สนตัวพิมพ์)
-        # ถ้าค่าไหนไม่ปรากฏในข้อความเลย ถือว่า AI กุขึ้นมา -> ยกเลิกการตีความเป็นคำสั่งทั้งหมด ปล่อยเป็น free-chat แทน
-        normalized_message = regex_lib.sub(r"\s+", "", message.content.lower())
-        for pname, value in raw_args.items():
-            value_str = str(value).strip()
-            if not value_str:
+        executed = 0
+        for fc in calls[:MAX_CHAINED_COMMANDS]:
+            if fc.name == "ask_user":
                 continue
-            normalized_value = regex_lib.sub(r"\s+", "", value_str.lower())
-            if normalized_value and normalized_value not in normalized_message:
-                print(
-                    f"⚠️ [AI Router] บล็อกการเรียก /{function_call.name} เพราะพารามิเตอร์ '{pname}'="
-                    f"'{value_str}' ไม่ปรากฏในข้อความจริงของผู้ใช้ (ต้องสงสัยว่า AI กุขึ้นมาเอง)"
-                )
-                return False
+            cmd = bot.get_command(fc.name)
+            if not cmd or not isinstance(cmd, commands.HybridCommand):
+                break
+            raw_args = dict(fc.args or {})
 
-        # 🔍 รอบ 2: ตรวจทานซ้ำเฉพาะคำสั่งที่กระทบคนอื่น/ย้อนกลับยาก (คำสั่งอื่นข้ามเพื่อความไว)
-        confident = True if not gate.needs_confirm(cmd.name) else await _confirm_command_intent(client, message.content, cmd.name, raw_args, model)
-        if not confident:
-            print(f"🤖 [AI Router] ไม่มั่นใจพอหลังตรวจทานซ้ำ -> ข้าม /{cmd.name} (args={raw_args}) ปล่อยไหลไปแชทปกติ")
-            return False
+            # 🛡️ กันโมเดลกุค่า: ค่าต้องมีที่มาจากข้อความ/บริบทแชท/คำอ้างตัวเอง
+            hallucinated = False
+            for pname, value in raw_args.items():
+                value_str = str(value).strip()
+                if value_str and not understanding.value_grounded(value_str, text, context_text):
+                    print(f"⚠️ [AI Router] บล็อก /{fc.name}: '{pname}'='{value_str}' ไม่มีที่มาในข้อความ/บริบท (ต้องสงสัยว่ากุ)")
+                    hallucinated = True
+                    break
+            if hallucinated:
+                break
 
-        resolved_kwargs = {}
+            # 🔍 ตรวจทานซ้ำเฉพาะคำสั่งที่กระทบคนอื่น/ย้อนกลับยาก
+            if gate.needs_confirm(cmd.name) and not await _confirm_command_intent(client, text, cmd.name, raw_args, model):
+                print(f"🤖 [AI Router] ไม่มั่นใจพอหลังตรวจทานซ้ำ -> ข้าม /{cmd.name} (args={raw_args})")
+                break
 
-        for pname, param in cmd.clean_params.items():
-            if pname not in raw_args:
-                continue
+            resolved_kwargs = {}
+            for pname, param in cmd.clean_params.items():
+                if pname not in raw_args:
+                    continue
+                resolver = _PARAM_RESOLVERS.get(param.annotation)
+                if resolver:
+                    resolved = await resolver(message, str(raw_args[pname]), find_member_by_name)
+                    if resolved is None and param.default is param.empty:
+                        await message.channel.send(
+                            f"❌ แบ็คลี่หา '{raw_args[pname]}' ไม่เจอเลยครับ ลองพิมพ์ให้ชัดกว่านี้ได้มั้ยครับ"
+                        )
+                        return True
+                    resolved_kwargs[pname] = resolved
+                else:
+                    resolved_kwargs[pname] = raw_args[pname]
 
-            resolver = _PARAM_RESOLVERS.get(param.annotation)
-            if resolver:
-                resolved = await resolver(message, str(raw_args[pname]), find_member_by_name)
-                if resolved is None and param.default is param.empty:
-                    await message.channel.send(
-                        f"❌ แบ็คลี่หา '{raw_args[pname]}' ไม่เจอเลยครับ ลองพิมพ์ให้ชัดกว่านี้ได้มั้ยครับ"
-                    )
-                    return True
-                resolved_kwargs[pname] = resolved
-            else:
-                resolved_kwargs[pname] = raw_args[pname]
+            ctx = await bot.get_context(message)
+            print(f"🤖 [AI Router] ({executed + 1}/{min(len(calls), MAX_CHAINED_COMMANDS)}) /{cmd.name} args={resolved_kwargs}")
+            await ctx.invoke(cmd, **resolved_kwargs)
+            executed += 1
 
-        ctx = await bot.get_context(message)
-        print(f"🤖 [AI Router] ตีความข้อความเป็นคำสั่ง /{cmd.name} args={resolved_kwargs}")
-        await ctx.invoke(cmd, **resolved_kwargs)
-        return True
+        return executed > 0
 
     except Exception as e:
         print(f"⚠️ [AI Router] ทำงานผิดพลาด: {e}")

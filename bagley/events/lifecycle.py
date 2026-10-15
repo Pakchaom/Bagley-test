@@ -9,7 +9,7 @@ from bagley.core.logutil import print
 from bagley.core.security import is_stream_mode_on, is_user_blocked
 from bagley.data.storage import get_realtime_name, load_settings
 from bagley.db import conn, init_db
-from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephemeral_tools, learning as bagley_learning, rooms as bagley_rooms, rules as bagley_rules, trust as bagley_trust
+from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephemeral_tools, knowledge as bagley_knowledge, learning as bagley_learning, rooms as bagley_rooms, rules as bagley_rules, trust as bagley_trust
 from bagley.phrases import say
 from bagley.services.voice_relay import start_voice_relay_server
 from bagley.tasks.loops import auto_brain_cleanup, check_expired_schedules, check_friend_reminders, check_reminders, daily_announcement_task, follow_creator_task
@@ -102,6 +102,10 @@ async def on_ready():
         bagley_rules.configure(client, conn, is_user_blocked_fn=is_user_blocked)
         bagley_rules.init_rules_db(conn)
         bagley_rules.ALLOWED_RULE_TEACHERS = set(ALLOWED_TEACH_USERS)
+
+        # 🧠 [Knowledge] ความจำระยะยาว: เรียนรู้เรื่องส่วนตัว/ความรู้ที่ถูกสอนจากการคุยเอง (ไม่ต้องพิมพ์ "จำไว้ว่า")
+        bagley_knowledge.configure(client, conn, is_user_blocked_fn=is_user_blocked)
+        bagley_knowledge.init_knowledge_db(conn)
 
         print("🧠 ระบบเรียนรู้ / อยากพูดเอง / คำสั่งชั่วคราว: Started.")
     except Exception as e:

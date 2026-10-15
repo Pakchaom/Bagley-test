@@ -1,6 +1,8 @@
 """bagley/events/message.py — ตัวรับข้อความ (on_message): ด่านกรอง -> คำสั่งธรรมชาติ -> AI Router -> แชท"""
+import asyncio
 import discord
 import io
+import time as _time
 import random
 import re as regex_lib
 import secrets
@@ -8,9 +10,9 @@ import traceback
 from PIL import Image
 from datetime import datetime, timedelta
 
-from bagley.ai import persona
+from bagley.ai import gate as bagley_gate, humanize, persona, understanding
 from bagley.ai.classifiers import ai_detect_apology_to_bagley, ai_detect_insult_to_bagley
-from bagley.ai.router import ai_route_and_execute, looks_like_personal_reminder, try_resolve_pending_slot_fill
+from bagley.ai.router import ai_route_and_execute, has_pending_clarification, looks_like_personal_reminder, try_resolve_pending_slot_fill
 from bagley.core import state
 from bagley.core.app import bot, client
 from bagley.core.config import OWNER_DISCORD_ID, PENDING_REMINDER_TIMEOUT_SECONDS, SPAM_THRESHOLD, bangkok_tz
@@ -19,7 +21,7 @@ from bagley.core.logutil import print
 from bagley.core.security import block_user_for_today, has_potential_profanity, is_message_addressed_to_bagley, is_reply_to_bagley_message, is_stream_authorized, is_stream_mode_on, is_user_blocked, unblock_user
 from bagley.data.storage import _normalize_schedule_date, get_realtime_name, load_reminders, load_user_data, load_voice_data, save_reminders, save_user_data
 from bagley.db import conn
-from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephemeral_tools, learning as bagley_learning, rules as bagley_rules, trust as bagley_trust
+from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephemeral_tools, knowledge as bagley_knowledge, learning as bagley_learning, rules as bagley_rules, trust as bagley_trust
 from bagley.features.members import _describe_member_activities, find_member_by_name, find_voice_member_across_guilds, resolve_target_member
 from bagley.features.memory import execute_remember_logic
 from bagley.features.party import execute_dm_call, execute_warp_invite, handle_same_game_query
@@ -358,6 +360,27 @@ async def on_message(message):
             image_caption=_image_caption_for_learning,
         )
 
+    # 🧠 [Knowledge] เรียนรู้เองจากข้อความที่ "เรียกแบ็คลี่" (เล่าเรื่องตัวเอง/สอนความรู้) แบบเบื้องหลัง
+    # ไม่ต้องพิมพ์ "จำไว้ว่า" — รันขนานกับขั้นตอนอื่น ไม่หน่วงการตอบ; Free Chat จะรอผลไม่เกิน 3 วินาทีเพื่อ
+    # ให้ตอบรับสิ่งที่เพิ่งได้ยินได้ทันที (ดู bagley/features/knowledge.py)
+    _learn_task = None
+    if _addressed_to_bagley_now and message.content.strip():
+        humanize.note_user_message(message.guild.id if message.guild else None, message.content)
+        _learn_task = asyncio.create_task(bagley_knowledge.maybe_learn(message, get_realtime_name))
+
+        def _after_learn(t, _m=message):
+            try:
+                if not t.cancelled() and t.result():
+                    asyncio.create_task(bagley_knowledge.react_learned(_m))
+            except Exception:
+                pass
+        _learn_task.add_done_callback(_after_learn)
+
+        # 🗂️ ขอดู/ขอให้ลืมความจำด้วยภาษาพูด ("รู้อะไรเกี่ยวกับฉันบ้าง", "ลืมเรื่องส้มตำไปเลย")
+        # ต้องมาก่อน AI Router เพราะไม่งั้น "ลืม..." จะไปชนคำสั่ง /forget
+        if await bagley_knowledge.handle_memory_request(message, get_realtime_name):
+            return
+
     # 📜 [Rules] เช็คก่อนว่าข้อความนี้เป็นการ "จำไว้ว่า.../สั่งสอน/กำหนดกฎ" ให้แบ็คลี่จำมั้ย (ดู bagley_rules.py)
     # AI จะแยกหมวดให้ก่อนว่าเป็น ข้อมูลส่วนตัว (personal) / กฎถาวร (rule) / เรื่องที่ต้องตั้งเตือน (reminder)
     # ทำก่อนไหลลงไป teach_memory/free chat/AI command router ตามปกติ
@@ -385,6 +408,8 @@ async def on_message(message):
             # (ทั้งข้อความทักขึ้นเอง และข้อความที่ตอบใครไว้ก่อน) แม้ผู้ใช้จะไม่ได้เอ่ยชื่อ/แท็กบอทตรงๆ
             # ในข้อความที่ตอบกลับมาเลยก็ตาม เหมือนพฤติกรรมใน DM
             or await is_reply_to_bagley_message(message)
+            # ❓ แบ็คลี่เพิ่งถามกลับเรื่องคำสั่งที่ขาดข้อมูล -> ข้อความนี้คือคำตอบ ไม่ต้องเรียกชื่อซ้ำ
+            or has_pending_clarification(message)
         )
         # 🎥 [โหมดสตรีม] ถ้ากิลด์นี้เปิดโหมดสตรีมอยู่ รับคำสั่ง (ผ่าน AI Router/พิมพ์ธรรมชาติ หรือความสามารถ
         # ชั่วคราว) เฉพาะเจ้าของบอทหรือคนที่กำลังสตรีมอยู่เท่านั้น คนอื่นข้ามส่วนสั่งคำสั่งพวกนี้ไปเลย
@@ -404,7 +429,14 @@ async def on_message(message):
                 # (บอกให้เงียบ/หุบปาก) ให้เปิดระบบทักเองกลับมาอัตโนมัติทันที
                 bagley_autonomy.unsilence_guild(message.guild.id)
 
-            handled = await ai_route_and_execute(message, bot, client, find_member_by_name)
+            # 🧭 ดึงบริบทแชทล่าสุดให้ AI เข้าใจคำอ้างอิง (เฉพาะข้อความที่ดูเป็นการสั่ง — ไม่ยิง REST โดยไม่จำเป็น)
+            _ctx_text = ""
+            if has_pending_clarification(message) or bagley_gate.looks_like_command(message.content) \
+                    or understanding.looks_requestish(message.content):
+                _ctx_text = await understanding.fetch_recent_context(
+                    message, 6, get_realtime_name, bot.user.id if bot.user else None)
+
+            handled = await ai_route_and_execute(message, bot, client, find_member_by_name, context_text=_ctx_text)
             if handled:
                 return
 
@@ -417,7 +449,7 @@ async def on_message(message):
             # ทำให้ on_message return ทันที ไม่มีทางไหลไปถึงระบบเตือนตัวเอง/เพื่อนจริงที่ [ส่วนที่ 2] ด้านล่างเลย
             # ใช้เงื่อนไขเดียวกับที่ ai_route_and_execute กันไว้แล้วข้างบน (looks_like_personal_reminder)
             if not looks_like_personal_reminder(message.content):
-                handled = await ephemeral_tools.try_create_and_run(message, message.content)
+                handled = await ephemeral_tools.try_create_and_run(message, message.content, _ctx_text)
                 if handled:
                     return
 
@@ -1339,14 +1371,35 @@ async def on_message(message):
 
                 author_id = message.author.id
 
+                # 🧠 ความจำระยะยาว + อารมณ์ + ความสนิท (ทั้งหมดไม่เรียก AI เพิ่ม ยกเว้นรอผลเรียนรู้ที่รันขนานอยู่)
+                _just_learned = []
+                if _learn_task is not None:
+                    try:
+                        _just_learned = await asyncio.wait_for(asyncio.shield(_learn_task), timeout=3.0) or []
+                    except Exception:
+                        _just_learned = []
+                _gid = message.guild.id if message.guild else None
+                _speaker_name = get_realtime_name(message.author.id, message.author.display_name)
+                _memory_block = bagley_knowledge.build_memory_block(
+                    speaker_id=message.author.id, speaker_name=_speaker_name, guild_id=_gid,
+                    query=user_question,
+                    mentioned_ids=[m.id for m in message.mentions if not m.bot],
+                    just_learned=_just_learned,
+                )
+                _extra = _memory_block + humanize.familiarity_block(message.author.id, _gid) + humanize.mood_block(_gid)
+
                 free_chat_prompt = persona.chat_prompt(
-                    speaker=f"คุณ {get_realtime_name(message.author.id, message.author.display_name)}",
+                    speaker=f"คุณ {_speaker_name}",
                     chat_log=chat_log,
                     rules_block=bagley_rules.format_rules_for_prompt(),
                     activities=_describe_member_activities(message.guild),
+                    extra=_extra,
                 )
+                _t0 = _time.time()
                 response = await client.ask(free_chat_prompt, tier="chat", temperature=0.9, effort="low", max_tokens=900)
                 bagley_styled_text = (response.text or "").strip()
+                # ⏱️ หน่วงจังหวะให้เหมือนคนพิมพ์ (ถ้าโมเดลตอบเร็วเกินไป) อยู่ใน typing indicator เดิม
+                await humanize.pace(_t0, bagley_styled_text)
                 if not bagley_styled_text:
                     bagley_styled_text = say("chat_empty")
 

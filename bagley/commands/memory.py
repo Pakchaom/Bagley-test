@@ -9,7 +9,7 @@ from bagley.core.config import ALLOWED_TEACH_USERS
 from bagley.core.logutil import print
 from bagley.data.storage import get_realtime_name, load_user_data, save_user_data
 from bagley.db import conn
-from bagley.features import rules as bagley_rules
+from bagley.features import knowledge as bagley_knowledge, rules as bagley_rules
 from bagley.phrases import say
 from bagley.ui.views import IdentityListPaginator
 from bagley.voice.tts import bagley_speak
@@ -230,6 +230,12 @@ async def forget(ctx: commands.Context, target: discord.User = None):
     
     data_memory = load_user_data()
     reply_text = ""
+
+    # 🧠 ลบความจำระยะยาวที่เรียนรู้จากการคุย (knowledge) ด้วย — เจ้าตัวลบของตัวเองได้ / ทีมพัฒนาลบของคนอื่นได้
+    _k_target_id = target.id if target else ctx.author.id
+    _k_removed = 0
+    if _k_target_id == ctx.author.id or ctx.author.id in ALLOWED_TEACH_USERS:
+        _k_removed = bagley_knowledge.forget_all_for_user(_k_target_id)
     
     if target:
         target_id = str(target.id)
@@ -250,6 +256,8 @@ async def forget(ctx: commands.Context, target: discord.User = None):
         else:
             reply_text = "ฮั่นแน่ คุณแกล้งปั่นหัวสมองกลผมเล่นหรือเปล่าครับ? ข้อมูลคุณผมยังไม่เคยบันทึกไว้เลย จะให้ลบอะไรก่อนครับ!"
                 
+    if _k_removed:
+        reply_text += f" (ลบเรื่องที่จำจากการคุยกันอีก {_k_removed} เรื่องด้วยครับ)"
     await ctx.send(reply_text)
 
     # 🔧 [แก้บั๊ก] เอาเงื่อนไข "not is_playing()" และ "ต้องอยู่ห้องเดียวกับคนสั่ง" ออก
@@ -318,3 +326,35 @@ async def member_list(ctx: commands.Context, scope: str = "current"):
     except Exception as e:
         print(f"🚨 ERROR ระบบรายชื่อใหม่: {e}")
         await ctx.send("เกิดข้อผิดพลาดในการดึงข้อมูลรายชื่อครับ")
+
+
+# ============================================================
+# 🧠 ความจำระยะยาวที่แบ็คลี่เรียนรู้เองจากการคุย (ดู bagley/features/knowledge.py)
+# ============================================================
+@bot.hybrid_command(name="my_memory", description="ดูว่าแบ็คลี่จำอะไรเกี่ยวกับคุณไว้บ้าง (เห็นเฉพาะคุณคนเดียว)")
+async def my_memory(ctx: commands.Context):
+    rows = bagley_knowledge.facts_of_user(ctx.author.id)
+    if not rows:
+        text = "ตอนนี้ผมยังไม่ได้จดอะไรเกี่ยวกับคุณไว้เลยครับ ลองเล่าอะไรให้ฟังบ้างสิ"
+    else:
+        body = "\n".join(f"`#{rid}` {fact}" for rid, _c, fact, _s, _e in rows)[:1800]
+        text = "สิ่งที่ผมจำเกี่ยวกับคุณได้ (ลบข้อไหนใช้ /forget_fact เลขข้อ):\n" + body
+    if ctx.interaction:  # slash: ส่งแบบเห็นคนเดียว
+        await ctx.interaction.response.send_message(text, ephemeral=True)
+    else:                # พิมพ์ !my_memory: ส่ง DM กันเรื่องส่วนตัวหลุดกลางห้อง
+        try:
+            await ctx.author.send(text)
+            await ctx.send("ส่งใน DM ให้แล้วครับ")
+        except discord.Forbidden:
+            await ctx.send("ผมส่ง DM ไม่ได้ครับ เปิดรับ DM จากสมาชิกเซิร์ฟเวอร์ก่อนนะ หรือใช้ /my_memory แบบ slash")
+
+
+@bot.hybrid_command(name="forget_fact", description="ให้แบ็คลี่ลืมเรื่องที่จำไว้ 1 ข้อ (ดูเลขข้อจาก /my_memory)")
+@app_commands.describe(fact_id="เลขข้อที่จะลบ")
+async def forget_fact(ctx: commands.Context, fact_id: int):
+    ok = bagley_knowledge.forget_fact_by_id(fact_id, ctx.author.id, is_admin=ctx.author.id in ALLOWED_TEACH_USERS)
+    msg = f"ลืมข้อ `#{fact_id}` ให้แล้วครับ" if ok else f"ไม่พบข้อ `#{fact_id}` หรือคุณไม่ใช่เจ้าของข้อมูลนี้ครับ"
+    if ctx.interaction:
+        await ctx.interaction.response.send_message(msg, ephemeral=True)
+    else:
+        await ctx.send(msg)
