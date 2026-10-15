@@ -393,7 +393,7 @@ async def same_game_alert(ctx: commands.Context, mode: str = None):
             print(f"Same Game Alert Speech Error: {e}")
 
 
-@bot.hybrid_command(name="stream_mode", description="เปิด/ปิดโหมดสตรีมของแบ็คลี่ด้วยปุ่มเดียว (ปิดชวนตี้/แจ้งเที่ยงวัน-เที่ยงคืน/ทักทายเข้าออกห้อง + รับคำสั่งเฉพาะเจ้าของบอทหรือคนที่กำลังสตรีม)")
+@bot.hybrid_command(name="stream_mode", description="เปิด/ปิดโหมดสตรีมด้วยปุ่มเดียว (ปิดชวนตี้/แจ้งเวลา/ทักทาย + รับคำสั่งเฉพาะเจ้าของหรือคนสตรีม)")
 async def stream_mode_panel(ctx: commands.Context):
     if ctx.guild is None:
         await ctx.send("คำสั่งนี้จำเป็นต้องสั่งใช้งานภายในเซิร์ฟเวอร์เท่านั้นครับ")

@@ -19,7 +19,7 @@ from bagley.voice.tts import bagley_speak
     name="tell_story",
     description="ให้แบ็คลี่เล่าเรื่อง (ผี/ลึกลับ/ตลก) ถามก่อนว่าเปิดคลิป YouTube หรือหาเรื่องจากเว็บมาเล่าเอง",
 )
-@app_commands.describe(topic="หัวข้อ/แนวเรื่องที่อยากให้เล่า (ถ้ามี) เช่น 'เรื่องผี' หรือ 'เรื่องตลก' ถ้าไม่ระบุ แบ็คลี่จะเลือกแนวเรื่องเอง")
+@app_commands.describe(topic="หัวข้อ/แนวเรื่อง (ถ้ามี) เช่น 'เรื่องผี' หรือ 'เรื่องตลก' ไม่ระบุ = แบ็คลี่เลือกเอง")
 async def tell_story(ctx: commands.Context, *, topic: Optional[str] = None):
     view = StoryChoiceView(ctx, topic)
     prompt_text = "จะให้ผมหาคลิปเรื่องเล่ามาเปิดให้ฟัง หรือให้ผมหาเรื่องเล่าจากในเว็บมาเล่าเองดีครับ?"
