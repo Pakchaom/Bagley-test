@@ -3,15 +3,18 @@ import json
 import os
 import re as regex_lib
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta
 
 from bagley.core.config import bangkok_tz
 from bagley.core.logutil import print
 
+_user_data_lock = threading.Lock()
+
 
 def save_settings(data):
-    with open('server_settings.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4)
+    _atomic_write_json('server_settings.json', data, indent=4)
 
 
 def load_settings():
@@ -23,9 +26,27 @@ def load_settings():
         return {}
 
 
+def _atomic_write_json(path, data, **dump_kwargs):
+    """เขียน JSON แบบอะตอมมิก (เขียนไฟล์ชั่วคราว -> fsync -> replace) กันไฟล์พังครึ่งๆ กลางๆ
+    ตอนไฟดับ/ปิดโปรแกรม/มี 2 งานเขียนพร้อมกัน (เดิมเปิด 'w' เขียนทับตรงๆ ไฟล์จะว่างเปล่าถ้าพังกลางทาง)"""
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, **dump_kwargs)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
 def save_user_data(data):
-    with open('user_data.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    with _user_data_lock:
+        _atomic_write_json('user_data.json', data, indent=4, ensure_ascii=False)
 
 
 def load_user_data():
@@ -33,6 +54,16 @@ def load_user_data():
         with open('user_data.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as e:
+        # ไฟล์พัง: เดิมโยน exception ทำให้ทุกที่ที่เรียก (เช็คคนเข้าห้องเสียง ฯลฯ) พังตามกันหมด
+        # ตอนนี้เก็บไฟล์พังไว้เป็น .corrupt-เวลา (ไม่ลบ กู้เองได้) แล้วเริ่มด้วยข้อมูลว่างแทน
+        bad = f"user_data.json.corrupt-{int(time.time())}"
+        try:
+            os.replace('user_data.json', bad)
+        except OSError:
+            bad = "(ย้ายไม่ได้)"
+        print(f"⚠️ user_data.json พัง ({e}) -> เก็บไฟล์เดิมไว้ที่ {bad} และเริ่มด้วยข้อมูลว่าง")
         return {}
 
 
@@ -153,9 +184,7 @@ def load_voice_data():
 
 def save_voice_data(data):
     try:
-        # บันทึกไฟล์ข้อมูลอย่างปลอดภัยแบบเคลียร์ของเดิมทิ้งก่อนเขียนใหม่คัป
-        with open('voice_stats.json', 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        _atomic_write_json('voice_stats.json', data, ensure_ascii=False, indent=4)
     except Exception as e:
         print(f"❌ ไม่สามารถบันทึกข้อมูลลง voice_stats.json ได้: {e}")
 
@@ -246,8 +275,7 @@ def load_reminders():
 
 
 def save_reminders(reminders):
-    with open('check_friend_reminders.json', 'w', encoding='utf-8') as f:
-        json.dump(reminders, f, ensure_ascii=False, indent=4)
+    _atomic_write_json('check_friend_reminders.json', reminders, ensure_ascii=False, indent=4)
 
 
 def get_realtime_name(user_id, default_name):

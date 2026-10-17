@@ -12,8 +12,9 @@ from bagley.core.config import bangkok_tz
 from bagley.core.logutil import print
 from bagley.data.storage import _ensure_schedule_ids, _normalize_schedule_date, _schedule_sort_key, get_realtime_name, load_user_data, save_user_data
 from bagley.phrases import say
+from bagley.voice.client import connect_voice
 from bagley.ui.views import IdentityListPaginator, ScheduleDeleteView
-from bagley.voice.tts import FFMPEG_PATH, bagley_speak, bagley_speak_wait
+from bagley.voice.tts import bagley_speak, bagley_speak_wait, start_sfx, stop_speech_only
 
 
 @bot.hybrid_command(name="alarm", description="ตั้งเวลาปลุกเพื่อน (เช่น 07:00 หรือ 16:30)")
@@ -51,7 +52,7 @@ async def alarm(
                     await ctx.voice_client.move_to(member.voice.channel)
                     vc = ctx.voice_client
                 else:
-                    vc = await member.voice.channel.connect()
+                    vc = await connect_voice(member.voice.channel)
             else:
                 vc = ctx.voice_client
 
@@ -62,17 +63,17 @@ async def alarm(
             
             while ctx.voice_client is not None and state.active_alarms.get(guild_id, False):
                 
-                source = discord.PCMVolumeTransformer(
-                    discord.FFmpegPCMAudio('iphone_alarm.mp3', executable=FFMPEG_PATH)
-                )
-                source.volume = 0.4 
-                vc.play(source)
-
-                while vc.is_playing(): 
-                    if not state.active_alarms.get(guild_id, False) or ctx.voice_client is None:
-                        vc.stop()
-                        break
-                    await asyncio.sleep(0.1)
+                # 🎵 เสียงปลุกซ้อนบนเพลงได้ (ไม่ตัดเพลง) และสั่งหยุดปลุกก็ตัดเฉพาะเสียงปลุก
+                vc = ctx.voice_client
+                sfx = await start_sfx(vc, 'iphone_alarm.mp3', volume=0.4)
+                if sfx is None:
+                    await asyncio.sleep(1.0)      # เล่นไม่ได้ชั่วคราว (เช่น หลุดห้อง) กันลูปวิ่งรัว
+                else:
+                    while not sfx.done.is_set():
+                        if not state.active_alarms.get(guild_id, False) or ctx.voice_client is None:
+                            sfx.stop()
+                            break
+                        await asyncio.sleep(0.1)
 
                 if ctx.voice_client is None or not state.active_alarms.get(guild_id, False):
                     break
@@ -124,9 +125,9 @@ async def stop_alarm(ctx: commands.Context):
     if guild_id in state.active_alarms and state.active_alarms[guild_id]:
         state.active_alarms[guild_id] = False
         
-        if ctx.voice_client and ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
-            
+        # ลูปปลุกจะตัดเสียงปลุกเองภายใน 0.1 วิ (ตัดเฉพาะเสียงปลุก ไม่ตัดเพลง) — ตรงนี้เคลียร์เฉพาะเสียงเดี่ยวที่ค้าง
+        stop_speech_only(ctx.voice_client)
+
         await ctx.send("⏰ **[Bagley System]** ปิดนาฬิกาปลุกประจำเซิร์ฟเวอร์เรียบร้อยครับ! แยกย้ายไปนอนต่อ.. เอ้ย! ไปทำภารกิจกันได้เลยครับ!")
         if ctx.guild and ctx.guild.voice_client:
             await bagley_speak(ctx.guild, say("alarm_stopped"))

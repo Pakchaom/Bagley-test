@@ -1,4 +1,8 @@
-discord.py[voice]>=2.4
+discord.py[voice]>=2.7
+discord-ext-voice-recv
+davey
+SpeechRecognition
+numpy
 python-dotenv
 aiohttp
 edge-tts>=7.3.1

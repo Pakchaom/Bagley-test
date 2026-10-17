@@ -21,7 +21,9 @@ from bagley.features.teams import _dm_self_kick_timer
 from bagley.phrases import VOICE_REPORT_OFF_SPEECH, VOICE_REPORT_ON_SPEECH, pick as _pick_speech, say
 from bagley.ui.views import CancelVoiceView, GroupMoveView, KickVoiceView, PartyCreateView, PullRoomView, RoleSelectView, StreamModeView
 from bagley.voice.alerts import check_shared_voice_quota
-from bagley.voice.tts import FFMPEG_PATH, bagley_speak, bagley_speak_wait
+from bagley.voice.client import connect_voice
+from bagley.voice.mixer import get_mixer
+from bagley.voice.tts import FFMPEG_PATH, bagley_speak, bagley_speak_wait, stop_speech_only
 
 
 # --- [CORE COMMANDS] สั่งแล้วพูดด้วย ---
@@ -64,7 +66,7 @@ async def join(ctx: commands.Context):
             await ctx.voice_client.move_to(channel)
             vc = ctx.voice_client
         else:
-            vc = await channel.connect()
+            vc = await connect_voice(channel)
         
         state.bot_follow_targets[ctx.guild.id] = None
         await asyncio.sleep(1.0)
@@ -180,9 +182,8 @@ async def join(ctx: commands.Context):
             await ctx.send(chat_text)
             
         try:
-            # 🌟 การันตีหยุดเสียงเก่าก่อนพูด และเรียกใช้ฟังก์ชันพูด
-            if vc.is_playing():
-                vc.stop()
+            # 🌟 การันตีหยุดเสียงพูดเก่าก่อนพูด (ไม่ตัดเพลง) และเรียกใช้ฟังก์ชันพูด
+            stop_speech_only(vc)
             await asyncio.sleep(0.2)
             
             await bagley_speak_wait(ctx.guild, msg)
@@ -753,7 +754,7 @@ async def send_to(ctx: commands.Context, friend: str): # 🔄 เปลี่ย
             await ctx.voice_client.move_to(target_channel)
             vc = ctx.voice_client
         else:
-            vc = await target_channel.connect()
+            vc = await connect_voice(target_channel)
 
         # แจ้งในช่องแชททันทีหลังจากก้าวเท้าเข้าห้องเสียง
         await ctx.send(f"รับทราบครับ! ผมจะไปอยู่เป็นเพื่อนคุณ {get_realtime_name(member.id, member.display_name)} เดี๋ยวนี้แหละ")
@@ -819,10 +820,11 @@ async def report_voice_toggle(ctx: commands.Context, status: str):
     await ctx.send(response_text)
 
     if voice_client and voice_client.channel:
-        if voice_client.is_playing():
-            print(f"DEBUG: บอทกำลังเล่นเสียง/เปิดเพลงอยู่ จะไม่มีการพูดเสียงแทรกในกิลด์ {guild_id}")
+        # เพลงกำลังเล่น = พูดซ้อนได้ (ผ่านตัวผสมเสียง) ข้ามเฉพาะตอนมีเสียงเดี่ยวอื่นเล่นอยู่
+        if voice_client.is_playing() and get_mixer(voice_client) is None:
+            print(f"DEBUG: บอทกำลังเล่นเสียงอยู่ จะไม่มีการพูดเสียงแทรกในกิลด์ {guild_id}")
             return
-            
+
         await bagley_speak_wait(guild, speech_text)
 
 

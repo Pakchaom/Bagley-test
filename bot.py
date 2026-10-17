@@ -28,7 +28,7 @@ from bagley.core.app import bot          # noqa: E402
 
 # นำเข้าเพื่อให้คำสั่ง/อีเวนต์/ปุ่มลงทะเบียนกับบอท (ลำดับไม่สำคัญ)
 from bagley.events import checks, lifecycle, message, voice_state    # noqa: E402,F401
-from bagley.commands import admin, fun, memory, music, reminders, voice, youtube    # noqa: E402,F401
+from bagley.commands import admin, fun, listen, memory, music, reminders, voice, voice_access, youtube    # noqa: E402,F401
 from bagley.ui import views              # noqa: E402,F401
 
 

@@ -48,6 +48,9 @@ AI_ROUTER_EXCLUDED_COMMANDS = {
     "teach", "unteach", "list_teach", "view_logs",
     # 🧠 ความจำระยะยาว: ขอดู/ขอลบด้วยภาษาพูดมีตัวจัดการเฉพาะอยู่แล้ว (knowledge.handle_memory_request) ไม่ให้ AI Router เดาซ้ำ
     "my_memory", "forget_fact",
+    # 🎙️ จัดการรายชื่อคนที่บอทฟังเสียง: เฉพาะผู้พัฒนา พิมพ์/พูดสั่งตรงเท่านั้น ห้ามให้ AI เดาเรียกเอง
+    # (กันคนที่ถูกเพิ่มไว้แล้วพูดหว่านให้ AI เพิ่ม/ลบรายชื่อแทน)
+    "voice_user_add", "voice_user_remove", "voice_user_list",
 }
 
 # แคช tool schema ไว้ ไม่ต้องสร้างใหม่ทุกครั้งที่มีข้อความเข้ามา

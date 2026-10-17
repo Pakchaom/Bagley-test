@@ -13,6 +13,7 @@ from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephe
 from bagley.phrases import say
 from bagley.services.voice_relay import start_voice_relay_server
 from bagley.tasks.loops import auto_brain_cleanup, check_expired_schedules, check_friend_reminders, check_reminders, daily_announcement_task, follow_creator_task
+from bagley.voice import ack as voice_ack
 from bagley.voice.tts import bagley_speak, warm_cache
 
 
@@ -28,6 +29,7 @@ async def on_ready():
     if not getattr(bot, "_tts_warm_started", False):
         bot._tts_warm_started = True
         asyncio.create_task(warm_cache())
+        asyncio.create_task(voice_ack.ensure_loaded())   # ไฟล์เสียงขานรับ (ครับ/ค้าบ/ครับผม) สร้างครั้งแรกครั้งเดียว + โหลดค้างไว้
     
     try:
         init_db()

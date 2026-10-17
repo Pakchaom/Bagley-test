@@ -7,6 +7,7 @@ from bagley.core import state
 from bagley.core.app import bot
 from bagley.core.logutil import print
 from bagley.phrases import say
+from bagley.voice.mixer import DuckingMixer
 from bagley.voice.tts import FFMPEG_PATH, bagley_speak, bagley_speak_wait
 
 
@@ -82,8 +83,9 @@ async def play_song(ctx, search):
                     print(f"❌ [FFmpeg after-callback error] เพลง '{title}' หยุดเล่นแบบผิดปกติ: {e}")
                 bot.loop.create_task(check_queue(ctx))
 
+            # ครอบด้วยตัวผสมเสียง: ตอนบอทพูด/ติ๊ด จะหรี่เพลงลงแล้วเอาเสียงมาซ้อน ไม่ต้องรอเพลงจบ
             ctx.voice_client.play(
-                volume_controlled_source, 
+                DuckingMixer(volume_controlled_source),
                 after=_after
             )
 

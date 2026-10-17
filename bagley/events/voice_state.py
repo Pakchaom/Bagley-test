@@ -1,5 +1,6 @@
 """bagley/events/voice_state.py — ตรวจจับคนเข้า-ออกห้องเสียง (on_voice_state_update)"""
 import asyncio
+import os
 import time
 from datetime import datetime
 
@@ -10,6 +11,8 @@ from bagley.core.logutil import print
 from bagley.data.storage import _get_saved_voice_name, _register_voice_entry, get_realtime_name, get_reminders_for_user, load_user_data, load_voice_data, parse_birthday, save_voice_data
 from bagley.phrases import VOICE_GUARD_STAY_MESSAGES, VOICE_JOIN_GREETINGS, pick as _pick_speech
 from bagley.voice.tts import bagley_speak_wait
+
+REPORT_OVER_MUSIC = os.getenv("REPORT_OVER_MUSIC", "1") != "0"
 
 
 @bot.event
@@ -157,19 +160,13 @@ async def on_voice_state_update(member, before, after):
     # 📢 [ส่วนที่ 3] ตรวจสอบและรายงานเสียง คนเข้า-ออกห้องเสียงยามปกติ
     if not has_followed_out and voice_client and voice_client.channel:
         bot_channel = voice_client.channel
-        # 🔧 [แก้บั๊ก] เดิมเช็ค voice_client.is_playing() ตรงๆ ทำให้ถ้ามีคนเข้าห้อง
-        # พร้อมกันหลายคน (Discord ยิง event แยกทีละคน) คนที่ 2 เป็นต้นไปจะโดน
-        # return ทิ้งไปเลยเพราะเสียงทักทายของคนแรกกำลังเล่นอยู่ (is_playing()=True)
-        # ทำให้ประกาศหายไปเงียบๆ ไม่ได้พูดถึงเลย
-        # เปลี่ยนมาเช็คแค่ is_playing_music แทน (ไม่อยากแทรกตอนกำลังเปิดเพลงอยู่
-        # ตามเจตนาเดิม) ส่วนกรณีที่แค่มีเสียงทักทายคนอื่นเล่นอยู่ ให้ปล่อยไหลลง
-        # ไปเรียก bagley_speak_wait ตามปกติ เพราะฟังก์ชันนั้นมีลูปรอเสียงเดิม
-        # เล่นจบก่อนอยู่แล้ว (while vc.is_playing(): await asyncio.sleep(0.1))
-        # ทำให้คนที่เข้ามาพร้อมกันถูกพูดเรียงต่อกันไปเรื่อยๆ ไม่ถูกทิ้งอีกต่อไป
-        if state.is_playing_music:
-            return
+        # 🎵 พูดรายงานคนเข้า-ออก "ซ้อนบนเพลง" ได้ (ตัวผสมเสียงหรี่เพลงให้ชั่วคราว ไม่ตัดเพลง)
+        # เดิมมีด่าน `if state.is_playing_music: return` ทำให้ตอนเปิดเพลงบอทเงียบไม่รายงานเลย
+        # ถ้าอยากกลับไปเงียบตอนเปิดเพลง ใส่ REPORT_OVER_MUSIC=0 ใน .env
+        # (ห้าม return ตรงนี้: ด้านล่างยังมีส่วนบันทึกสถิติเวลาที่ต้องทำงานเสมอ — ของเดิม return แล้วสถิติหายตอนเปิดเพลง)
+        skip_report_for_music = state.is_playing_music and not REPORT_OVER_MUSIC
 
-        is_reporting_enabled = state.voice_report_status.get(guild_id, True)
+        is_reporting_enabled = state.voice_report_status.get(guild_id, True) and not skip_report_for_music
 
         if is_reporting_enabled:
             data_memory = load_user_data() 

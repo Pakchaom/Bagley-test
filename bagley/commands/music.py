@@ -11,6 +11,7 @@ from bagley.music.player import play_song
 from bagley.music.spotify import parse_spotify_link, resolve_spotify_link
 from bagley.phrases import say
 from bagley.services import youtube_live_chat as ylc
+from bagley.voice.client import connect_voice
 from bagley.voice.tts import bagley_speak
 
 
@@ -22,7 +23,7 @@ async def play(ctx: commands.Context, *, search: str):
 
     if not ctx.voice_client:
         if ctx.author.voice:
-            await ctx.author.voice.channel.connect()
+            await connect_voice(ctx.author.voice.channel)
         else:
             await ctx.send(say("need_voice"))
             return

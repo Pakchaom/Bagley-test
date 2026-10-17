@@ -26,6 +26,7 @@ from typing import Optional
 import discord
 
 from bagley.core import state
+from bagley.voice.mixer import get_mixer
 
 TTS_VOICE = os.getenv("TTS_VOICE", "th-TH-NiwatNeural")
 CACHE_DIR = os.getenv("TTS_CACHE_DIR", "tts_cache")
@@ -157,11 +158,17 @@ async def play_and_wait(vc, source_path: str, *, timeout: float = 180.0, volume:
         loop.call_soon_threadsafe(done.set)
 
     try:
-        vc.play(src, after=_after)
+        mixer = get_mixer(vc)
+        if mixer is not None:
+            # กำลังเปิดเพลงอยู่ -> ไม่ต้องรอเพลงจบ: หรี่เพลงแล้วเอาเสียงพูดซ้อนเข้าไป (on_done เรียกตอนพูดจบ/เพลงถูกตัด)
+            mixer.add_overlay(src, lambda: _after(None))
+        else:
+            vc.play(src, after=_after)
         await asyncio.wait_for(done.wait(), timeout=timeout)
     except asyncio.TimeoutError:
         try:
-            vc.stop()
+            if get_mixer(vc) is None:      # โดน timeout ตอนเล่นแบบซ้อน ห้าม vc.stop() เพราะจะตัดเพลงทิ้ง
+                vc.stop()
         except Exception:  # noqa: BLE001
             pass
     finally:
@@ -173,8 +180,85 @@ async def play_and_wait(vc, source_path: str, *, timeout: float = 180.0, volume:
 
 async def _wait_until_idle(vc, poll: float = 0.05, limit: float = 300.0):
     t0 = time.monotonic()
-    while vc.is_playing() and time.monotonic() - t0 < limit:
+    # ถ้ากำลังเล่นเพลงผ่านตัวผสม ไม่ต้องรอ (พูดซ้อนได้เลย) รอเฉพาะกรณีมีเสียงอื่นเล่นเดี่ยวๆ อยู่
+    while vc.is_playing() and get_mixer(vc) is None and time.monotonic() - t0 < limit:
         await asyncio.sleep(poll)
+
+
+# ----------------------------------------------------------------------------
+# เสียงเอฟเฟกต์ (โดรน/ปลุก/ติ๊ด) — ซ้อนบนเพลงได้ ตัดเฉพาะเสียงตัวเอง ไม่ตัดเพลง
+# ----------------------------------------------------------------------------
+class SfxHandle:
+    """ตัวควบคุมเสียงเอฟเฟกต์ที่กำลังเล่น: wait() รอจบ / stop() ตัดเฉพาะเสียงนี้ / fade_out() ค่อยๆ เบาลง"""
+
+    def __init__(self, vc, src, mixer, done: asyncio.Event):
+        self.vc, self.src, self.mixer, self.done = vc, src, mixer, done
+
+    def stop(self) -> None:
+        try:
+            if self.mixer is not None:
+                self.mixer.remove_overlay(self.src)          # เพลงเล่นต่อ
+            elif self.vc is not None and self.vc.source is self.src:
+                self.vc.stop()                                # เสียงเดี่ยว ไม่มีเพลงให้เสียหาย
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ [SFX] หยุดเสียงเอฟเฟกต์ไม่สำเร็จ: {e}")
+
+    async def wait(self, timeout: Optional[float] = None) -> None:
+        try:
+            await asyncio.wait_for(self.done.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            pass
+
+    async def fade_out(self, duration: float = 1.0, steps: int = 10) -> None:
+        vol = getattr(self.src, "volume", None)
+        if vol is None or self.done.is_set():
+            return
+        start = vol
+        for i in range(steps):
+            if self.done.is_set():
+                return
+            self.src.volume = max(0.0, start * (1 - (i + 1) / steps))
+            await asyncio.sleep(duration / steps)
+
+
+async def start_sfx(vc, path: str, volume: float = 0.5) -> Optional[SfxHandle]:
+    """เริ่มเล่นไฟล์เสียงเอฟเฟกต์ (ถ้ากำลังเปิดเพลงอยู่ = ซ้อนบนเพลงทันที ไม่ตัดเพลง)
+    คืน None ถ้าเล่นไม่ได้ (ไม่ได้เชื่อมต่อ/ไฟล์ไม่มี/เกิด error) — ผู้เรียกควรไปต่อได้โดยไม่มีเสียงนี้"""
+    if vc is None or not vc.is_connected() or not os.path.exists(path):
+        return None
+    loop = asyncio.get_running_loop()
+    done = asyncio.Event()
+    src = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(path, executable=FFMPEG_PATH), volume=volume)
+
+    def _after(err=None):
+        if err:
+            print(f"⚠️ [SFX] เล่นเสียงมีปัญหา: {err}")
+        loop.call_soon_threadsafe(done.set)
+
+    try:
+        mixer = get_mixer(vc)
+        if mixer is not None:
+            mixer.add_overlay(src, lambda: _after(None))
+        else:
+            await _wait_until_idle(vc)
+            vc.play(src, after=_after)
+        return SfxHandle(vc, src, mixer, done)
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ [SFX] เริ่มเล่น {path} ไม่ได้: {e}")
+        try:
+            src.cleanup()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+
+def stop_speech_only(vc) -> None:
+    """หยุดเสียงพูด/เสียงเดี่ยวที่ค้างอยู่ แต่ \"ไม่แตะเพลง\" (แทน `if vc.is_playing(): vc.stop()` ที่ตัดเพลงทิ้งด้วย)"""
+    try:
+        if vc is not None and vc.is_playing() and get_mixer(vc) is None:
+            vc.stop()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ----------------------------------------------------------------------------

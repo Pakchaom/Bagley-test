@@ -15,7 +15,8 @@ from bagley.data.storage import get_realtime_name, load_reminders, load_user_dat
 from bagley.features.party import check_and_invite_party, check_and_warn_gamers
 from bagley.phrases import BIG_ROOM_GREETINGS, BIG_ROOM_MOVE_GREETINGS, REPORT_PERMISSION_PHRASES, pick as _pick_speech, say
 from bagley.voice.alerts import _deliver_voice_reminder
-from bagley.voice.tts import FFMPEG_PATH, bagley_speak_wait
+from bagley.voice.client import connect_voice
+from bagley.voice.tts import FFMPEG_PATH, bagley_speak_wait, stop_speech_only
 
 
 @tasks.loop(minutes=1)
@@ -355,7 +356,7 @@ async def follow_creator_task():
                 if voice_client:
                     await voice_client.disconnect(force=True)
                     await asyncio.sleep(0.5)
-                vc = await target_channel.connect()
+                vc = await connect_voice(target_channel)
                 
             if both_present:
                 state.bot_follow_targets[guild_to_join.id] = "both"
@@ -623,9 +624,8 @@ async def follow_creator_task():
         # 🌟 บังคับเงื่อนไขการันตีเสียงพูดเมื่อมีข้อความและได้รับการอนุญาตให้ส่งเสียง
         if should_speak and msg:
             try:
-                # เคลียร์เสียงที่ค้างอยู่ก่อนเปิดเสียงพูด
-                if vc.is_playing():
-                    vc.stop()
+                # เคลียร์เสียงพูดที่ค้างอยู่ก่อนเปิดเสียงพูด (ไม่ตัดเพลง — เสียงพูดซ้อนบนเพลงเอง)
+                stop_speech_only(vc)
                 await asyncio.sleep(0.2)
                 
                 await bagley_speak_wait(guild_to_join, msg)

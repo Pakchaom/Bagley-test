@@ -10,6 +10,7 @@ from bagley.core.logutil import print
 from bagley.data.storage import get_realtime_name
 from bagley.ui.views import PartyInviteView
 from bagley.voice.alerts import check_shared_voice_quota
+from bagley.voice.client import connect_voice
 from bagley.voice.tts import bagley_speak, bagley_speak_wait
 
 
@@ -320,13 +321,13 @@ async def execute_warp_invite(ctx_or_interaction, host_member: discord.Member, t
                 if vc:
                     await vc.move_to(target_channel)
                 else:
-                    vc = await target_channel.connect()
+                    vc = await connect_voice(target_channel)
             else:
                 vc = guild.voice_client
                 if vc:
                     await vc.move_to(target_channel)
                 else:
-                    vc = await target_channel.connect()
+                    vc = await connect_voice(target_channel)
 
             # สร้างประโยคตื๊อ 3 รอบ
             invite_quote = f"คุณ {target_name} ครับ คุณ {host_name} ฝากผมมาตามไปตี้ {game_speech} ด้วยกันที่ห้องนู้นหน่อยครับ!"

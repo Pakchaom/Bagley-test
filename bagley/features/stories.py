@@ -9,6 +9,7 @@ from bagley.core import state
 from bagley.core.app import client
 from bagley.core.logutil import print
 from bagley.music.player import play_song
+from bagley.voice.client import connect_voice
 from bagley.voice.tts import bagley_speak_wait
 
 
@@ -108,7 +109,7 @@ async def _run_story_clip(ctx: commands.Context, topic: Optional[str], interacti
 
     if not ctx.voice_client:
         if ctx.author.voice:
-            await ctx.author.voice.channel.connect()
+            await connect_voice(ctx.author.voice.channel)
         else:
             text = "คุณต้องเข้าห้องเสียงก่อนนะครับ ผมถึงจะเปิดคลิปเรื่องเล่าให้ฟังได้!"
             if interaction:
