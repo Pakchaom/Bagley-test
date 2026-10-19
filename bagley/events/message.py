@@ -485,7 +485,7 @@ async def on_message(message):
     # ==========================================
     if "เตือน" in lower_content and ("ตอน" in lower_content or "เวลา" in lower_content):
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         # คุยใน DM ทำได้เลยทันที / ถ้าในเซิร์ฟเวอร์ต้องเรียกชื่อบอท
         if message.guild is None or is_bot_called:
@@ -572,7 +572,7 @@ async def on_message(message):
 
     if found_trigger:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         # คุยใน DM สั่งฝากข้อความได้เลยทันทีไม่ต้องพิมพ์ชื่อบอท
         if message.guild is None or is_bot_called:
@@ -668,7 +668,7 @@ async def on_message(message):
     # ==========================================
     if "คนนี้คือใคร" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         if message.guild is None or is_bot_called:
             if message.guild is None:
@@ -721,7 +721,7 @@ async def on_message(message):
     # ==========================================
     if "รายชื่อคนในดิส" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         if message.guild is None or is_bot_called:
             try:
@@ -820,7 +820,7 @@ async def on_message(message):
     if "สรุปสถิติห้องเสียง" in lower_content or "ใครคุยนานสุด" in lower_content:
         # 🟢 ทุกบรรทัดด้านล่างนี้ถูกขยับย่อหน้าเข้ามาอยู่ใต้เงื่อนไข if เรียบร้อยแล้วครับ!
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         if message.guild is None or is_bot_called:
             if message.guild is None:
@@ -877,7 +877,7 @@ async def on_message(message):
     # ==========================================
     if "รายงานห้องเสียง" in lower_content or "ทักห้องเสียง" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         if message.guild is None or is_bot_called:
             if message.guild is None: 
@@ -901,7 +901,7 @@ async def on_message(message):
     # ==========================================
     if "ฝากจำ" in lower_content or "บันทึกตาราง" in lower_content or "ตั้งเตือน" in lower_content:
         bot_keywords = ["แบ็คลี่", "bagley", f"<@{bot.user.id}>"]
-        is_bot_called = any(keyword in lower_content for keyword in bot_keywords)
+        is_bot_called = is_from_my_webhook or any(keyword in lower_content for keyword in bot_keywords)
         
         # ทำงานเมื่อบอทโดนเรียกชื่อ หรือพิมพ์คุยส่วนตัวใน DM
         if message.guild is None or is_bot_called:

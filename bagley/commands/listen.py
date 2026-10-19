@@ -1,12 +1,14 @@
 """bagley/commands/listen.py — ให้แบ็คลี่ "ฟังเสียงในห้อง Discord โดยตรง" (ไม่ต้องใช้แอพ ใช้ได้บนมือถือ)
 
 ลำดับ: รับเสียง -> ถอดรหัส DAVE -> ตัดประโยคต่อคน -> Google STT -> จับชื่อเรียก/คำสั่งที่ "คนนั้น" สอนไว้
-  - พูดชื่อ (เช่น "แบ็คลี่") -> แบ็คลี่ขานรับ "ครับ/ค้าบ/ครับผม" (สุ่ม) -> พูดคำสั่งต่อภายใน 8 วินาที  หรือพูดต่อกันเลย "แบ็คลี่ เปิดเพลง ..."
+  - พูดแต่ชื่อเฉยๆ (เช่น "แบ็คลี่") -> แบ็คลี่ขานรับ "ครับ/ค้าบ/ครับผม" (สุ่ม) -> พูดคำสั่งต่อภายใน 8 วินาที
+  - พูดชื่อแล้วตามด้วยคำสั่งในประโยคเดียว (เช่น "แบ็คลี่ ปิดรายงานห้องเสียง") -> ไม่ขานรับ ทำตามคำสั่งทันที (เหมือน Siri)
+  - ค่าเริ่มต้น "เปิดฟังตลอด" ทุกเซิร์ฟ (ทันทีที่แบ็คลี่อยู่ในห้องเสียง) จนกว่าจะสั่ง /listen off (จำแยกเซิร์ฟ รีสตาร์ทแล้วยังอยู่)
   - คำที่สอนไว้ตรง -> สั่งคำสั่งนั้นทันที (รองรับ "ชื่อต่อท้าย" เช่น /kick ชื่อ, /play ชื่อเพลง)
   - ไม่ตรงคำที่สอน -> ส่งเข้าสมอง/ระบบคำสั่งเดิมของบอทเหมือนพิมพ์ในแชท (เปิดเพลง ฯลฯ ใช้ได้ทันที)
 
 คำสั่ง (ผู้ใช้ที่อยู่ในรายชื่ออนุญาตเท่านั้น):
-  /listen on|off|status|debug      เปิด/ปิดการฟัง, ดูสถานะ, เปิด-ปิดการโชว์ข้อความที่ได้ยิน
+  /listen on|off|status|debug      เปิด/ปิดการฟังของเซิร์ฟนี้ (ค่าเริ่มต้น=เปิด), ดูสถานะ, เปิด-ปิดการโชว์ข้อความที่ได้ยิน
   /voice_teach command:/tts has_arg   สอนคำเรียกคำสั่ง (พูด 5 ครั้ง -> ติ๊กเลือกคำที่ถูก -> บันทึก)
   /voice_teach_wake                   สอนวิธีเรียกชื่อแบ็คลี่ของตัวเอง (พูดชื่อ 5 ครั้ง)
   /voice_list                          ดูรายการที่สอนไว้ของตัวเอง + เลือกลบ
@@ -21,10 +23,11 @@ import logging
 import time
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from bagley.core.app import bot
 from bagley.core.logutil import print
+from bagley.data.storage import _atomic_write_json
 from bagley.voice import ack, allowlist, matching, teach_store
 from bagley.voice.client import BagleyVoiceClient, connect_voice
 from bagley.voice.mixer import get_mixer
@@ -55,7 +58,72 @@ OPUS_SILENCE = b"\xf8\xff\xfe"
 DAVE_MARKER = b"\xfa\xfa"          # เฟรมที่ถูกเข้ารหัส DAVE จะลงท้ายด้วย 0xFAFA
 _BEEP_PCM = make_beep_pcm()
 
+# คำลงท้าย/คำเรียกที่ตามหลังชื่อ แต่ไม่ใช่คำสั่ง (เช่น "แบ็คลี่ ครับ", "แบ็คลี่ ว่าไง") -> นับเป็น "เรียกชื่อเฉยๆ"
+_FILLER_WORDS = ("ครับ", "คับ", "ครับผม", "ค้าบ", "คะ", "ค่ะ", "คร้าบ", "นะ", "นะครับ", "หน่อย", "ฮะ", "ฮับ",
+                 "เฮ้", "เฮ้ย", "ฮัลโหล", "ว่าไง", "อยู่ไหม", "อยู่มั้ย", "อยู่ป่ะ", "อยู่หรือเปล่า", "ได้ยินไหม", "ได้ยินมั้ย")
+_FILLERS = {matching.norm(w) for w in _FILLER_WORDS}
+
+
+def _is_filler_only(rems: list) -> bool:
+    return bool(rems) and all(matching.norm(r) in _FILLERS for r in rems)
+
 _sessions: dict[int, "_Session"] = {}
+_starting: set[int] = set()          # กิลด์ที่กำลังเริ่มเซสชันอยู่ (กัน auto-start ชนกับ /listen on)
+
+# ── ตั้งค่าการฟังแยกตามเซิร์ฟ (เก็บไฟล์ ไม่หายตอนรีสตาร์ท) ───────────────────────────────
+# รูปแบบ: {"<guild_id>": {"enabled": true/false, "text_channel": <id>}}  ถ้าไม่มี = เปิด (ค่าเริ่มต้น)
+LISTEN_SETTINGS_FILE = "listen_settings.json"
+_listen_cfg: dict[str, dict] | None = None
+
+
+def _cfg() -> dict:
+    global _listen_cfg
+    if _listen_cfg is None:
+        _listen_cfg = {}
+        try:
+            import json
+            with open(LISTEN_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict):
+                _listen_cfg = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ [Listen] อ่าน {LISTEN_SETTINGS_FILE} ไม่ได้ ({type(e).__name__}: {e}) -> ใช้ค่าเริ่มต้น (เปิดฟังทุกเซิร์ฟ)")
+    return _listen_cfg
+
+
+def _save_cfg() -> None:
+    try:
+        _atomic_write_json(LISTEN_SETTINGS_FILE, _cfg(), indent=2)
+    except Exception as e:
+        print(f"⚠️ [Listen] บันทึก {LISTEN_SETTINGS_FILE} ไม่สำเร็จ: {type(e).__name__}: {e}")
+
+
+def listen_enabled(guild_id: int) -> bool:
+    """เซิร์ฟนี้เปิดฟังอยู่ไหม — ค่าเริ่มต้นคือเปิด จนกว่าจะมีคนสั่ง /listen off"""
+    return bool(_cfg().get(str(guild_id), {}).get("enabled", True))
+
+
+def _set_listen(guild_id: int, enabled: bool | None = None, text_channel_id: int | None = None) -> None:
+    d = _cfg().setdefault(str(guild_id), {})
+    if enabled is not None:
+        d["enabled"] = bool(enabled)
+    if text_channel_id is not None:
+        d["text_channel"] = int(text_channel_id)
+    _save_cfg()
+
+
+def _pick_text_channel(guild: discord.Guild):
+    """ห้องแชทที่ใช้ตอบ/โชว์ข้อความตอนเปิดฟังอัตโนมัติ: ห้องที่เคยสั่ง /listen ล่าสุด -> ห้องระบบ -> ห้องแรกที่บอทส่งได้"""
+    me = guild.me
+    cid = _cfg().get(str(guild.id), {}).get("text_channel")
+    ch = guild.get_channel(cid) if cid else None
+    cands = [ch, guild.system_channel, *guild.text_channels]
+    for c in cands:
+        if c is not None and me is not None and c.permissions_for(me).send_messages:
+            return c
+    return None
 
 
 def _ver(pkg: str) -> str:
@@ -442,11 +510,14 @@ async def _handle_utterance(s: _Session, utt: Utterance) -> None:
     if w is None:
         return                                    # ไม่ได้เรียกแบ็คลี่ -> เมิน (ไม่เก็บ ไม่ตอบ)
     kind, rems = w
+    if kind == "with" and _is_filler_only(rems):
+        kind = "alone"                             # "แบ็คลี่ ครับ" ฯลฯ = แค่เรียกชื่อ
     if kind == "alone":
-        s.armed[member.id] = now + ARMED_SEC       # ติ๊ดๆ แล้วรอคำสั่งถัดไป
+        # เรียกชื่อเฉยๆ -> ขานรับ ครับ/ค้าบ/ครับผม แล้วรอคำสั่งถัดไป
+        s.armed[member.id] = now + ARMED_SEC
         await _ack_wake(s, f"👂 {member.display_name}: ได้ยินแล้วครับ (กำลังพูดอยู่เลยไม่ขานรับด้วยเสียง) — สั่งต่อได้เลยภายใน {ARMED_SEC} วิ")
     else:
-        await _ack_wake(s, None)
+        # เรียกชื่อ + สั่งในประโยคเดียว -> ไม่ขานรับ ทำตามคำสั่งเลย (เหมือน Siri)
         await _dispatch(s, member, rems)
 
 
@@ -527,39 +598,83 @@ def _stop_session(guild_id: int) -> bool:
     return True
 
 
-async def _start_session(ctx: commands.Context) -> str | None:
-    """คืนข้อความ error ถ้าเริ่มไม่ได้, None ถ้าสำเร็จ"""
-    if not HAVE_RECV:
-        return "ยังไม่ได้ติดตั้ง `discord-ext-voice-recv` ครับ (pip install -r requirements.txt)"
-    if not ctx.author.voice or not ctx.author.voice.channel:
-        return "เข้าห้องเสียงก่อนนะครับ แล้วค่อยสั่ง"
-    channel = ctx.author.voice.channel
-    guild = ctx.guild
-    _stop_session(guild.id)
-
-    vc = guild.voice_client
-    if vc is not None and not isinstance(vc, BagleyVoiceClient):
-        # ตัวที่เข้าห้องไว้เดิมรับเสียงไม่ได้ (หรือเป็นตัวเก่าที่ stop() แล้วหูดับ) ต้องตัดแล้วเข้าใหม่ (เพลงที่เล่นอยู่จะหยุด)
-        await vc.disconnect(force=True)
-        await asyncio.sleep(1.0)
-        vc = None
-    if vc is None:
-        vc = await connect_voice(channel)
-    elif vc.channel != channel:
-        await vc.move_to(channel)
-
-    s = _Session(guild.id, ctx.channel, vc)
+def _new_session(guild: discord.Guild, text_channel, vc) -> "_Session":
+    s = _Session(guild.id, text_channel, vc)
     s.sink = _ListenSink(s)
     vc.listen(s.sink)
     s.pump_task = asyncio.create_task(_pump(s))
     _sessions[guild.id] = s
+    return s
+
+
+async def _start_session(ctx: commands.Context) -> str | None:
+    """คืนข้อความ error ถ้าเริ่มไม่ได้, None ถ้าสำเร็จ"""
+    if not HAVE_RECV:
+        return "ยังไม่ได้ติดตั้ง `discord-ext-voice-recv` ครับ (pip install -r requirements.txt)"
+    guild = ctx.guild
+    cur = guild.voice_client
+    if not ctx.author.voice or not ctx.author.voice.channel:
+        # ไม่ได้อยู่ห้องเสียง แต่แบ็คลี่อยู่ในห้องอยู่แล้ว (เช่น /listen on จากแชทตอนบอทอยู่ห้องเสียง) -> ฟังในห้องนั้นได้เลย
+        if not (cur is not None and cur.is_connected() and isinstance(cur, BagleyVoiceClient)):
+            return "เข้าห้องเสียงก่อนนะครับ แล้วค่อยสั่ง"
+        channel = cur.channel
+    else:
+        channel = ctx.author.voice.channel
+    _starting.add(guild.id)
+    try:
+        _stop_session(guild.id)
+
+        vc = guild.voice_client
+        if vc is not None and not isinstance(vc, BagleyVoiceClient):
+            # ตัวที่เข้าห้องไว้เดิมรับเสียงไม่ได้ (หรือเป็นตัวเก่าที่ stop() แล้วหูดับ) ต้องตัดแล้วเข้าใหม่ (เพลงที่เล่นอยู่จะหยุด)
+            await vc.disconnect(force=True)
+            await asyncio.sleep(1.0)
+            vc = None
+        if vc is None:
+            vc = await connect_voice(channel)
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+
+        _new_session(guild, ctx.channel, vc)
+    finally:
+        _starting.discard(guild.id)
     return None
+
+
+@tasks.loop(seconds=5)
+async def _auto_listen_loop():
+    """เปิดฟังอัตโนมัติ: เซิร์ฟไหนที่แบ็คลี่อยู่ในห้องเสียง (ด้วย client ที่ฟังได้) และไม่ได้สั่ง /listen off
+    ไว้ -> สร้างเซสชันฟังให้เองทันที (ครอบคลุมทั้งตอนบอทเพิ่งเข้าห้อง, รีสตาร์ทบอท, และเข้าห้องผ่านคำสั่งอื่นอย่าง /join /play)
+    ส่วนการต่อฟังที่หลุดระหว่างทางยังเป็นหน้าที่ของ watchdog ใน _pump เหมือนเดิม"""
+    if not HAVE_RECV:
+        return
+    for guild in list(bot.guilds):
+        try:
+            if guild.id in _sessions or guild.id in _starting or not listen_enabled(guild.id):
+                continue
+            vc = guild.voice_client
+            if vc is None or not vc.is_connected() or not isinstance(vc, BagleyVoiceClient):
+                continue
+            ch = _pick_text_channel(guild)
+            if ch is None:
+                continue
+            _new_session(guild, ch, vc)
+            print(f"👂 [Listen] เปิดฟังอัตโนมัติ (ค่าเริ่มต้น) กิลด์ {guild.id} ห้อง {vc.channel}")
+        except Exception as e:
+            print(f"⚠️ [Listen] เปิดฟังอัตโนมัติไม่สำเร็จ กิลด์ {guild.id}: {type(e).__name__}: {e}")
+
+
+@bot.listen("on_ready")
+async def _listen_autostart_on_ready():
+    if not _auto_listen_loop.is_running():
+        _auto_listen_loop.start()
 
 
 def _status_text(guild: discord.Guild) -> str:
     s = _sessions.get(guild.id)
     lines = [
         "📋 **สถานะระบบฟังเสียง (ทดสอบ)**",
+        f"• การฟังของเซิร์ฟนี้: {'🟢 เปิด (ค่าเริ่มต้น เปิดตลอดจนกว่าจะสั่ง /listen off)' if listen_enabled(guild.id) else '🔴 ปิด (สั่ง /listen on เพื่อเปิด)'}",
         f"• discord.py {_ver('discord.py')} | voice-recv {_ver('discord-ext-voice-recv')} | "
         f"davey {_ver('davey')} | SpeechRecognition {_ver('SpeechRecognition')}",
     ]
@@ -585,7 +700,8 @@ def _status_text(guild: discord.Guild) -> str:
         if st["fail"] > 20 and st["dave"] == 0:
             lines.append("⚠️ ถอด DAVE ไม่ได้เลย — ลองให้ทุกคนออก-เข้าห้องใหม่ หรือ /listen off แล้ว on อีกรอบ แล้วส่งบรรทัดนี้ให้ผู้พัฒนา")
     else:
-        lines.append("• ยังไม่ได้เปิดฟัง (/listen on)")
+        lines.append("• ยังไม่มีเซสชันฟังตอนนี้ " + ("(เปิดฟังอัตโนมัติอยู่ — จะเริ่มเองเมื่อแบ็คลี่เข้าห้องเสียง)"
+                                                  if listen_enabled(guild.id) else "(ปิดไว้ — /listen on เพื่อเปิด)"))
     return "\n".join(lines)
 
 
@@ -621,19 +737,23 @@ async def listen(ctx: commands.Context, mode: str = "status"):
     mode = (mode or "status").strip().lower()
 
     if mode in ("on", "เปิด", "start"):
+        _set_listen(ctx.guild.id, enabled=True, text_channel_id=ctx.channel.id)   # จำว่าเซิร์ฟนี้เปิดฟัง (แม้ตอนนี้ยังไม่ได้อยู่ห้องเสียง)
         try:
             err = await _start_session(ctx)
         except Exception as e:
             err = f"เริ่มฟังไม่สำเร็จ: {type(e).__name__}: {e}"
         if err:
-            await ctx.send(f"❌ {err}")
+            await ctx.send(f"❌ {err}\n(เปิดการฟังของเซิร์ฟนี้ไว้ให้แล้ว แบ็คลี่จะเริ่มฟังเองเมื่อเข้าห้องเสียง)")
         else:
-            await ctx.send("👂 เริ่มฟังแล้วครับ — เรียก “แบ็คลี่” (แบ็คลี่จะขานรับว่า ครับ/ค้าบ/ครับผม) แล้วสั่งต่อได้เลย หรือพูดต่อกัน "
-                           "เช่น “แบ็คลี่ เปิดเพลง ...”\n"
+            await ctx.send("👂 เริ่มฟังแล้วครับ (เปิดตลอดจนกว่าจะสั่ง `/listen off`) — เรียก “แบ็คลี่” เฉยๆ แบ็คลี่จะขานรับ ครับ/ค้าบ/ครับผม แล้วสั่งต่อได้เลย "
+                           "หรือพูดต่อกันในประโยคเดียว เช่น “แบ็คลี่ เปิดเพลง ...” “แบ็คลี่ ปิดรายงานห้องเสียง” (แบบนี้จะไม่ขานรับ ทำเลย)\n"
                            "สอนคำเรียก/คำสั่งของตัวเอง: `/voice_teach_wake` และ `/voice_teach` | ดูรายการ `/voice_list` | "
                            "เปิดดูข้อความที่ผมได้ยิน `/listen debug`")
     elif mode in ("off", "ปิด", "stop"):
-        await ctx.send("🙉 เลิกฟังแล้วครับ" if _stop_session(ctx.guild.id) else "ตอนนี้ยังไม่ได้ฟังอยู่ครับ")
+        _set_listen(ctx.guild.id, enabled=False, text_channel_id=ctx.channel.id)
+        was = _stop_session(ctx.guild.id)
+        await ctx.send("🙉 ปิดการฟังของเซิร์ฟนี้แล้วครับ (เซิร์ฟอื่นไม่กระทบ) — อยากให้ฟังอีกสั่ง `/listen on`" if was
+                       else "🙉 ปิดการฟังของเซิร์ฟนี้ไว้ให้แล้วครับ — อยากให้ฟังอีกสั่ง `/listen on`")
     elif mode == "debug":
         s = _sessions.get(ctx.guild.id)
         if not s:
@@ -652,6 +772,9 @@ async def _begin_teach(ctx: commands.Context, t: _Teach, what: str) -> None:
         return
     if ctx.interaction:
         await ctx.defer()
+    if not listen_enabled(ctx.guild.id):
+        await ctx.send("🙉 ตอนนี้ปิดการฟังของเซิร์ฟนี้อยู่ครับ — สั่ง `/listen on` ก่อน แล้วค่อยสอนนะครับ")
+        return
     s = _sessions.get(ctx.guild.id)
     # เซสชันเก่าอาจ "หูดับ" ไปแล้วโดยไม่รู้ตัว (เช่นหลัง /skip /stop หรือบอทย้ายห้อง) -> เช็กและต่อใหม่ก่อน ถ้าต่อไม่ได้ค่อยเริ่มเซสชันใหม่
     if s is not None and not _rebind(s):
