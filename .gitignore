@@ -37,3 +37,7 @@ __pycache__/
 # แคชไฟล์เสียงพูด (สร้างอัตโนมัติ)
 tts_cache/
 __pycache__/
+
+bagley_memory.db-shm
+
+bagley_memory.db-wal
