@@ -7,7 +7,7 @@ Bagley (แบ็คลี่) — Discord bot  |  จุดเริ่มต�
   voice/     tts (พูดเร็ว + แคชเสียง), alerts (วาร์ปเข้าห้องไปแจ้งเตือน)
   music/     player, spotify
   services/  youtube, youtube_live_chat, images, voice_relay
-  features/  party, teams, stories, reminders, memory, members, rooms, rules, trust, learning, autonomy ...
+  features/  party, teams, stories, games (UNO/XO), reminders, memory, members, rooms, rules, trust, learning, autonomy ...
   ui/        ปุ่ม/เมนู/ฟอร์ม
   tasks/     งานวนลูปเบื้องหลัง
   events/    on_message, on_voice_state_update, on_ready ...
@@ -28,7 +28,7 @@ from bagley.core.app import bot          # noqa: E402
 
 # นำเข้าเพื่อให้คำสั่ง/อีเวนต์/ปุ่มลงทะเบียนกับบอท (ลำดับไม่สำคัญ)
 from bagley.events import checks, lifecycle, message, voice_state    # noqa: E402,F401
-from bagley.commands import admin, fun, listen, memory, music, reminders, voice, voice_access, youtube    # noqa: E402,F401
+from bagley.commands import admin, fun, games, listen, memory, music, reminders, voice, voice_access, youtube    # noqa: E402,F401
 from bagley.ui import views              # noqa: E402,F401
 
 

@@ -24,6 +24,7 @@ from bagley.db import conn
 from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephemeral_tools, knowledge as bagley_knowledge, learning as bagley_learning, rules as bagley_rules, trust as bagley_trust
 from bagley.features.members import _describe_member_activities, find_member_by_name, find_voice_member_across_guilds, resolve_target_member
 from bagley.features.memory import execute_remember_logic
+from bagley.features.games.launcher import try_launch_from_message
 from bagley.features.party import execute_dm_call, execute_warp_invite, gaming_warning_enabled, handle_same_game_query, parse_gaming_warning_toggle, set_gaming_warning
 from bagley.features.reminders import handle_remembered_reminder, try_finish_pending_reminder
 from bagley.phrases import FORGIVE_REPLIES, pick as _pick_speech, say
@@ -231,6 +232,22 @@ async def on_message(message):
                 except Exception:
                     pass
                 return
+
+    # ==========================================
+    # 🃏 [ด่านที่ 4.45: ชวนเล่นเกมในแชท] เช่น "แบ็คลี่ เล่นอูโน่กัน" / "แบ็คลี่ เล่น XO กับผมหน่อย @เพื่อน"
+    # ต้องเรียกชื่อแบ็คลี่ + มีชื่อเกม + มีคำชวนเล่น (ดู features/games/launcher.py) -> เปิดห้อง UNO หรือเกม XO ให้เลย
+    # ==========================================
+    if (
+        message.guild is not None
+        and not message.author.bot
+        and message.content.strip()
+        and is_message_addressed_to_bagley(message.content.lower())
+    ):
+        try:
+            if await try_launch_from_message(message, bot.user):
+                return
+        except Exception as e:
+            print(f"⚠️ [ด่านที่ 4.45] เปิดเกมไม่สำเร็จ: {e}")
 
     # ==========================================
     # 🔇 [ด่านที่ 4.5: สั่งให้แบ็คลี่ "เงียบ/หุบปาก" หยุดทักเอง]
