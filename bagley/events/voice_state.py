@@ -6,7 +6,7 @@ from datetime import datetime
 
 from bagley.core import state
 from bagley.core.app import bot
-from bagley.core.config import ALLOWED_USERS, bangkok_tz
+from bagley.core.config import bangkok_tz
 from bagley.core.logutil import print
 from bagley.data.storage import _get_saved_voice_name, _register_voice_entry, get_realtime_name, get_reminders_for_user, load_user_data, load_voice_data, parse_birthday, save_voice_data
 from bagley.phrases import VOICE_GUARD_STAY_MESSAGES, VOICE_JOIN_GREETINGS, pick as _pick_speech
@@ -38,15 +38,7 @@ async def on_voice_state_update(member, before, after):
         
         is_target_leaving = False
         if followed_leader_id:
-            if followed_leader_id == "both" and member.id in ALLOWED_USERS:
-                remaining_devs = [m for m in bot_channel.members if m.id in ALLOWED_USERS and m.id != member.id]
-                if not remaining_devs:
-                    is_target_leaving = True
-                else:
-                    state.bot_follow_targets[guild_id] = remaining_devs[0].id
-                    print(f"DEBUG: 🔄 หนึ่งในผู้พัฒนาออกจากห้อง แต่ยังเหลืออีกคน แบ็คลี่สลับไปโฟกัสคนที่เหลือคัป!")
-            
-            elif member.id == followed_leader_id:
+            if member.id == followed_leader_id:
                 is_target_leaving = True
 
         # 🚶‍♂️➡️🚪 [แก้บั๊ก] เดิมเช็คแค่ "before.channel == bot_channel and after.channel != bot_channel"

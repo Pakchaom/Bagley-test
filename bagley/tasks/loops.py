@@ -8,7 +8,7 @@ from discord.ext import tasks
 from bagley.ai import persona
 from bagley.core import state
 from bagley.core.app import bot, client
-from bagley.core.config import ALLOWED_TEACH_USERS, ALLOWED_USERS, bangkok_tz
+from bagley.core.config import ALLOWED_TEACH_USERS, ALLOWED_USERS, OWNER_DISCORD_ID, bangkok_tz
 from bagley.core.logutil import print
 from bagley.core.util import perform_cleanup
 from bagley.data.storage import get_realtime_name, load_reminders, load_user_data, load_voice_data, save_reminders, save_user_data
@@ -287,50 +287,19 @@ async def follow_creator_task():
     target_member = None
     target_channel = None
     guild_to_join = None
-    both_present = False
 
+    # 🎯 เป้าหมายอัตโนมัติมีแค่ชะอม (ALLOWED_USERS) และคนหนึ่งอยู่ได้ห้องเสียงเดียวในแต่ละเวลา
+    # ดังนั้นปกติจะมีเป้าหมายเดียว; ที่เหลือหลายตัวได้เฉพาะตอนมีคนตั้ง /follow ตามคนอื่นไว้หลายเซิร์ฟ
+    # -> เลือกคนที่ยังไม่ได้ทักทายวันนี้ (ถ้ามีคนเดียว) ไม่งั้นให้ชะอมก่อน
     if len(active_targets) == 1:
         target_member, target_channel, guild_to_join = active_targets[0]
     else:
-        if active_targets[0][2].id == active_targets[1][2].id and active_targets[0][1].id != active_targets[1][1].id:
-            guild_obj = active_targets[0][2]
-            voice_client = guild_obj.voice_client
-            split_channel_ids = {active_targets[0][1].id, active_targets[1][1].id}
-
-            # 🛡️ [แก้บั๊ก] "ไม่ลำเอียง" ควรแปลว่า "ไม่เลือกเข้าห้องใหม่ให้ใครฝ่ายใดฝ่ายหนึ่ง"
-            # ไม่ใช่ "ต้องออกจากห้องที่อยู่อยู่แล้ว" - ถ้าแบ็คลี่อยู่กับคุณชะอมหรือคุณชาช่าคนใดคนหนึ่งอยู่ก่อน
-            # ตั้งแต่ก่อนที่อีกคนจะแยกไปอีกห้อง แปลว่าแบ็คลี่ไม่ได้เพิ่งเลือกข้างตอนนี้ อยู่ต่อได้เลยครับ
-            if voice_client and voice_client.is_connected() and voice_client.channel.id in split_channel_ids:
-                print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] คุณชะอมและคุณชาช่าแยกห้องกัน แต่แบ็คลี่อยู่กับคนใดคนหนึ่งอยู่ก่อนแล้ว ไม่ใช่การเลือกข้างใหม่ เลยขออยู่ต่อครับ ไม่ออกจากห้องนะครับ")
-                return
-
-            print(f"DEBUG: [⚖️ โหมดไม่ลำเอียง] พบคุณชะอมและคุณชาช่าอยู่คนละห้องในเซิร์ฟเวอร์เดียวกัน แบ็คลี่จะไม่เลือกข้างใครครับ!")
-
-            if voice_client:
-                try:
-                    # 🛠️ [แก้บั๊ก] เดิมใช้ disconnect() แบบไม่ force ซึ่งบางครั้งดิสคอร์ดค้าง
-                    # ทำให้ guild.voice_client ยังเหลือ client ตัวเก่าที่พังอยู่ในระบบ
-                    # ผลคือรอบถัดไปที่ควรจะบินเข้าไปหาอีกคน กลับเชื่อมต่อไม่ติดเงียบๆ
-                    # เปลี่ยนเป็น force=True ให้เหมือนกับจุดอื่นๆ ที่รีคอนเน็กต์ปกติ
-                    await voice_client.disconnect(force=True)
-                    state.voice_report_status.pop(guild_obj.id, None)
-                    state.bot_follow_targets[guild_obj.id] = None
-                    print(f"DEBUG: ⚖️ ถอนกำลังออกจากห้องเดิมเรียบร้อย เพื่อความเท่าเทียมคัปพ้ม!")
-                except Exception as e:
-                    print(f"❌ เกิดข้อผิดพลาดตอนสั่งบอทถอนกำลังโหมดไม่ลำเอียง: {e}")
-                    print(traceback.format_exc())
-            return
-
-        if active_targets[0][1] == active_targets[1][1]:
-            target_member, target_channel, guild_to_join = active_targets[0]
-            both_present = True
+        un_greeted_targets = [t for t in active_targets if state.last_greeting_dates.get(t[0].id) != today]
+        if len(un_greeted_targets) == 1:
+            target_member, target_channel, guild_to_join = un_greeted_targets[0]
         else:
-            un_greeted_targets = [t for t in active_targets if state.last_greeting_dates.get(t[0].id) != today]
-            if len(un_greeted_targets) == 1:
-                target_member, target_channel, guild_to_join = un_greeted_targets[0]
-            else:
-                chaom_target = next((t for t in active_targets if t[0].id == 1133740216822267954), active_targets[0])
-                target_member, target_channel, guild_to_join = chaom_target
+            chaom_target = next((t for t in active_targets if t[0].id == OWNER_DISCORD_ID), active_targets[0])
+            target_member, target_channel, guild_to_join = chaom_target
 
     if target_channel and guild_to_join and target_member:
         voice_client = guild_to_join.voice_client
@@ -358,10 +327,7 @@ async def follow_creator_task():
                     await asyncio.sleep(0.5)
                 vc = await connect_voice(target_channel)
                 
-            if both_present:
-                state.bot_follow_targets[guild_to_join.id] = "both"
-            else:
-                state.bot_follow_targets[guild_to_join.id] = target_member.id
+            state.bot_follow_targets[guild_to_join.id] = target_member.id
                 
             print(f"🛸 [Auto Follow Success] บินตามมาถึงห้อง {target_channel.name} เรียบร้อยคัปพ้ม!")
         except Exception as e:
@@ -393,7 +359,7 @@ async def follow_creator_task():
         # ==========================================
         #  ส่วนประมวลผลลอจิกการส่งเสียงพูด
         # ==========================================
-        greeting_key = "both_together" if both_present else target_member.id
+        greeting_key = target_member.id
         guild_id = guild_to_join.id
         
         all_humans_in_room = [m for m in target_channel.members if not m.bot]
@@ -494,9 +460,6 @@ async def follow_creator_task():
         is_big_room = human_count > 4
         print(f"DEBUG: 🔍 [Follow Greeting Check] human_count={human_count}, is_big_room={is_big_room}, greeting_key={greeting_key} ")
 
-        chaom_name = get_realtime_name(1133740216822267954, "คุณชะอม")
-        other_id = next((uid for uid in ALLOWED_USERS if uid != 1133740216822267954), None)
-        chacha_name = get_realtime_name(other_id, "คุณชาช่า") if other_id else "คุณชาช่า"
 
         # 🟢 [กรณีที่ 1: ทักทายก้อนแรกแรกของวัน]
         if state.last_greeting_dates.get(greeting_key) != today:
@@ -509,10 +472,10 @@ async def follow_creator_task():
                     state.last_greeting_dates[m.id] = today
             else:
                 try:
-                    friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
+                    friends = [m for m in all_humans_in_room if m.id != target_member.id]
                     friend_names_list = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
                     friends_context = " และมีเพื่อนในห้องคือ " + " กับ ".join(friend_names_list) if friend_names_list else ""
-                    caller_context = f"คุณ {chaom_name} และคุณ {chacha_name}" if both_present else f"คุณ {get_realtime_name(target_member.id, target_member.display_name)}"
+                    caller_context = f"คุณ {get_realtime_name(target_member.id, target_member.display_name)}"
 
                     prompt = f"""
                     {persona.BRIEF}
@@ -537,8 +500,8 @@ async def follow_creator_task():
                         
                 except Exception as ai_err:
                     print(f"❌ AI ใน Loop ขัดข้อง ย้อนกลับไปใช้คำพูดดั้งเดิม: {ai_err}")
-                    creator_greet = f"{time_greeting} {chaom_name}และ{chacha_name}! แบ็คลี่ตามมาแล้วครับ" if both_present else f"{time_greeting} เพิ่งมาหรอคุณ {get_realtime_name(target_member.id, target_member.display_name)} ยินดีต้อนรับนะ"
-                    friends = [m for m in all_humans_in_room if m.id != target_member.id and (not both_present or m.id != other_id)]
+                    creator_greet = f"{time_greeting} เพิ่งมาหรอคุณ {get_realtime_name(target_member.id, target_member.display_name)} ยินดีต้อนรับนะ"
+                    friends = [m for m in all_humans_in_room if m.id != target_member.id]
                     friend_names = [f"คุณ {get_realtime_name(f.id, f.display_name)}" for f in friends]
                     other_friends_greet = f" สวัสดี {" และ ".join(friend_names)} ด้วยนะครับ" if friend_names else ""
                     
@@ -549,8 +512,6 @@ async def follow_creator_task():
                 state.reported_content_today[guild_id] = today
 
             state.last_greeting_dates[greeting_key] = today
-            if both_present:
-                for uid in ALLOWED_USERS: state.last_greeting_dates[uid] = today
             state.reported_guilds_today[guild_id] = today
 
         # 🔵 [กรณีที่ 2: บอทย้ายเซิร์ฟเวอร์ในวันเดียวกัน]

@@ -61,7 +61,7 @@ async def on_ready():
 
     if not follow_creator_task.is_running():
         follow_creator_task.start()
-    print(f"Bagley พร้อมเป็นเงาติดตามตัวคุณชะอมและคุณชาช่าแล้วครับ!")
+    print(f"Bagley พร้อมเป็นเงาติดตามตัวคุณชะอมแล้วครับ!")
 
     if not daily_announcement_task.is_running():
         daily_announcement_task.start()

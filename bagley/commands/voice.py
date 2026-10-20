@@ -11,12 +11,12 @@ from typing import Optional
 from bagley.ai import persona
 from bagley.core import state
 from bagley.core.app import bot, client
-from bagley.core.config import ALLOWED_USERS, bangkok_tz
+from bagley.core.config import ALLOWED_TEACH_USERS, ALLOWED_USERS, bangkok_tz
 from bagley.core.logutil import print
 from bagley.data.storage import get_realtime_name, load_user_data, load_voice_data
 from bagley.features import rooms as bagley_rooms
 from bagley.features.members import _format_greeting_names
-from bagley.features.party import execute_dm_call, execute_warp_invite
+from bagley.features.party import execute_dm_call, execute_warp_invite, gaming_warning_enabled, set_gaming_warning
 from bagley.features.teams import _dm_self_kick_timer
 from bagley.phrases import VOICE_REPORT_OFF_SPEECH, VOICE_REPORT_ON_SPEECH, pick as _pick_speech, say
 from bagley.ui.views import CancelVoiceView, GroupMoveView, KickVoiceView, PartyCreateView, PullRoomView, RoleSelectView, StreamModeView
@@ -421,7 +421,12 @@ async def stream_mode_panel(ctx: commands.Context):
 @bot.hybrid_command(name="follow", description="สั่งให้แบ็คลี่ตามติดสมาชิกคนนี้ไปทุกห้องเสียงในเซิร์ฟนี้")
 async def follow(ctx: commands.Context, member: discord.Member):
     """เพิ่มการตามติดแบบกำหนดเองผ่านคำสั่ง (แยกจากระบบตามผู้พัฒนาโดยอัตโนมัติ)
-    เก็บสถานะในแรมเท่านั้น -> รีเซ็ตกลับเป็นค่าว่างทุกครั้งที่บอทรีสตาร์ทโดยอัตโนมัติ"""
+    เก็บสถานะในแรมเท่านั้น -> รีเซ็ตกลับเป็นค่าว่างทุกครั้งที่บอทรีสตาร์ทโดยอัตโนมัติ
+    🔒 ผู้พัฒนาเท่านั้นที่สั่งได้ (ตัวคำสั่งตามได้ทุกคน แต่คนสั่งต้องเป็นผู้พัฒนา)"""
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send("คำสั่งนี้ใช้ได้เฉพาะผู้พัฒนาครับ 🙏", ephemeral=True)
+        return
+
     if ctx.interaction:
         await ctx.defer()
 
@@ -445,6 +450,10 @@ async def follow(ctx: commands.Context, member: discord.Member):
 
 @bot.hybrid_command(name="unfollow", description="ยกเลิกการตามติดที่ตั้งไว้ด้วยคำสั่ง /follow")
 async def unfollow(ctx: commands.Context):
+    if ctx.author.id not in ALLOWED_TEACH_USERS:
+        await ctx.send("คำสั่งนี้ใช้ได้เฉพาะผู้พัฒนาครับ 🙏", ephemeral=True)
+        return
+
     if ctx.interaction:
         await ctx.defer()
 
@@ -826,6 +835,33 @@ async def report_voice_toggle(ctx: commands.Context, status: str):
             return
 
         await bagley_speak_wait(guild, speech_text)
+
+
+@bot.hybrid_command(name="gaming_warning", description="เปิดหรือปิดระบบเตือนเมื่อมีคนเล่นเกมนาน 3/6/9 ชั่วโมง (เฉพาะเซิร์ฟนี้)")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="เปิดเตือน (On)", value="on"),
+    app_commands.Choice(name="ปิดเตือน (Off)", value="off")
+])
+async def gaming_warning(ctx: commands.Context, mode: str = None):
+    """สลับเปิด/ปิด check_and_warn_gamers ของเซิร์ฟเวอร์นี้ — จำสถานะไว้ในไฟล์ รีสตาร์ทแล้วยังอยู่
+    ไม่ระบุ mode = สลับสถานะ (toggle)"""
+    if ctx.guild is None:
+        return await ctx.send("ใช้ได้ในเซิร์ฟเวอร์เท่านั้นครับ")
+
+    currently_enabled = gaming_warning_enabled(ctx.guild.id)
+    m = (mode or "").lower().strip()
+    if m in ("on", "เปิด", "start"):
+        should_enable = True
+    elif m in ("off", "ปิด", "stop"):
+        should_enable = False
+    else:
+        should_enable = not currently_enabled
+
+    set_gaming_warning(ctx.guild.id, should_enable)
+    if should_enable:
+        await ctx.send("🎮 **เปิดระบบเตือนเล่นเกมนาน (3/6/9 ชม.) แล้วครับ**")
+    else:
+        await ctx.send("🔇 **ปิดระบบเตือนเล่นเกมนานเรียบร้อยครับ** (เปิดคืนด้วย `/gaming_warning on`)")
 
 
 @bot.hybrid_command(name="unfollow_me", description="สั่งให้ Bagley เลิกเดินตามตัวเราเอง")

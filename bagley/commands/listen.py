@@ -3,7 +3,7 @@
 ลำดับ: รับเสียง -> ถอดรหัส DAVE -> ตัดประโยคต่อคน -> Google STT -> จับชื่อเรียก/คำสั่งที่ "คนนั้น" สอนไว้
   - พูดแต่ชื่อเฉยๆ (เช่น "แบ็คลี่") -> แบ็คลี่ขานรับ "ครับ/ค้าบ/ครับผม" (สุ่ม) -> พูดคำสั่งต่อภายใน 8 วินาที
   - พูดชื่อแล้วตามด้วยคำสั่งในประโยคเดียว (เช่น "แบ็คลี่ ปิดรายงานห้องเสียง") -> ไม่ขานรับ ทำตามคำสั่งทันที (เหมือน Siri)
-  - ค่าเริ่มต้น "เปิดฟังตลอด" ทุกเซิร์ฟ (ทันทีที่แบ็คลี่อยู่ในห้องเสียง) จนกว่าจะสั่ง /listen off (จำแยกเซิร์ฟ รีสตาร์ทแล้วยังอยู่)
+  - ค่าเริ่มต้น "เปิดฟังตลอด" ทุกเซิร์ฟ (ทันทีที่แบ็คลี่อยู่ในห้องเสียง) จนกว่าจะสั่ง /listen off (ปิดแยกเซิร์ฟ แต่รีสตาร์ทบอทแล้วกลับมาเปิดฟังเหมือนเดิม)
   - คำที่สอนไว้ตรง -> สั่งคำสั่งนั้นทันที (รองรับ "ชื่อต่อท้าย" เช่น /kick ชื่อ, /play ชื่อเพลง)
   - ไม่ตรงคำที่สอน -> ส่งเข้าสมอง/ระบบคำสั่งเดิมของบอทเหมือนพิมพ์ในแชท (เปิดเพลง ฯลฯ ใช้ได้ทันที)
 
@@ -70,10 +70,14 @@ def _is_filler_only(rems: list) -> bool:
 _sessions: dict[int, "_Session"] = {}
 _starting: set[int] = set()          # กิลด์ที่กำลังเริ่มเซสชันอยู่ (กัน auto-start ชนกับ /listen on)
 
-# ── ตั้งค่าการฟังแยกตามเซิร์ฟ (เก็บไฟล์ ไม่หายตอนรีสตาร์ท) ───────────────────────────────
-# รูปแบบ: {"<guild_id>": {"enabled": true/false, "text_channel": <id>}}  ถ้าไม่มี = เปิด (ค่าเริ่มต้น)
+# ── ตั้งค่าการฟังแยกตามเซิร์ฟ ───────────────────────────────────────────────────────────
+# • ห้องแชทที่ใช้ตอบ (text_channel) เก็บไฟล์ ไม่หายตอนรีสตาร์ท
+#   รูปแบบ: {"<guild_id>": {"text_channel": <id>}}
+# • สถานะ "ปิดฟัง" (/listen off) เก็บในแรมเท่านั้น (_listen_off) -> บอทรีสตาร์ทเมื่อไหร่ ทุกเซิร์ฟกลับมา
+#   "เปิดฟัง" ตามค่าเริ่มต้นเสมอ แม้ก่อนรีสตาร์ทจะสั่งปิดไว้ก็ตาม
 LISTEN_SETTINGS_FILE = "listen_settings.json"
 _listen_cfg: dict[str, dict] | None = None
+_listen_off: set[int] = set()        # กิลด์ที่ถูกสั่ง /listen off ในรอบการรันนี้ (หายเมื่อรีสตาร์ท)
 
 
 def _cfg() -> dict:
@@ -86,6 +90,8 @@ def _cfg() -> dict:
                 raw = json.load(f)
             if isinstance(raw, dict):
                 _listen_cfg = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+                for _d in _listen_cfg.values():
+                    _d.pop("enabled", None)     # ไฟล์รุ่นเก่าเคยเก็บสถานะเปิด/ปิดไว้ -> ทิ้ง เพื่อให้รีสตาร์ทแล้วกลับมาเปิดเสมอ
         except FileNotFoundError:
             pass
         except Exception as e:
@@ -101,17 +107,19 @@ def _save_cfg() -> None:
 
 
 def listen_enabled(guild_id: int) -> bool:
-    """เซิร์ฟนี้เปิดฟังอยู่ไหม — ค่าเริ่มต้นคือเปิด จนกว่าจะมีคนสั่ง /listen off"""
-    return bool(_cfg().get(str(guild_id), {}).get("enabled", True))
+    """เซิร์ฟนี้เปิดฟังอยู่ไหม — ค่าเริ่มต้นคือเปิด จนกว่าจะมีคนสั่ง /listen off (และกลับมาเปิดเองเมื่อรีสตาร์ท)"""
+    return guild_id not in _listen_off
 
 
 def _set_listen(guild_id: int, enabled: bool | None = None, text_channel_id: int | None = None) -> None:
-    d = _cfg().setdefault(str(guild_id), {})
     if enabled is not None:
-        d["enabled"] = bool(enabled)
+        if enabled:
+            _listen_off.discard(guild_id)
+        else:
+            _listen_off.add(guild_id)
     if text_channel_id is not None:
-        d["text_channel"] = int(text_channel_id)
-    _save_cfg()
+        _cfg().setdefault(str(guild_id), {})["text_channel"] = int(text_channel_id)
+        _save_cfg()
 
 
 def _pick_text_channel(guild: discord.Guild):
@@ -674,7 +682,7 @@ def _status_text(guild: discord.Guild) -> str:
     s = _sessions.get(guild.id)
     lines = [
         "📋 **สถานะระบบฟังเสียง (ทดสอบ)**",
-        f"• การฟังของเซิร์ฟนี้: {'🟢 เปิด (ค่าเริ่มต้น เปิดตลอดจนกว่าจะสั่ง /listen off)' if listen_enabled(guild.id) else '🔴 ปิด (สั่ง /listen on เพื่อเปิด)'}",
+        f"• การฟังของเซิร์ฟนี้: {'🟢 เปิด (ค่าเริ่มต้น เปิดตลอดจนกว่าจะสั่ง /listen off)' if listen_enabled(guild.id) else '🔴 ปิด (สั่ง /listen on เพื่อเปิด — รีสตาร์ทบอทแล้วจะกลับมาเปิดเอง)'}",
         f"• discord.py {_ver('discord.py')} | voice-recv {_ver('discord-ext-voice-recv')} | "
         f"davey {_ver('davey')} | SpeechRecognition {_ver('SpeechRecognition')}",
     ]
@@ -752,8 +760,8 @@ async def listen(ctx: commands.Context, mode: str = "status"):
     elif mode in ("off", "ปิด", "stop"):
         _set_listen(ctx.guild.id, enabled=False, text_channel_id=ctx.channel.id)
         was = _stop_session(ctx.guild.id)
-        await ctx.send("🙉 ปิดการฟังของเซิร์ฟนี้แล้วครับ (เซิร์ฟอื่นไม่กระทบ) — อยากให้ฟังอีกสั่ง `/listen on`" if was
-                       else "🙉 ปิดการฟังของเซิร์ฟนี้ไว้ให้แล้วครับ — อยากให้ฟังอีกสั่ง `/listen on`")
+        await ctx.send("🙉 ปิดการฟังของเซิร์ฟนี้แล้วครับ (เซิร์ฟอื่นไม่กระทบ ถ้ารีสตาร์ทบอทจะกลับมาฟังเหมือนเดิม) — อยากให้ฟังอีกสั่ง `/listen on`" if was
+                       else "🙉 ปิดการฟังของเซิร์ฟนี้ไว้ให้แล้วครับ (ถ้ารีสตาร์ทบอทจะกลับมาฟังเหมือนเดิม) — อยากให้ฟังอีกสั่ง `/listen on`")
     elif mode == "debug":
         s = _sessions.get(ctx.guild.id)
         if not s:

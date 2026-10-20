@@ -24,7 +24,7 @@ from bagley.db import conn
 from bagley.features import autonomy as bagley_autonomy, ephemeral_tools as ephemeral_tools, knowledge as bagley_knowledge, learning as bagley_learning, rules as bagley_rules, trust as bagley_trust
 from bagley.features.members import _describe_member_activities, find_member_by_name, find_voice_member_across_guilds, resolve_target_member
 from bagley.features.memory import execute_remember_logic
-from bagley.features.party import execute_dm_call, execute_warp_invite, handle_same_game_query
+from bagley.features.party import execute_dm_call, execute_warp_invite, gaming_warning_enabled, handle_same_game_query, parse_gaming_warning_toggle, set_gaming_warning
 from bagley.features.reminders import handle_remembered_reminder, try_finish_pending_reminder
 from bagley.phrases import FORGIVE_REPLIES, pick as _pick_speech, say
 from bagley.services.images import _get_cached_image_caption, _remember_image_caption, generate_and_send_image, get_quick_image_caption
@@ -42,8 +42,7 @@ async def on_message(message):
         # ✅ นี่คือคำสั่งเสียงจาก mic_to_discord.py ที่มาผ่าน Local Voice Relay
         # ในเครื่องเท่านั้น (ไม่ใช่ Discord Webhook จริง) ยืนยันว่าใช้ได้
         # 🔧 message.author ถูกกำหนดถูกต้องแล้วตั้งแต่ตอนสร้าง VoiceRelayMessage
-        # (เป็นสมาชิกจริงตาม owner_id ที่ mic_to_discord.py ส่งมา เช่น ชะอม
-        # หรือ ชาช่า) ไม่ต้องสวมรอยทับด้วย ID คงที่อีกแล้ว
+        # (เป็นสมาชิกจริงตาม owner_id ที่ mic_to_discord.py ส่งมา คือชะอม) ไม่ต้องสวมรอยทับด้วย ID คงที่อีกแล้ว
         is_from_my_webhook = True
         original_lower = message.content.strip().lower()
 
@@ -77,7 +76,9 @@ async def on_message(message):
             "มีคลิปใหม่ไหม", "มีสตรีมใหม่ไหม",
             # 🆕 ระบบหยุด/เปิดแม่สื่อชวนตี้ (check_and_invite_party) + ถามหาคนเล่นเกมเดียวกัน
             "หยุดหาคน", "เลิกหาคน", "หาคนต่อ", "เปิดหาคน", "กลับมาหาคน",
-            "เล่นเกมเดียวกัน", "เกมเดียวกันบ้าง"
+            "เล่นเกมเดียวกัน", "เกมเดียวกันบ้าง",
+            # 🆕 เปิด/ปิดระบบเตือนเล่นเกมนาน (3/6/9 ชม.)
+            "เตือนเล่นเกม", "เตือนเกมนาน", "เตือนเล่นนาน", "แจ้งเตือนเล่นเกม", "แจ้งเตือนเกมนาน"
         ]
         
         # 1.1 เช็กว่าเป็นคำสั่งระบบไหม
@@ -101,7 +102,7 @@ async def on_message(message):
     # ========================================================
     # 🛑 [ด่านที่ 2]: ดักจับบอทตัวอื่น (ยกเว้นเว็บบุคของเรา)
     # ========================================================
-    allowed_ids = [1133740216822267954] # <- ใส่ ID ของคุณชะอม และ ID ของตัวแอปเสียงลงไปในนี้
+    allowed_ids = [OWNER_DISCORD_ID] # <- ID ของคุณชะอม (ผู้พัฒนา) มาจาก core/config.py
     
     is_allowed_voice_app = message.author.id in allowed_ids or message.author.name == "ชะอม"
 
@@ -202,6 +203,34 @@ async def on_message(message):
                     return
             except Exception as e:
                 print(f"⚠️ [ด่านที่ 4] ระบบตรวจคำหยาบทำงานผิดพลาด: {e}")
+
+    # ==========================================
+    # 🎮⏰ [ด่านที่ 4.4: เปิด/ปิด "เตือนเล่นเกมนาน" (3/6/9 ชม.)]
+    # พิมพ์/พูดเช่น "แบ็คลี่ ปิดเตือนเล่นเกมนาน" / "แบ็คลี่ เปิดเตือนเล่นเกมนาน"
+    # มีผลเฉพาะเซิร์ฟเวอร์นี้ และจำสถานะไว้ในไฟล์ (รีสตาร์ทแล้วยังอยู่) — ตรงกับคำสั่ง /gaming_warning
+    # วางไว้ก่อนด่านอื่นเพื่อไม่ให้คำอย่าง "หยุด/ปิด" ถูกด่านอื่นตีความไปเป็นเรื่องอื่น
+    # ==========================================
+    if (
+        message.guild is not None
+        and not message.author.bot
+        and message.content.strip()
+    ):
+        _gw_lower_check = message.content.lower()
+        if is_message_addressed_to_bagley(_gw_lower_check):
+            _gw_toggle = parse_gaming_warning_toggle(_gw_lower_check)
+            if _gw_toggle is not None:
+                set_gaming_warning(message.guild.id, _gw_toggle)
+                try:
+                    if _gw_toggle:
+                        await message.reply("โอเคครับ 🎮 เปิดระบบเตือนเล่นเกมนาน (3/6/9 ชม.) ให้เหมือนเดิมแล้วนะครับ")
+                    else:
+                        await message.reply(
+                            "รับทราบครับ 🔇 ผมจะไม่เตือนเรื่องเล่นเกมนานในเซิร์ฟนี้แล้วนะครับ "
+                            "อยากให้เตือนอีกสั่ง “แบ็คลี่ เปิดเตือนเล่นเกมนาน” หรือ /gaming_warning on ได้เลยครับ"
+                        )
+                except Exception:
+                    pass
+                return
 
     # ==========================================
     # 🔇 [ด่านที่ 4.5: สั่งให้แบ็คลี่ "เงียบ/หุบปาก" หยุดทักเอง]
@@ -725,7 +754,7 @@ async def on_message(message):
         
         if message.guild is None or is_bot_called:
             try:
-                MY_MASTER_ID = 1133740216822267954
+                MY_MASTER_ID = OWNER_DISCORD_ID
                 user_data = load_user_data()
 
                 if not user_data:

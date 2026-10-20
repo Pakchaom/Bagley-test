@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bagley.core.app import bot
-from bagley.core.config import ALLOWED_TEACH_USERS
+from bagley.core.config import ALLOWED_TEACH_USERS, OWNER_DISCORD_ID
 from bagley.core.logutil import print
 from bagley.data.storage import get_realtime_name, load_user_data, save_user_data
 from bagley.db import conn
@@ -279,7 +279,7 @@ async def forget(ctx: commands.Context, target: discord.User = None):
 ])
 async def member_list(ctx: commands.Context, scope: str = "current"):
     try:
-        MY_MASTER_ID = 1133740216822267954
+        MY_MASTER_ID = OWNER_DISCORD_ID
         user_data = load_user_data()
 
         if not user_data:
