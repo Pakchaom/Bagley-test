@@ -1,8 +1,6 @@
 """bagley/features/party.py — ระบบชวนตี้ / เตือนคนเล่นเกมเดียวกัน / วาร์ปเชิญ / DM เรียก"""
 import asyncio
 import discord
-import json
-import os
 import random
 import re
 from datetime import datetime, timezone
@@ -10,7 +8,7 @@ from datetime import datetime, timezone
 from bagley.core import state
 from bagley.core.app import bot
 from bagley.core.logutil import print
-from bagley.data.storage import _atomic_write_json, get_realtime_name
+from bagley.data.storage import get_realtime_name
 from bagley.ui.views import PartyInviteView
 from bagley.voice.alerts import check_shared_voice_quota
 from bagley.voice.client import connect_voice
@@ -20,42 +18,21 @@ from bagley.voice.tts import bagley_speak, bagley_speak_wait
 # ============================================================
 # 🎮⏰ สวิตช์เปิด/ปิด "เตือนเล่นเกมนาน" (3 / 6 / 9 ชั่วโมง) แยกตามเซิร์ฟเวอร์
 # ค่าเริ่มต้น = เปิด  | ปิดด้วย /gaming_warning off หรือพิมพ์/พูด "แบ็คลี่ ปิดเตือนเล่นเกมนาน"
-# เก็บลงไฟล์ (gaming_warning_settings.json) -> รีสตาร์ทบอทแล้วยังคงสถานะที่ตั้งไว้
+# เก็บในแรมเท่านั้น -> รีสตาร์ทบอทเมื่อไหร่ ทุกเซิร์ฟกลับมา "เปิดเตือน" ตามค่าเริ่มต้นเสมอ
 # ============================================================
-GAMING_WARNING_FILE = "gaming_warning_settings.json"
-_gaming_warning_off: set[int] | None = None
-
-
-def _load_gaming_warning_off() -> set[int]:
-    global _gaming_warning_off
-    if _gaming_warning_off is None:
-        _gaming_warning_off = set()
-        try:
-            with open(GAMING_WARNING_FILE, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            _gaming_warning_off = {int(x) for x in (raw.get("disabled_guilds") or [])}
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            print(f"⚠️ [Gaming Warning] อ่าน {GAMING_WARNING_FILE} ไม่ได้ ({type(e).__name__}: {e}) -> ใช้ค่าเริ่มต้น (เปิดเตือน)")
-    return _gaming_warning_off
+_gaming_warning_off: set[int] = set()     # กิลด์ที่ถูกสั่งปิดในรอบการรันนี้ (หายเมื่อรีสตาร์ท)
 
 
 def gaming_warning_enabled(guild_id: int) -> bool:
     """เซิร์ฟนี้เปิดเตือนเล่นเกมนานอยู่ไหม (ค่าเริ่มต้น = เปิด)"""
-    return guild_id not in _load_gaming_warning_off()
+    return guild_id not in _gaming_warning_off
 
 
 def set_gaming_warning(guild_id: int, enabled: bool) -> None:
-    off = _load_gaming_warning_off()
     if enabled:
-        off.discard(guild_id)
+        _gaming_warning_off.discard(guild_id)
     else:
-        off.add(guild_id)
-    try:
-        _atomic_write_json(GAMING_WARNING_FILE, {"disabled_guilds": sorted(off)}, indent=2)
-    except Exception as e:
-        print(f"⚠️ [Gaming Warning] บันทึก {GAMING_WARNING_FILE} ไม่สำเร็จ: {type(e).__name__}: {e}")
+        _gaming_warning_off.add(guild_id)
 
 
 _GW_TARGETS = ("เตือนเล่นเกมนาน", "เตือนเล่นเกม", "เตือนเกมนาน", "เตือนเล่นนาน", "เตือนสติเล่นเกม",

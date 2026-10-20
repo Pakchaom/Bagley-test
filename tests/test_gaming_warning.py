@@ -33,15 +33,13 @@ for t in ("แบ็คลี่ เปิดเตือนเล่นเก�
 for t in ("แบ็คลี่ เล่นเกมอะไรอยู่", "ปิดเพลง", "แบ็คลี่ หยุดหาคน", "เตือนฉันตอนบ่ายสอง"):
     check(f"ไม่เกี่ยว <- {t}", party.parse_gaming_warning_toggle(t) is None)
 
-# --- สวิตช์ต่อเซิร์ฟ + จำข้ามรีสตาร์ท ---
+# --- สวิตช์ต่อเซิร์ฟ + รีสตาร์ทแล้วกลับมาเปิด ---
 check("ค่าเริ่มต้นเปิด", party.gaming_warning_enabled(1) and party.gaming_warning_enabled(2))
 party.set_gaming_warning(1, False)
 check("ปิดเซิร์ฟ 1 แล้วเซิร์ฟ 2 ไม่กระทบ", not party.gaming_warning_enabled(1) and party.gaming_warning_enabled(2))
-party._gaming_warning_off = None      # จำลองรีสตาร์ท (โหลดจากไฟล์ใหม่)
-check("รีสตาร์ทแล้วสถานะปิดยังอยู่", not party.gaming_warning_enabled(1))
-party.set_gaming_warning(1, True)
-party._gaming_warning_off = None
-check("เปิดคืนแล้วจำได้", party.gaming_warning_enabled(1))
+check("ไม่มีการเขียนไฟล์สถานะ", not os.path.exists("gaming_warning_settings.json"))
+party._gaming_warning_off.clear()      # จำลองรีสตาร์ท (แรมหาย)
+check("รีสตาร์ทแล้วกลับมาเปิดเตือนเหมือนเดิม", party.gaming_warning_enabled(1))
 
 # --- /listen off ไม่ติดข้ามรีสตาร์ท ---
 import json  # noqa: E402

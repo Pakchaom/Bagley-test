@@ -843,7 +843,7 @@ async def report_voice_toggle(ctx: commands.Context, status: str):
     app_commands.Choice(name="ปิดเตือน (Off)", value="off")
 ])
 async def gaming_warning(ctx: commands.Context, mode: str = None):
-    """สลับเปิด/ปิด check_and_warn_gamers ของเซิร์ฟเวอร์นี้ — จำสถานะไว้ในไฟล์ รีสตาร์ทแล้วยังอยู่
+    """สลับเปิด/ปิด check_and_warn_gamers ของเซิร์ฟเวอร์นี้ — เก็บในแรม รีสตาร์ทบอทแล้วกลับมาเปิดเตือนเหมือนเดิม
     ไม่ระบุ mode = สลับสถานะ (toggle)"""
     if ctx.guild is None:
         return await ctx.send("ใช้ได้ในเซิร์ฟเวอร์เท่านั้นครับ")
@@ -861,7 +861,7 @@ async def gaming_warning(ctx: commands.Context, mode: str = None):
     if should_enable:
         await ctx.send("🎮 **เปิดระบบเตือนเล่นเกมนาน (3/6/9 ชม.) แล้วครับ**")
     else:
-        await ctx.send("🔇 **ปิดระบบเตือนเล่นเกมนานเรียบร้อยครับ** (เปิดคืนด้วย `/gaming_warning on`)")
+        await ctx.send("🔇 **ปิดระบบเตือนเล่นเกมนานเรียบร้อยครับ** (เปิดคืนด้วย `/gaming_warning on` หรือรีสตาร์ทบอทก็กลับมาเปิดเอง)")
 
 
 @bot.hybrid_command(name="unfollow_me", description="สั่งให้ Bagley เลิกเดินตามตัวเราเอง")
