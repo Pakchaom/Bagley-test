@@ -685,7 +685,7 @@ async def on_message(message):
                             กฎ: ห้ามหยาบคาย ห้ามพิมพ์หัวข้อหรือวงเล็บ เอาเฉพาะบทพูดเท่านั้น ลงท้ายด้วย "ครับ"
                             """
                             away_ai_resp = await client.aio.models.generate_content(
-                                model="chat", contents=away_reply_prompt
+                                model="talk", contents=away_reply_prompt
                             )
                             selected_joke = (away_ai_resp.text or "").strip()
                             if not selected_joke:
@@ -1311,7 +1311,7 @@ async def on_message(message):
 โจทย์: จงนำเนื้อหาข้อความดิบนี้: '{matched_response}' มาเรียบเรียงใหม่ให้เป็นคำพูดสไตล์กวนโอ๊ยอย่างมีระดับตามแบบฉบับของคุณครับ!
 """
                 response = await client.aio.models.generate_content(
-                    model="chat",
+                    model="talk",
                     contents=bagley_prompt
                 )
                 bagley_styled_text = (response.text or "").strip()
@@ -1442,7 +1442,7 @@ async def on_message(message):
                     extra=_extra,
                 )
                 _t0 = _time.time()
-                response = await client.ask(free_chat_prompt, tier="chat", temperature=0.9, effort="low", max_tokens=900)
+                response = await client.ask(free_chat_prompt, tier="talk", temperature=0.9, effort="low", max_tokens=900)
                 bagley_styled_text = (response.text or "").strip()
                 # ⏱️ หน่วงจังหวะให้เหมือนคนพิมพ์ (ถ้าโมเดลตอบเร็วเกินไป) อยู่ใน typing indicator เดิม
                 await humanize.pace(_t0, bagley_styled_text)

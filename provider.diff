@@ -1,0 +1,83 @@
+--- /dev/fd/63	2026-10-26 07:59:05.268156147 +0000
++++ /dev/fd/62	2026-10-26 07:59:05.268156147 +0000
+@@ -15,6 +15,8 @@
+ ระดับโมเดล (tier):
+   fast    งานจัดหมวด/ตรวจคำหยาบ/แกะ JSON — ต้องไว ใช้โมเดลเล็ก
+   chat    คุยจริง/เล่าเรื่อง/เขียนข้อความแจ้งเตือน — ใช้โมเดลใหญ่
++  talk    คุยเล่นตอบโต้สด (แชท/คำสั่งเสียง) — ต้องไวและฉลาด ตั้ง AI_ORDER_TALK / <เจ้า>_MODEL_TALK ได้
++          (ไม่ตั้ง = ใช้โมเดลเดียวกับ chat)
+   vision  อ่านรูปภาพ
+ 
+ คุณสมบัติ: keep-alive session เดียว, จำกัด RPM/TPM/RPD ต่อเจ้า, ตกไปเจ้าถัดไปทันทีเมื่อ
+@@ -35,7 +37,7 @@
+ from dataclasses import dataclass, field
+ from typing import Any, Optional
+ 
+-TIERS = ("fast", "chat", "vision")
++TIERS = ("fast", "chat", "talk", "vision")
+ 
+ 
+ # ----------------------------------------------------------------------------
+@@ -83,7 +85,7 @@
+ def _builtin_specs() -> dict:
+     g = lambda k, d: os.getenv(k, d)  # noqa: E731
+     gem = g("GEMINI_MODEL", "gemini-3.1-flash-lite")
+-    return {
++    specs = {
+         # Gemini ผ่าน endpoint แบบ OpenAI-compatible ของ Google (ใช้ key เดิมใน .env ได้เลย)
+         "gemini": ProviderSpec(
+             "gemini", "https://generativelanguage.googleapis.com/v1beta/openai", ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+@@ -133,12 +135,18 @@
+              "vision": os.getenv("AI_MODEL_VISION") or None},
+             rpm=_env_int("AI_RPM", 30)),
+     }
++    # tier "talk": ใช้ <เจ้า>_MODEL_TALK ถ้ามี ไม่งั้นใช้โมเดลเดียวกับ chat (custom ใช้ AI_MODEL_TALK)
++    for _n, _s in specs.items():
++        _env = "AI_MODEL_TALK" if _n == "custom" else f"{_n.upper()}_MODEL_TALK"
++        _s.models["talk"] = os.getenv(_env) or _s.models.get("chat")
++    return specs
+ 
+ 
+ # ลำดับความสำคัญเริ่มต้นของแต่ละ tier (ตัวที่ไม่มี key จะถูกข้ามเอง)
+ _DEFAULT_ORDER = {
+     "fast":   "custom,gemini,groq,cerebras,openrouter,github,openai",
+     "chat":   "custom,gemini,cerebras,groq,github,openrouter,openai",
++    "talk":   "custom,groq,gemini,cerebras,github,openrouter,openai",
+     "vision": "custom,gemini,github,openai,openrouter,groq,cerebras",
+ }
+ 
+@@ -383,6 +391,10 @@
+         if temperature is not None:
+             p["temperature"] = temperature
+         if max_tokens:
++            # โมเดลสาย gpt-oss นับโทเคน "ที่คิด" รวมใน max_tokens ด้วย — ถ้าตั้งต่ำ (เช่น 40 ของงานจัดหมวด)
++            # มันจะใช้หมดไปกับการคิดแล้วตอบว่าง จึงเผื่อที่คิดให้ (ปรับได้ด้วย AI_REASONING_HEADROOM)
++            if spec.reasoning == "effort":
++                max_tokens += _env_int("AI_REASONING_HEADROOM", 384)
+             key = "max_completion_tokens" if (spec.name, "max_tokens") in self._bad_params else "max_tokens"
+             p[key] = max_tokens
+         if tools:
+@@ -417,6 +429,14 @@
+                 calls.append(ToolCall(fn["name"], args if isinstance(args, dict) else {}))
+         # กันโมเดลเผลอพ่นแท็กความคิดออกมา
+         text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
++        # โทเคนหมดไปกับการคิดจนไม่มีคำตอบ/ไม่มีคำสั่ง -> ถือว่าเจ้านี้ล้มเหลว ให้ตกไปเจ้าถัดไป (ไม่ cooldown นาน)
++        if not text and not calls:
++            try:
++                finish = (data["choices"][0].get("finish_reason") or "").lower()
++            except Exception:
++                finish = ""
++            if finish == "length":
++                raise _Retryable("ตอบว่าง: โทเคนหมดไปกับการคิด (finish_reason=length)", cooldown=2.0)
+         return AIResponse(text, calls, spec.name, spec.models[tier], time.time() - t0)
+ 
+     # ---------- เรียกหลัก ----------
+@@ -437,7 +457,7 @@
+             tier = "chat"
+         if effort is None:
+             effort = "low"
+-        if temperature is None and tier == "chat":
++        if temperature is None and tier in ("chat", "talk"):
+             temperature = 0.85  # คุยเล่น/แต่งประโยค: ให้หลากหลายขึ้น ไม่ซ้ำเดิม
+         if timeout is None:
+             timeout = 12.0 if tier == "fast" else 30.0

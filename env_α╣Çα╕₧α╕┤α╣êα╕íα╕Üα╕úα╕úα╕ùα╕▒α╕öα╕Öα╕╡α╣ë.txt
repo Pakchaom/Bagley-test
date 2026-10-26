@@ -1,0 +1,6 @@
+# แก้/เพิ่มใน .env (คีย์เดิมไม่ต้องแตะ)
+AI_ORDER_FAST=groq,gemini
+AI_ORDER_CHAT=gemini,groq
+AI_ORDER_TALK=groq,gemini
+GROQ_MODEL_TALK=openai/gpt-oss-120b
+AI_DEBUG=1
